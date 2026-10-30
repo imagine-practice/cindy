@@ -49,7 +49,7 @@ import { buildVisionBridgeProxyTransform } from '../vision-bridge/vision-bridge-
 
 import { CLAUDE_PROVIDER_AUTH_PLACEHOLDER_KEY, anthropicCatalogModelIds, isAnthropicWireModel } from './claude-gateway-config.js';
 import { getActiveCatalog } from './active-catalog.js';
-import { providerModelRecord, modelWithInterface } from '@cindy/model-providers';
+import { findCatalogModel, providerModelRecord, modelWithInterface } from '@cindy/model-providers';
 import { outboundFetch } from './outbound-fetch.js';
 import { invocationModelRecord, requiresNativeProviderAuth } from './pi-provider-transport.js';
 import { createClaudeProviderBridge } from './claude-provider-bridge.js';
@@ -155,7 +155,7 @@ let _readGatewayKey: () => string | null = () => null;
 function attachClaudeProviderBridge(route: RoutingDecision, providerId: string, wireModel: string, sessionId?: string): RoutingDecision {
   if (route.localHandler) return route;
   const provider = getActiveCatalog().providers.find(p => p.id === providerId);
-  const catalogModel = provider?.models['claude-code']?.find(m => m.id === wireModel);
+  const catalogModel = findCatalogModel(provider, wireModel, 'claude-code');
   const routing = provider ? (sessionId ? sessionProviderRoutingForModel(sessionId, provider, 'claude-code', wireModel) : providerRoutingForModel(provider, 'claude-code', wireModel)) : null;
   const model = catalogModel && modelWithInterface(catalogModel, routing?.modelInterface);
   // Adapter identity belongs to the declared route. An OAuth account can select
@@ -183,8 +183,9 @@ function attachClaudeProviderBridge(route: RoutingDecision, providerId: string, 
       },
       fetchImpl: outboundFetch,
     });
+    const upstreamModel = routing.modelInterface?.wireModelId ?? (catalogModel?.id !== wireModel ? model.id : undefined);
     return { ...route, localHandler: args => handler.handle({ ...args,
-      ...(routing.modelInterface && isPlainObject(args.parsedBody) ? { parsedBody: { ...args.parsedBody, model: routing.modelInterface.wireModelId } } : {}),
+      ...(upstreamModel && isPlainObject(args.parsedBody) ? { parsedBody: { ...args.parsedBody, model: upstreamModel } } : {}),
       prefs: { reasoningEffort: (sessionId ? getSessionEffort(sessionId) : null) ?? model.defaultEffort ?? undefined,
         fast: sessionId ? getSessionFastMode(sessionId) : false },
     }) };

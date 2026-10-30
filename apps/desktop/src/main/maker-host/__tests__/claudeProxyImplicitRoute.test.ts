@@ -65,7 +65,7 @@ import {
 } from '../provider-route';
 import { getActiveCatalog, setCustomProviders } from '../active-catalog';
 import * as providerRoute from '../provider-route';
-import { buildRegistry, buildUserProvider, providerPresetOAuth, PROVIDER_MODEL_CATALOG } from '@cindy/model-providers';
+import { BUNDLED_CATALOG, buildRegistry, buildUserProvider, providerPresetOAuth, PROVIDER_MODEL_CATALOG } from '@cindy/model-providers';
 import { clearSessionProvider, setSessionProvider } from '../session-provider-store';
 import {
   readClaudeSessionRoute,
@@ -129,6 +129,45 @@ describe('cc routingTransform — ①.5 隐式来源路由 (智谱 glm-5.3 裸 i
     setSessionProvider('sess-race', 'zhipu-plan');
     const decision = transform({ model: 'model' }, ctxWith({ 'x-claude-code-session-id': 'sdk-race' }));
     return Promise.resolve(decision).then(route => expect(route?.localHandler).toBeTypeOf('function'));
+  });
+
+  // #5663: the SDK adds [1m] to this catalog model. The production routing transform
+  // must retain its Chat endpoint and send the bare upstream ID, rather than Messages.
+  // Existing translation fixtures use exact IDs only; minimum input is one saved
+  // Command Code model plus its SDK suffix. Unit tier uses in-memory protocol IO.
+  // 单文件实测 20.00 秒，其中既有主进程依赖收集 19.01 秒，24 条用例执行 657ms；
+  // 复用现有文件避免再引入一份相同的冷启动成本，没有逐用例重载模块或真实等待。
+  it.each([false, true])('forwards a Command Code 1M model with an explicit suffix entry=%s', async explicitSuffix => {
+    const preset = BUNDLED_CATALOG.presets!.find(p => p.id === 'command-code')!;
+    const runtime = preset.runtimes['claude-code']!;
+    const model = runtime.models.find(m => m.id === 'deepseek/deepseek-v4-pro')!;
+    const selectedModel = explicitSuffix
+      ? { ...model, id: `${model.id}[1m]`, route: { ...model.route!, baseUrl: 'https://api.commandcode.ai/variant/v1' } }
+      : model;
+    setCustomProviders([buildUserProvider({ id: 'zhipu-plan', name: preset.name, runtimes: {
+      'claude-code': { ...runtime, catalogPresetId: preset.id,
+        models: [{ ...model, defaultEnabled: true }, ...(explicitSuffix ? [{ ...selectedModel, defaultEnabled: true }] : [])] },
+    } }, { presets: BUNDLED_CATALOG.presets, modelRegistry: BUNDLED_CATALOG.modelRegistry })]);
+    setClaudeProxySessionIdResolver(() => 'sess-race');
+    setSessionProvider('sess-race', 'zhipu-plan');
+    const body = { model: `${model.id}[1m]`, stream: true, max_tokens: 32,
+      messages: [{ role: 'user', content: 'hello' }] };
+    const ctx = ctxWith({ 'x-claude-code-session-id': 'sdk-race' });
+    const route = await transform(body, ctx);
+    expect(route?.localHandler).toBeTypeOf('function');
+    let sent: Request | undefined;
+    outbound.mockImplementation(async (url, init) => {
+      sent = new Request(url, init);
+      return new Response('data: {"id":"reply","choices":[{"index":0,"delta":{"content":"Hello"}}]}\n\ndata: [DONE]\n\n',
+        { headers: { 'content-type': 'text/event-stream' } });
+    });
+    const chunks: string[] = [];
+    const res = { on: vi.fn(), writeHead: vi.fn(), write: (chunk: unknown) => chunks.push(String(chunk)), end: vi.fn() };
+    await route!.localHandler!({ parsedBody: body, rawBody: Buffer.from(JSON.stringify(body)), ctx, res: res as never });
+    expect(chunks.join('')).toContain('Hello');
+    expect(sent!.url).toBe(`${selectedModel.route!.baseUrl}/chat/completions`);
+    expect((await sent!.json()).model).toBe(model.id);
+    expect(sent!.headers.get('authorization')).toBe('Bearer glm-user-key');
   });
 
   it.each(['github-copilot', 'cloudflare-ai-gateway'])('keeps %s native authentication for Claude Messages routes', async sourceId => {

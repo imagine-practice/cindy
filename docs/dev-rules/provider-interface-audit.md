@@ -22,6 +22,7 @@ OpenCode 官方逐模型 endpoint 表可确定协议；它与 Pi 固定版本资
 | Vercel `/v1/models` | 376 | 未返回上述四种语言。supported_specifications 的实值是 v2/v3/v4，不能当成 HTTP 协议。 |
 | OpenCode Zen `/zen/v1/models` | 70 | 未返回。只有 id/object/created/owned_by。 |
 | OpenCode Go `/zen/go/v1/models` | 37 | 未返回。只有 id/object/created/owned_by。 |
+| Command Code `/provider/v1/models` | 87 | 返回。`supported_endpoints` 逐模型给出 `/chat/completions`、`/responses`、`/messages` 的可用组合（2026-10-09 实读），但不含图片、推理档位等能力字段。 |
 
 OpenCode 官方文档表本次取得 Zen 69 条、Go 28 条声明，与实时模型数量不同；
 未在文档表中的模型继续依赖同渠道 Pi 资料或明确配置，不能伪称所有实时模型都有官方协议声明。
@@ -122,7 +123,15 @@ Server 正本。回归见 `providerDetection.test.ts` 与真实添加表单的
 | xai-api | Chat / Responses | Pi 表已有逐模型执行协议；保留 | [官方资料](https://docs.x.ai/docs/api-reference) |
 | xiaomi-token-plan-ams | Pi 表声明的接口 | 海外区域完整接口矩阵待核实；不借中国大陆地址 | [官方资料](https://mimo.mi.com/docs/en/quick-start/summary/first-api-call) |
 | xiaomi-token-plan-sgp | Pi 表声明的接口 | 海外区域完整接口矩阵待核实；不借中国大陆地址 | [官方资料](https://mimo.mi.com/docs/en/quick-start/summary/first-api-call) |
+| command-code | Chat / Responses / Messages，按模型区分 | 官方逐模型 `supported_endpoints`：Claude 只在 Messages，OpenAI / 开源型号走 Chat 且多数另有 Responses；不按模型名猜测图片与推理档位 | [官方资料](https://commandcode.ai/docs/provider) |
 | nous | 已确认 Chat | 官方代理说明列 Chat 等端点；未证明 Responses / Messages，不因模型品牌推断 | [官方资料](https://hermes-agent.nousresearch.com/docs/user-guide/features/subscription-proxy) |
+
+Command Code 客户端集成（#5663）：Codex 的 Responses 型号显式声明 `api`，与现有
+默认可用性合同一致；Claude Code 的 SDK `[1m]` 后缀通过共用目录查找解析模型路由，
+明确声明的后缀条目优先，Chat 桥转发渠道的原始模型 ID。回归见
+`commandCodePreset.test.ts`、`providerNativeDefaults.test.ts` 与 `claudeProxyImplicitRoute.test.ts`。
+本次只更新客户端随包预设；线上缺少该预设时，既有 `mergeWithBundled` 按 ID 补入，
+不表示独立 Server 正本或生产目录已同步，也不代表带 Key 的真实推理已经验收。
 
 ## 本地验证
 

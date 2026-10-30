@@ -22,6 +22,7 @@ import { resolveCopilotAccountUrl } from './copilot-account-url.js';
 
 import {
   actualSourceIdForModel,
+  findCatalogModel,
   modelWithInterface,
   chatEligibleSourcesForModel,
   isExclusiveXaiModelId,
@@ -544,8 +545,12 @@ export function providerRoutingForModel(
 ): RoutingDescriptor | null {
   const routing = provider.routing[agent];
   if (!routing) return null;
+  // Claude SDK [1m] aliases still need the catalog model's protocol override;
+  // findCatalogModel preserves an explicitly declared suffix entry first.
   const model = wireModel
-    ? provider.models[agent]?.find((candidate) => candidate.id === wireModel)
+    ? agent === 'claude-code'
+      ? findCatalogModel(provider, wireModel, agent)
+      : provider.models[agent]?.find((candidate) => candidate.id === wireModel)
     : undefined;
   if (model?.interfaceUnavailable) throw new Error('MODEL_INTERFACE_UNAVAILABLE');
   const modelRoute = model?.route;
@@ -586,10 +591,12 @@ export function providerRoutingForModel(
 /** Pin only the model transport. Live credentials, provider disable and namespace
  * restrictions still come from the current connection. */
 export function sessionProviderRoutingForModel(sessionId: string, provider: Provider, agent: AgentKind, wireModel?: string): RoutingDescriptor | null {
-  const model = provider.models[agent]?.find(m => m.id === wireModel);
+  const model = wireModel && agent === 'claude-code'
+    ? findCatalogModel(provider, wireModel, agent)
+    : provider.models[agent]?.find(m => m.id === wireModel);
   const selected = model && sessionModelInterface(sessionId, provider.id, agent, model, getActiveCatalog().modelRegistry);
   const pinned = selected ? { ...provider, models: { ...provider.models,
-    [agent]: provider.models[agent]?.map(m => m.id === wireModel ? modelWithInterface(m, selected) : m),
+    [agent]: provider.models[agent]?.map(m => m.id === model?.id ? modelWithInterface(m, selected) : m),
   } } : provider;
   return providerRoutingForModel(pinned, agent, wireModel);
 }
