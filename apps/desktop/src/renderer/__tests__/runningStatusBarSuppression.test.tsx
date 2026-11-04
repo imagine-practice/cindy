@@ -52,6 +52,7 @@ const deps = {
   Check: Icon,
   Activity: Icon,
   Layers: Icon,
+  ListTodo: Icon,
   Sparkles: Icon,
   Spinner: Icon,
   Square: Icon,
@@ -86,6 +87,11 @@ const RunningStatusBar = new Function(
     streaming: boolean;
     peak?: number;
   };
+  backgroundTaskSummary?: {
+    subagents: { completed: number; total: number };
+    commands: { completed: number; total: number };
+  } | null;
+  onOpenBackgroundTasks?: () => void;
 }>;
 
 afterEach(cleanup);
@@ -234,3 +240,32 @@ it.each([true, false])(
     expect(container.childElementCount).toBe(0);
   },
 );
+
+it('keeps restored task progress visible, keyboard-focusable, and opens the background-task sidebar', () => {
+  const onOpenBackgroundTasks = vi.fn();
+  const { container } = render(
+    <RunningStatusBar
+      visible={false}
+      status="Done"
+      startedAt={1}
+      tokenUsage={0}
+      outputTokens={0}
+      generationDurationMs={0}
+      backgroundTaskSummary={{
+        subagents: { completed: 3, total: 3 },
+        commands: { completed: 1, total: 2 },
+      }}
+      onOpenBackgroundTasks={onOpenBackgroundTasks}
+    />,
+  );
+
+  const trigger = screen.getByRole('button', { name: 'chat.backgroundActivity.summaryTitle' });
+  expect(trigger.textContent).toContain('chat.backgroundActivity.subagentProgress');
+  expect(trigger.textContent).toContain('chat.backgroundActivity.commandProgress');
+  expect(trigger.querySelector('.truncate')).toBeTruthy();
+  trigger.focus();
+  expect(document.activeElement).toBe(trigger);
+  fireEvent.click(trigger);
+  expect(onOpenBackgroundTasks).toHaveBeenCalledTimes(1);
+  expect(container.childElementCount).toBe(1);
+});
