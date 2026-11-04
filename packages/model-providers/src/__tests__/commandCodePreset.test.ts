@@ -175,19 +175,14 @@ describe('Command Code 供应商预设', () => {
     }
   });
 
-  it('原生组合默认开启、跨协议桥接默认关闭、Pi 全部默认可用', () => {
+  it('渠道提供引擎原生 API 时默认开启、本地转换默认关闭、Pi 全部默认可用', () => {
     const provider = imported();
     const enabled = (agent: AgentKind) =>
       sorted((provider.models[agent] ?? []).filter((model) => model.defaultEnabled).map((model) => model.id));
     // Claude 是 Messages 原生，Claude Code 上默认开启；其余型号经本地桥接、默认关闭但仍可选。
     expect(enabled('claude-code')).toEqual(sorted(claudeModels));
-    // Codex harness 只说 Responses：只有 Responses 原生型号默认开启。
-    for (const model of provider.models.codex ?? []) {
-      expect(model.defaultEnabled, model.id).toBe(model.nativeApi === 'openai-responses');
-    }
-    const codexModels = provider.models.codex ?? [];
-    expect(enabled('codex').length).toBeGreaterThan(0);
-    expect(enabled('codex').length).toBeLessThan(codexModels.length);
+    // 主线 2026-10-30 合同：渠道提供 Responses 即可直接使用，不按厂商原生协议关闭。
+    expect(enabled('codex')).toEqual(sorted(allModels.filter(id => supportedEndpoints[id]!.includes('/responses'))));
     // Pi 直接说上游 adapter，全部型号默认可用。
     expect(enabled('pi')).toEqual(allModels);
   });
