@@ -355,7 +355,7 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
               <h2 className="text-14 font-medium text-[var(--settings-section-title)]">
                 {t('ccAgent.projectCore.detail.dirs')}
               </h2>
-              {canManageDirs && (
+              {canManageDirs && project.dirs.length === 0 && (
                 <Button
                   variant="secondary"
                   size="sm"
@@ -372,7 +372,7 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
                   }}
                 >
                   <Plus size={13} strokeWidth={1.75} className="mr-1" />
-                  {t('ccAgent.projectCore.detail.addDir')}
+                  {t('ccAgent.projectCore.form.dirsPick')}
                 </Button>
               )}
             </div>
@@ -503,26 +503,9 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
           </section>
 
           <section className="flex flex-col gap-3">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-14 font-medium text-[var(--settings-section-title)]">
-                {t('ccAgent.projectCore.detail.workItems')}
-              </h2>
-              {!archived && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  compact
-                  onClick={() =>
-                    navigate('/cc-agent/new', {
-                      state: { projectId: project.id, projectName: project.name },
-                    })
-                  }
-                >
-                  <Plus size={13} strokeWidth={1.75} className="mr-1" />
-                  {t('ccAgent.projectCore.detail.newTaskShort')}
-                </Button>
-              )}
-            </div>
+            <h2 className="text-14 font-medium text-[var(--settings-section-title)]">
+              {t('ccAgent.projectCore.detail.workItems')}
+            </h2>
             {detail && detail.workItems.length === 0 ? (
               <div className="flex flex-col items-start gap-2">
                 <p className="text-13 text-[var(--settings-section-desc)]">

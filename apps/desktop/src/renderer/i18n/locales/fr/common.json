@@ -14213,7 +14213,7 @@
         "removeDir": "Retirer",
         "changeDir": "Changer",
         "createFirstTask": "Créer la première tâche",
-        "newTask": "New task in this project",
+        "newTask": "Nouvelle tâche",
         "newTaskShort": "Nouvelle tâche",
         "archive": "Archive project",
         "restore": "Restore project",
@@ -14243,7 +14243,8 @@
         "notMember": "Only project members can be assigned or own the project.",
         "taskUnbound": "Bind this task to a project before assigning it.",
         "generic": "The project change did not go through.",
-        "dirBound": "Ce dossier appartient déjà à un autre projet"
+        "dirBound": "Ce dossier appartient déjà à un autre projet",
+        "dirSingle": "Ce projet a déjà un dossier. Utilisez Changer pour le remplacer."
       },
       "progress": {
         "title": "Progression",

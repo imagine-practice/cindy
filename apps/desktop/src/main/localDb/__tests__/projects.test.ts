@@ -89,6 +89,20 @@ describe('project dirs', () => {
     expect(dirsOf('p2')).toEqual([]);
   });
 
+  it('allows only one directory per project and asks for an explicit change', () => {
+    create('p1', [{ dirKey: key('/work/a'), dirPath: '/work/a' }]);
+    // 再认领另一个目录 → 拒绝，提示走「更换」，不静默替换。
+    expectIpcCode(
+      () => run({ action: 'addDir', projectId: 'p1', dirKey: key('/work/b'), dirPath: '/work/b', now: 2 }),
+      'PROJECT_DIR_SINGLE',
+    );
+    expect(dirsOf('p1')).toEqual([{ dirKey: key('/work/a') }]);
+    // 先移除再认领是允许的（这就是「更换」的两个步骤）。
+    run({ action: 'removeDir', projectId: 'p1', dirKey: key('/work/a'), now: 3 });
+    run({ action: 'addDir', projectId: 'p1', dirKey: key('/work/b'), dirPath: '/work/b', now: 4 });
+    expect(dirsOf('p1')).toEqual([{ dirKey: key('/work/b') }]);
+  });
+
   it('removes a claim without touching tasks, then another project may claim it', () => {
     create('p1', [{ dirKey: key('/work/b'), dirPath: '/work/b' }]);
     run({ action: 'removeDir', projectId: 'p1', dirKey: key('/work/b'), now: 2 });

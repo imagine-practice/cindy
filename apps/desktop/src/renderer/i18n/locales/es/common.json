@@ -14213,7 +14213,7 @@
         "removeDir": "Quitar",
         "changeDir": "Cambiar",
         "createFirstTask": "Crear la primera tarea",
-        "newTask": "New task in this project",
+        "newTask": "Nueva tarea",
         "newTaskShort": "Nueva tarea",
         "archive": "Archive project",
         "restore": "Restore project",
@@ -14243,7 +14243,8 @@
         "notMember": "Only project members can be assigned or own the project.",
         "taskUnbound": "Bind this task to a project before assigning it.",
         "generic": "The project change did not go through.",
-        "dirBound": "Esa carpeta ya pertenece a otro proyecto"
+        "dirBound": "Esa carpeta ya pertenece a otro proyecto",
+        "dirSingle": "Este proyecto ya tiene una carpeta. Usa Cambiar para reemplazarla."
       },
       "progress": {
         "title": "Progreso",

@@ -14018,7 +14018,7 @@
         "removeDir": "제거",
         "changeDir": "변경",
         "createFirstTask": "첫 작업 만들기",
-        "newTask": "New task in this project",
+        "newTask": "새 작업",
         "newTaskShort": "새 작업",
         "archive": "Archive project",
         "restore": "Restore project",
@@ -14048,7 +14048,8 @@
         "notMember": "Only project members can be assigned or own the project.",
         "taskUnbound": "Bind this task to a project before assigning it.",
         "generic": "The project change did not go through.",
-        "dirBound": "이 폴더는 이미 다른 프로젝트에 속해 있습니다"
+        "dirBound": "이 폴더는 이미 다른 프로젝트에 속해 있습니다",
+        "dirSingle": "이 프로젝트에는 이미 폴더가 있습니다. 바꾸려면 \"변경\"을 사용하세요."
       },
       "progress": {
         "title": "진행 상황",

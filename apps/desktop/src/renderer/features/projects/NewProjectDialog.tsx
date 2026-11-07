@@ -172,9 +172,8 @@ function NewProjectDialogScope({
     if (!picked || picked.canceled || !picked.path) return;
     const dirPath = picked.path;
     const dirKey = projectIdentityKey('local', dirPath, null);
-    setDirs((current) =>
-      current.some((dir) => dir.dirKey === dirKey) ? current : [...current, { dirKey, dirPath }],
-    );
+    // 一个项目只绑一个目录：再选一次就是「更换」，不是追加。
+    setDirs([{ dirKey, dirPath }]);
     setSubmitError(null);
   };
 
@@ -256,7 +255,9 @@ function NewProjectDialogScope({
                     {t('ccAgent.projectCore.form.dirs')}
                   </span>
                   <Button type="button" variant="secondary" size="sm" compact onClick={() => void pickDir()}>
-                    {t('ccAgent.projectCore.form.dirsPick')}
+                    {t(dirs.length > 0
+                      ? 'ccAgent.projectCore.detail.changeDir'
+                      : 'ccAgent.projectCore.form.dirsPick')}
                   </Button>
                 </div>
                 <p className="text-12 leading-normal text-[var(--settings-section-desc)]">

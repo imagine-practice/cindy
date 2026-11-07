@@ -234,6 +234,19 @@ it('deletes only after the typed project-name confirmation and returns to the pr
   expect(env.navigate).toHaveBeenCalledWith('/cc-agent/projects');
 });
 
+it('opens the composer for a new task bound to this project, with no duplicate entry', async () => {
+  env.read.mockResolvedValue(populated('p1'));
+  render(<ProjectDetailPage />);
+  await screen.findByRole('heading', { name: 'p1' });
+  // 页头只有一个「新建任务」入口，文案不再是「在项目中新建任务」。
+  const entries = screen.getAllByRole('button', { name: 'ccAgent.projectCore.detail.newTask' });
+  expect(entries).toHaveLength(1);
+  fireEvent.click(entries[0]);
+  expect(env.navigate).toHaveBeenCalledWith('/cc-agent/new', {
+    state: { projectId: 'p1', projectName: 'p1' },
+  });
+});
+
 it('hides owner-only actions from plain members and offers the ownership takeover instead', async () => {
   const member = populated('p1');
   member.project.members[0] = { ...member.project.members[0], role: 'member' };

@@ -213,6 +213,15 @@ export function runProjectsTransaction(
       if (entries.length > 0) return fail('PRECONDITION_FAILED', 'Project dirs are unavailable');
       return;
     }
+    // 一个项目只绑一个目录（产品决定 2026-11-07）：多对一（多项目共享目录）本来就不允许，
+    // 一对一才和「项目目录」这个叫法一致，也不会出现「项目到底跟哪个目录走」的歧义。
+    if (entries.length > 1) return fail('INVALID_PARAMS', 'A project can claim a single directory');
+    const existing = db
+      .prepare('SELECT dir_key AS dirKey FROM project_dirs WHERE project_id = ? LIMIT 1')
+      .get(projectId) as { dirKey: string } | undefined;
+    if (entries.length === 1 && existing && existing.dirKey !== entries[0].dirKey) {
+      return fail('PROJECT_DIR_SINGLE', 'Project already claims another directory');
+    }
     for (const dir of entries) {
       const bound = statements.selectOwner.get(dir.dirKey) as { projectId: string } | undefined;
       if (bound && bound.projectId !== projectId) {

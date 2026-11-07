@@ -14018,7 +14018,7 @@
         "removeDir": "去之",
         "changeDir": "易之",
         "createFirstTask": "新造首務",
-        "newTask": "New task in this project",
+        "newTask": "新造任務",
         "newTaskShort": "新造任務",
         "archive": "Archive project",
         "restore": "Restore project",
@@ -14048,7 +14048,8 @@
         "notMember": "Only project members can be assigned or own the project.",
         "taskUnbound": "Bind this task to a project before assigning it.",
         "generic": "The project change did not go through.",
-        "dirBound": "此目錄已為他專案所據"
+        "dirBound": "此目錄已為他專案所據",
+        "dirSingle": "此專案已有目錄；欲易之，請用「易之」。"
       },
       "progress": {
         "title": "進度",

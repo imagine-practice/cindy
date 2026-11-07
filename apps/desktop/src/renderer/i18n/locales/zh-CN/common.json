@@ -14018,7 +14018,7 @@
         "removeDir": "移除",
         "changeDir": "更换",
         "createFirstTask": "新建第一个任务",
-        "newTask": "在项目中新建任务",
+        "newTask": "新建任务",
         "newTaskShort": "新建任务",
         "archive": "归档项目",
         "restore": "恢复项目",
@@ -14048,7 +14048,8 @@
         "notMember": "只有项目成员可以被指派或担任负责人。",
         "taskUnbound": "先把任务归到项目，再指派处理人。",
         "generic": "项目改动没有生效。",
-        "dirBound": "这个目录已经被另一个项目认领"
+        "dirBound": "这个目录已经被另一个项目认领",
+        "dirSingle": "这个项目已经有目录了；要换目录请用「更换」。"
       },
       "progress": {
         "title": "进度",

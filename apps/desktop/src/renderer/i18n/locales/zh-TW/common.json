@@ -14018,7 +14018,7 @@
         "removeDir": "移除",
         "changeDir": "更換",
         "createFirstTask": "建立第一個任務",
-        "newTask": "在專案中新增任務",
+        "newTask": "新增任務",
         "newTaskShort": "新增任務",
         "archive": "封存專案",
         "restore": "還原專案",
@@ -14048,7 +14048,8 @@
         "notMember": "只有專案成員可以被指派或擔任負責人。",
         "taskUnbound": "先把任務歸到專案，再指派處理人。",
         "generic": "專案變更沒有生效。",
-        "dirBound": "這個目錄已被另一個專案認領"
+        "dirBound": "這個目錄已被另一個專案認領",
+        "dirSingle": "這個專案已經有目錄了；要換目錄請用「更換」。"
       },
       "progress": {
         "title": "進度",
