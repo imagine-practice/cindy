@@ -2,7 +2,6 @@ import { resolveAttachmentPreviewSource } from './messagePayload';
 import {
   PreviewHeader,
   PreviewFooter,
-  PreviewCollectionContext,
 } from "./PreviewChrome";
 import { RemoteAttachmentPreview } from "./RemoteAttachmentPreview";
 import { segmentTeammateWork, summarizeTeammateWork, teammateWorkSummaryText } from '@cindy/maker-shared/work-activity-projection';
@@ -120,7 +119,7 @@ import {
   type OnViewableItemsChangedInfo,
   type LegendListRef,
 } from '@legendapp/list/react-native';
-import { tokenizeCode, type CodeTokenKind } from '@/session/codeHighlight';
+import { HighlightedCodeText } from './HighlightedCodeText';
 import { buildComposerTouchLayout } from '@/session/composerTouchLayout';
 import { useFoldableExpandedState } from '@/session/expandedBlockMemory';
 import {
@@ -600,8 +599,6 @@ interface MessageActions {
   /** First visible message of each five-minute teammate time group → its timestamp. */
   companionTimeGroups?: ReadonlyMap<string, number>;
   companionPluginWork?: ReturnType<typeof companionPluginWorkEntries>;
-  /** Partner chats keep the user's bubble plain; result and authorization cards remain independent. */
-  showPluginInvocations?: boolean;
   /** Device hosting plugin results; independent of a filesystem workdir. */
   remoteDeviceId?: string;
   /** 长按/操作条「复制消息链接」:复制该消息的会话深链(带 ?message= 锚点)。 */
@@ -692,7 +689,6 @@ export function MessageRenderer({
   onOpenCompanionSettings,
   companionAvatar,
   companionPluginInvocations,
-  showPluginInvocations = true,
   remoteDeviceId,
   topOverlayHeight,
   focusedItemKey,
@@ -1827,7 +1823,6 @@ export function MessageRenderer({
     companionAvatar,
     companionTimeGroups,
     companionPluginWork,
-    showPluginInvocations,
     remoteDeviceId,
     onAddMessageToComposer,
     onSideChatMessage,
@@ -1876,7 +1871,6 @@ export function MessageRenderer({
     companionAvatar,
     companionTimeGroups,
     companionPluginWork,
-    showPluginInvocations,
     remoteDeviceId,
     busyClientId,
     busyAction,
@@ -2842,14 +2836,13 @@ export function MessageRenderer({
       // Update visible cells when a task is identified as a companion chat.
       companion,
       companionWorkingLabel,
-      showPluginInvocations,
       companionPluginWork,
       // Cross-row state a kept row reads through `actions`: which reply is the last for its message,
       // and the five-minute stamps. Both keep their identity until they really change.
       lastCompanionReplyKey,
       companionTimeGroups,
     }),
-    [pendingSend?.selectedClientId, shareSelectionActive, companion, companionWorkingLabel, showPluginInvocations, companionPluginWork,
+    [pendingSend?.selectedClientId, shareSelectionActive, companion, companionWorkingLabel, companionPluginWork,
       lastCompanionReplyKey, companionTimeGroups],
   );
   // Keep production and regular DEV screens on keyed remounts. With Fabric,
@@ -2978,22 +2971,7 @@ export function MessageRenderer({
           testID={hasNewMessages ? 'message.newMessageButton' : 'message.jumpToLatestButton'}
           dotTestID="message.newMessageDot" />
       ) : null}
-                <PreviewCollectionContext.Provider
-                  value={
-                    attachmentPayloads.length > 1
-                      ? {
-                          index: attachmentIndex,
-                          names: attachmentPayloads.map((entry) => entry.title),
-                          onSelect: (index) => {
-                            if (attachmentPayloads[index]) {
-                              setAttachmentIndex(index);
-                              setPayload(attachmentPayloads[index]);
-                            }
-                          },
-                        }
-                      : undefined
-                  }
-                >
+                <>
                   {imageLightboxOpen && payload?.kind === 'media' && lightboxImages ? (
         // 图片 / 视频走 IM 级全屏查看器(手势缩放/下滑关闭/横滑翻页);其余 payload 走通用查看器。
         <ImageLightbox
@@ -3032,7 +3010,7 @@ export function MessageRenderer({
           payload={historyActive ? payload : null}
         />
       )}
-                </PreviewCollectionContext.Provider>
+                </>
               </View>
     </MessageListRevealContext.Provider>
     </MarkdownRemoteMediaContext.Provider>
@@ -3597,6 +3575,7 @@ function MessageBubble({
   // 不挂。分享态只保留与导出图片一致的消息内容,不显示操作图标、时间或费用。
   // 流式回复不显示操作，但保留最终操作行的占位，收尾时不把正在看的正文推走。
   const showCompletedActionBar = !shareSelectionActive && mobileMessageShowsActionBar({
+    role: item.message.role,
     hasSystemCard: !!item.message.systemCardType,
     isStreamingAssistant,
     isTurnFinalAssistant: item.message.isTurnFinalAssistant === true,
@@ -3630,16 +3609,18 @@ function MessageBubble({
     && item.message.kind === 'user'
     && !isFirstUserMessage
   );
-  // 对齐桌面 edit-last-message:只在最后一条用户消息开放,首条同样可编辑;
-  // 运行中也显示(点了先停止当前回复)。
-  const canEdit = !!(
+  // 对齐桌面 edit-last-message:只在最后一条用户消息开放,首条同样可编辑。
+  // 任务运行中不外显、收进「…」菜单(点编辑不中断任务,发送时才中断);停下后回到操作行。
+  const canEditMessage = !!(
     showCompletedActionBar
     && clientId
     && actions.onEditMessage
     && item.message.kind === 'user'
     && clientId === actions.lastUserMessageClientId
   );
-  const editing = canEdit && clientId === actions.editingMessageClientId;
+  const editInMenu = canEditMessage && actions.isSessionStreaming === true;
+  const canEdit = canEditMessage && !editInMenu;
+  const editing = canEditMessage && clientId === actions.editingMessageClientId;
   // 对齐桌面:任务运行中也保留删除入口,点了由页面提示等回复结束,不让菜单项时有时无。
   const canDelete = !!(
     showCompletedActionBar
@@ -3718,8 +3699,9 @@ function MessageBubble({
     canAddToChat,
     canCopyLink,
     canDelete,
+    canEditInMenu: editInMenu && !editing,
     canRewind,
-  }), [canSideChat, canAddToChat, canCopyLink, canDelete, canRewind, i18nInstance.language]);
+  }), [canSideChat, canAddToChat, canCopyLink, canDelete, editInMenu, editing, canRewind, i18nInstance.language]);
   const actionBar = useMemo(() => buildMessageActionBarPresentation({
     align: isUser ? 'user' : 'agent',
     canCopy,
@@ -3825,6 +3807,7 @@ function MessageBubble({
   const selectMenuAction = useCallback((id: MobileMessageMenuActionId) => {
     if (!clientId) return;
     if (id === 'rewind') return selectControlAction('rewind');
+    if (id === 'edit') return selectControlAction('edit');
     if (id === 'delete') return selectControlAction('delete');
     if (id === 'add-to-chat') return actions.onAddMessageToComposer?.(clientId);
     if (id === 'side-chat') return actions.onSideChatMessage?.(copyText);
@@ -3833,7 +3816,7 @@ function MessageBubble({
   const openMessageActionMenu = useCallback(() => {
     if (usesSystemActionMenu()) {
       const disabled = actionBusy
-        ? new Set<MobileMessageMenuActionId>(['rewind', 'delete'])
+        ? new Set<MobileMessageMenuActionId>(['edit', 'rewind', 'delete'])
         : null;
       void showActionMenu({
         cancelLabel: t('session.common.cancel'),
@@ -3893,10 +3876,8 @@ function MessageBubble({
       onResolveRemoteMedia={actions.onResolveRemoteMedia}
     />
   ) : null;
-  const hasPluginInvocations = isUser && actions.showPluginInvocations !== false
-    && Boolean(item.message.pluginInvocations?.length);
   const hasBubbleContent = !!(
-    item.message.systemCardType || displayBubbleBody || item.message.secondaryBody || hasPluginInvocations ||
+    item.message.systemCardType || displayBubbleBody || item.message.secondaryBody ||
     // A quote or reply target alone still needs the bubble, e.g. an attachment-only reply.
     (companionQuote && (replyQuote || replyTarget))
   );
@@ -3920,15 +3901,6 @@ function MessageBubble({
       ]}
       testID={isUser ? 'message.userBubble' : 'message.agentBubble'}
     >
-      {hasPluginInvocations ? (
-        <PluginInvocationHeader
-          key={clientId}
-          plugins={item.message.pluginInvocations!}
-          deviceId={actions.remoteDeviceId}
-          sessionId={item.message.source.sessionId}
-          running={actions.isSessionStreaming === true && clientId === actions.lastUserInputClientId}
-        />
-      ) : null}
       {hookSource ? (
         <View style={styles.hookSourceHeader} testID="message.hookSource">
           {hookSource.im === 'telegram'
@@ -4233,7 +4205,7 @@ function MessageBubble({
                   actions={messageMenu.map((item) => ({
                     image: item.image,
                     destructive: item.destructive,
-                    disabled: actionBusy && (item.id === 'rewind' || item.id === 'delete'),
+                    disabled: actionBusy && (item.id === 'edit' || item.id === 'rewind' || item.id === 'delete'),
                     id: item.id,
                     title: item.label,
                   }))}
@@ -4286,7 +4258,7 @@ function MessageBubble({
         </View>
       ) : null}
       <MessageActionSheet
-        disabledActions={actionBusy ? ['rewind', 'delete'] : undefined}
+        disabledActions={actionBusy ? ['edit', 'rewind', 'delete'] : undefined}
         items={messageMenu}
         onAction={selectMenuAction}
         onClose={() => setActionSheetOpen(false)}
@@ -6087,13 +6059,16 @@ function MarkdownBodyBase({
   // 偏矮的 onLayout 裁切 agent 回复;点分享会换上确定宽度的容器从而完整显示。
   // 外层始终 stretch 测可用宽,内层再钉像素宽:测宽不能钉在自己身上,否则旋转/
   // 分屏变宽后 onLayout 仍报旧值。1px 内抖动忽略,避免公式 WebView 重挂。
+  // Android RN Text 在 stretch 宽度下测高正确;钉宽靠换 key 重挂文本,会让每条
+  // agent 回复挂载两遍,所以只在 iOS 测宽。外层 stretch 两端保留,版面宽度一致。
+  const measuresSettledWidth = pinContentWidth && Platform.OS === 'ios';
   const [contentWidth, setContentWidth] = useRecyclingState(0);
   const handleSettledWidthLayout = useCallback((event: LayoutChangeEvent) => {
-    if (!pinContentWidth) return;
+    if (!measuresSettledWidth) return;
     const nextWidth = Math.round(event.nativeEvent.layout.width);
     setContentWidth((current) => nextSettledContentWidth(current, nextWidth));
-  }, [pinContentWidth]);
-  const pinSettledWidth = pinContentWidth && contentWidth > 0;
+  }, [measuresSettledWidth]);
+  const pinSettledWidth = measuresSettledWidth && contentWidth > 0;
   const settledTextStyle = useMemo(() => pinSettledWidth
     ? [styles.messageText, { width: contentWidth }]
     : styles.messageText, [contentWidth, pinSettledWidth, styles.messageText]);
@@ -6479,7 +6454,7 @@ function MarkdownBodyBase({
   return (
     <View
       collapsable={false}
-      onLayout={handleSettledWidthLayout}
+      onLayout={measuresSettledWidth ? handleSettledWidthLayout : undefined}
       style={[
         styles.markdownBody,
         { maxWidth: '100%' },
@@ -7063,6 +7038,7 @@ function PluginResultCard({ callId, sessionId, excludedUrls, actions }: {
       if (block === controlsText) return null;
       if (block.primitive === 'plugin-card-actions') return (
             <PluginCardActions key={block.id} data={block.data} deviceId={actions.remoteDeviceId} sessionId={sessionId} callId={callId}
+        onOpenSessionLink={actions.onOpenSessionLink}
         text={controlsText ? pluginCardPlainText(controlsText.fallbackMarkdown) : undefined}
         onOpenAttachment={actions.onOpenPayload ? (url, name) => actions.onOpenPayload!(buildMediaPayload({ kind: 'image', url, previewable: true }, name)) : undefined} />
           );
@@ -7598,7 +7574,7 @@ function MessageContentOpenButton({
   );
 }
 
-function MessagePayloadModal({
+export function MessagePayloadModal({
   payload,
   imageAnnotation,
   onClose,
@@ -7748,7 +7724,6 @@ function MessagePayloadModal({
   // mermaid 走沉浸式全屏查看器:图表铺满整个 Modal(标题与源码区都不渲染,
   // 图表最大化优先),仅右上角浮动「复制源码 / 关闭」;源码用复制按钮获取。
   const immersiveMermaid = payload?.kind === 'mermaid';
-  const collection = useContext(PreviewCollectionContext);
   if (
     payload &&
     onResolveRemoteMedia &&
@@ -7779,7 +7754,7 @@ function MessagePayloadModal({
             styles.payloadModal,
             {
               paddingTop: safeAreaInsets.top + 64,
-              paddingBottom: safeAreaInsets.bottom + (collection ? 56 : 0),
+              paddingBottom: safeAreaInsets.bottom,
             },
           ]} testID="message.payloadModal">
           <MermaidDiagramWebView
@@ -7839,7 +7814,7 @@ function MessagePayloadModal({
         style={[
           styles.payloadModal,
           {
-            paddingBottom: modalSafeArea.paddingBottom + (collection ? 56 : 0),
+            paddingBottom: modalSafeArea.paddingBottom,
             // Landscape side insets hold the notch or a vertical system bar (Duo).
             paddingLeft: safeAreaInsets.left,
             paddingRight: safeAreaInsets.right,
@@ -8987,67 +8962,6 @@ function isOwnerTypedMessage(message: NormalizedRemoteMessage | undefined): mess
   return (
     !!message && message.kind === 'user' && !message.isSyntheticTrigger && !message.automationOrigin
     && !message.hookSource && !message.sessionOrigin && !message.systemCardType
-  );
-}
-
-/** 语法 kind → 样式。plain 不走这里(直接当字符串塞进父 Text,少一层节点)。 */
-function syntaxStyleFor(
-  styles: ReturnType<typeof makeStyles>,
-  kind: Exclude<CodeTokenKind, 'plain'>,
-): StyleProp<TextStyle> {
-  switch (kind) {
-    case 'keyword': return styles.syntaxKeyword;
-    case 'string': return styles.syntaxString;
-    case 'comment': return styles.syntaxComment;
-    case 'number': return styles.syntaxNumber;
-    case 'function': return styles.syntaxFunction;
-    case 'property': return styles.syntaxProperty;
-  }
-}
-
-/**
- * 代码块正文 —— 按 language 做词法着色(配色对齐桌面的 GitHub hljs 主题)。
- *
- * 抽成组件只为拿 useMemo:renderBlock 每次重渲都会走到,大代码块重复分词不划算。
- * 嵌套 span 只带 color,其余样式继承外层 markdownCodeText。
- *
- * ⚠️ `SpanComponent` 必须由调用方经 `spanFor()` 给出,不能图省事直接用 RN 的
- * `Text`:块可选中且在 iOS 时外层是 UITextView,而它只接受 UITextView 家族的子
- * 节点 —— 传普通 Text 的话那些 span 会被整个丢掉(表现为代码里的属性名、关键字
- * 直接从画面上消失,不报错)。
- */
-function HighlightedCodeText({
-  SpanComponent,
-  allowIosUITextView,
-  language,
-  selectable,
-  styles,
-  text,
-}: {
-  SpanComponent: typeof Text;
-  allowIosUITextView: boolean;
-  language: string | undefined;
-  selectable: boolean;
-  styles: ReturnType<typeof makeStyles>;
-  text: string;
-}) {
-  const tokens = useMemo(() => tokenizeCode(text, language), [language, text]);
-  return (
-    <MarkdownSelectableText
-      allowIosUITextView={allowIosUITextView}
-      selectable={selectable}
-      style={styles.markdownCodeText}
-    >
-      {tokens.map((token, index) =>
-        token.kind === 'plain'
-          ? (
-          token.text
-        ) : (
-            <SpanComponent key={index} style={syntaxStyleFor(styles, token.kind)}>
-              {token.text}
-            </SpanComponent>
-        ))}
-    </MarkdownSelectableText>
   );
 }
 

@@ -3,7 +3,7 @@ import { attachmentPreviewKind, previewSourceName } from '@cindy/maker-shared/at
 import { TeammateProcessStatus } from '@/features/bots/TeammateProcessStatus';
 import { scrollRangeIntoView } from '@/lib/scrollRangeIntoView';
 import { historyAfter } from './historyAfter';
-import { readMailCard } from '@cindy/maker-shared/ghost-card-form';
+import { readGhostCardSupersededBy, readMailCard } from '@cindy/maker-shared/ghost-card-form';
 import { animateFocusScroll } from './animateFocusScroll';
 import { botProcessItems } from '@/features/bots/botConversationPresentation';
 import { isVisibleVoiceCallMessage } from '@/features/bots/voice/voiceCallPresentation';
@@ -152,8 +152,6 @@ import {
 } from './shareSelectionStore';
 import {
   parsePluginInstanceId,
-  pluginInstallStoragePart,
-  pluginNewInstallRelId,
   pluginStoragePart,
 } from '../../../shared/pluginIdentity';
 import { isValidGhostId } from '../../../shared/ghost';
@@ -369,7 +367,6 @@ import {
 } from '@/cindy-brain/ghostCardGallery';
 import { ChatImageView } from './ChatImageView';
 import { galleryImagePreviewItem, ImageGalleryContext, type GalleryImage } from './ImageGalleryContext';
-import { GhostFulfillmentContext } from './GhostSummonCard';
 import { ChatSessionFileProvider, useChatSessionFileValue } from './ChatSessionFileContext';
 import { toRemoteMediaOrigin } from '@/lib/sessionFileOrigin';
 import { rewriteToRemoteMediaOrigin, type RemoteMediaOrigin } from '@/../shared/remoteMediaUrl';
@@ -799,64 +796,6 @@ function collectAssistantsWithFollowingUserBoundary(messages: readonly ChatMessa
     }
   }
   return out;
-}
-
-/**
- * 意识"提及 → 兑现"关联(方案 2,渲染期从持久数据推导,重启幂等):
- * 逐条扫消息,维护"当前轮的 user 消息",遇到 assistant 的 ghost_call 工具
- * 调用就把其 ghost_id 记到当前 user 名下——即"这条 user 触发的那一轮里,
- * AI 真的召唤了哪些意识"。软提示徽章据此升级为召唤卡(徽章说'提到了',
- * 兑现后才敢说'召唤了')。turn 边界 = 下一条非 steer 的 user 消息。
- * 判据全取自会话历史(user 消息 + ghost_call tool_use 都已持久化),不落
- * 任何额外状态,重启重算结果一致。
- */
-export function collectGhostCallsByUserTurn(
-  messages: readonly ChatMessage[],
-): Map<string, Set<string>> {
-  const out = new Map<string, Set<string>>();
-  let currentUserClientId: string | null = null;
-  for (const m of messages) {
-    if (m.role === 'user' && m.delivery !== 'steer' && !m.isSyntheticTrigger) {
-      currentUserClientId = m.clientId;
-      continue;
-    }
-    if (
-      currentUserClientId &&
-      isGhostCallToolName(m.toolName) &&
-      m.toolInput &&
-      typeof (m.toolInput as Record<string, unknown>).ghost_id === 'string'
-    ) {
-      const input = m.toolInput as Record<string, unknown>;
-      const gid = ghostSummonInstanceId(input.ghost_id as string, input.namespace);
-      if (!gid) continue;
-      const set = out.get(currentUserClientId) ?? new Set<string>();
-      set.add(gid);
-      out.set(currentUserClientId, set);
-    }
-  }
-  return out;
-}
-
-/**
- * 兑现关联 map 的结构等价判断:用于给 Provider value 做引用缓存。
- * messages 数组在流式期间每批 delta 都换新引用,useMemo 会重算出"内容相同
- * 但身份全新"的 Map;而 UserMessage 顶层订阅该 context(判定合并形态),
- * context 消费按 Object.is 判变、无视 memo——不做等价缓存的话,每批 token
- * 都会把全部历史 UserMessage 重渲一遍(规则 10 热路径口径)。fulfillment
- * 实际只在 ghost_call 落地时才变化,每 turn 至多一两次。
- */
-export function ghostCallMapsEqual(
-  a: ReadonlyMap<string, ReadonlySet<string>>,
-  b: ReadonlyMap<string, ReadonlySet<string>>,
-): boolean {
-  if (a === b) return true;
-  if (a.size !== b.size) return false;
-  for (const [key, setA] of a) {
-    const setB = b.get(key);
-    if (!setB || setA.size !== setB.size) return false;
-    for (const v of setA) if (!setB.has(v)) return false;
-  }
-  return true;
 }
 
 /**
@@ -1520,20 +1459,6 @@ function ghostCardInstanceId(ghostId: string, namespace: unknown): string | null
     : null;
 }
 
-/** Summon labels retain explicit root identity; card/media anchoring keeps its existing keys. */
-function ghostSummonInstanceId(ghostId: string, namespace: unknown): string | null {
-  const id = ghostCardInstanceId(ghostId, namespace);
-  if (!id) return null;
-  const explicitRoot =
-    namespace === null ||
-    (namespace === undefined &&
-      !isValidGhostId(ghostId) &&
-      parsePluginInstanceId(ghostId)?.namespace === null);
-  return explicitRoot
-    ? pluginInstallStoragePart(pluginNewInstallRelId({ namespace: null, ghostId: id }))
-    : id;
-}
-
 export function buildRenderItems(
   allMessages: ChatMessage[],
   taskUpdates?: ReadonlyMap<string, AgentTaskUpdate>,
@@ -1835,9 +1760,10 @@ export function buildRenderItems(
     : [];
   // Mail is a finished document, not plugin progress. Without an exact tool ID,
   // wait for its result rather than attach it to a schema/read call by guesswork.
+  // A card moved to a newer call belongs to an earlier call and must not claim this one.
   const guessableLiveCards = sessionLiveCards.filter((lc) => {
     const entry = ghostCards?.byCallId.get(lc.callId);
-    return !(entry?.status === 'ready' && readMailCard(entry.html));
+    return !(entry?.status === 'ready' && (readMailCard(entry.html) || readGhostCardSupersededBy(entry.html)));
   });
   // Old partial history may omit a tool result. It cannot claim a new card just
   // because the same plugin was used there. Exact IDs still work across turns.
@@ -2167,7 +2093,7 @@ export function buildRenderItems(
           suppressMediaForCard = true;
           hideRowForCard = true;
           if (entry?.status === 'ready') {
-            if (readMailCard(entry.html)?.supersededBy) return;
+            if (readGhostCardSupersededBy(entry.html)) return;
             const cardItem: Extract<RenderItem, { type: 'ghost_card' }> = {
               type: 'ghost_card',
               key: `ghostcard-${msg.clientId}`,
@@ -2212,7 +2138,7 @@ export function buildRenderItems(
         if (liveEntry?.status !== 'ready') return;
         claimedLiveCallIds.add(live.callId);
         hideRowForCard = true;
-        if (readMailCard(liveEntry.html)?.supersededBy) { suppressMediaForCard = true; return; }
+        if (readGhostCardSupersededBy(liveEntry.html)) { suppressMediaForCard = true; return; }
         const liveCardItem: Extract<RenderItem, { type: 'ghost_card' }> = {
           type: 'ghost_card',
           key: `ghostcard-${msg.clientId}`,
@@ -6491,25 +6417,8 @@ export function MessageStream({
     resolvedBottomPadding,
   ]);
 
-  // 「提及 → 兑现」关联(方案 2):从会话历史现算,软提示卡据此升级为召唤卡。
-  // 引用缓存:内容不变时复用上一个 Map 引用——UserMessage 顶层订阅该
-  // context,流式期间 messages 每批 delta 都换引用,不缓存会让全部历史
-  // 消息每批 token 重渲一遍(ghostCallMapsEqual 注释有完整推导)。
-  // 走可见序列:归属键是**可见的**那条 user 消息(软提示卡挂在它上面),被隐藏的
-  // 子代理 user 行不该成为归属键,否则该 turn 的召唤卡升级不到任何可见气泡上。
-  const ghostCallsByUserTurnRaw = useMemo(
-    () => collectGhostCallsByUserTurn(visibleMetadataMessages),
-    [visibleMetadataMessages],
-  );
-  const ghostCallsCacheRef = useRef(ghostCallsByUserTurnRaw);
-  if (!ghostCallMapsEqual(ghostCallsCacheRef.current, ghostCallsByUserTurnRaw)) {
-    ghostCallsCacheRef.current = ghostCallsByUserTurnRaw;
-  }
-  const ghostCallsByUserTurn = ghostCallsCacheRef.current;
-
   return (
     <ChatSessionFileProvider value={sessionFileValue}>
-      <GhostFulfillmentContext.Provider value={ghostCallsByUserTurn}>
         <>
           <div className="relative h-full w-full">
             {/* chat-text-quote:选中消息文字 → 浮出"添加到对话"按钮(portal 到 body)。
@@ -6718,7 +6627,7 @@ export function MessageStream({
                       // 下一次 store 变更自愈。
                       const entry = ghostCardSnapshot.byCallId.get(item.callId);
                       if (!entry || entry.status !== 'ready') return null;
-                      if (readMailCard(entry.html)?.supersededBy) return null;
+                      if (readGhostCardSupersededBy(entry.html)) return null;
                       // 常态包一层 div(结构稳定,回锚媒体到达时卡片 iframe 不重挂);
                       // 回锚媒体(如 mivo 视频)挂卡正下方,与 tool_media 同款间距。
                       return (
@@ -6966,7 +6875,6 @@ export function MessageStream({
               )}
           </div>
         </>
-      </GhostFulfillmentContext.Provider>
     </ChatSessionFileProvider>
   );
 }
@@ -7269,6 +7177,7 @@ const MessageItem = memo(function MessageItem({
           reason={message.errorReason}
           providerId={message.errorProviderId}
           toolLoop={message.toolLoop}
+          outputLimit={message.outputLimit}
           sessionSource={sessionSource}
           onDiagnose={onDiagnoseError}
         />
