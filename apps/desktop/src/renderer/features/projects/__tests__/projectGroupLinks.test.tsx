@@ -89,7 +89,7 @@ function failed(code: string, commitState: 'not-committed' | 'committed' | 'unkn
 
 function project(id: string, name: string): ProjectRecord {
   return {
-    id, name, goal: null, ownerId: 'acct-1', status: 'active', taskCount: 0, createdAt: '', updatedAt: '',
+    id, name, goal: null, ownerId: 'acct-1', status: 'active', taskCount: 0, dirs: [], createdAt: '', updatedAt: '',
     members: [{
       subject: { kind: 'account', id: 'acct-1', displayName: null, avatar: null, avatarColor: null },
       role: 'owner', addedAt: '',

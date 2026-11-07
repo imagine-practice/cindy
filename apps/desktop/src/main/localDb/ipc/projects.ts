@@ -8,6 +8,7 @@ import {
   PROJECTS_MUTATE_CHANNEL,
   isProjectSubjectKind,
   type ProjectDetail,
+  type ProjectDir,
   type ProjectMember,
   type ProjectRecord,
   type ProjectSubject,
@@ -63,6 +64,12 @@ interface MemberRow {
   addedAt: number;
 }
 
+interface DirRow {
+  projectId: string;
+  dirKey: string;
+  dirPath: string;
+}
+
 interface BotRow {
   id: string;
   displayName: string;
@@ -116,6 +123,7 @@ function toRecord(
   row: ProjectRow,
   members: ProjectMember[],
   taskCount: number,
+  dirs: ProjectDir[],
 ): ProjectRecord {
   return {
     id: row.id,
@@ -125,6 +133,8 @@ function toRecord(
     status: row.status,
     members: sortMembers(members),
     taskCount,
+    // 目录按加入时间稳定排序：同一项目的目录顺序不应随查询计划变化。
+    dirs,
     createdAt: new Date(row.createdAt).toISOString(),
     updatedAt: new Date(row.updatedAt).toISOString(),
   };
@@ -244,6 +254,9 @@ async function readProjectRecords(client: DbClient): Promise<ProjectRecord[]> {
     `${PROJECT_ROW_SQL} ORDER BY (status = 'active') DESC, updated_at DESC, name ASC`,
   );
   const memberRows = await client.query<MemberRow>(MEMBER_ROW_SQL);
+  const dirRows = await client.query<DirRow>(
+    'SELECT project_id AS projectId, dir_key AS dirKey, dir_path AS dirPath FROM project_dirs ORDER BY created_at ASC, dir_key ASC',
+  );
   const taskCounts = await client.query<{ projectId: string; taskCount: number }>(
     "SELECT project_id AS projectId, COUNT(*) AS taskCount FROM sessions WHERE project_id IS NOT NULL AND status <> 'deleted' GROUP BY project_id",
   );
@@ -256,9 +269,20 @@ async function readProjectRecords(client: DbClient): Promise<ProjectRecord[]> {
     list.push(toMember(row, bots));
     membersByProject.set(row.projectId, list);
   }
+  const dirsByProject = new Map<string, ProjectDir[]>();
+  for (const row of dirRows) {
+    const list = dirsByProject.get(row.projectId) ?? [];
+    list.push({ dirKey: row.dirKey, dirPath: row.dirPath });
+    dirsByProject.set(row.projectId, list);
+  }
   const countByProject = new Map(taskCounts.map((row) => [row.projectId, row.taskCount]));
   return rows.map((row) =>
-    toRecord(row, membersByProject.get(row.id) ?? [], countByProject.get(row.id) ?? 0),
+    toRecord(
+      row,
+      membersByProject.get(row.id) ?? [],
+      countByProject.get(row.id) ?? 0,
+      dirsByProject.get(row.id) ?? [],
+    ),
   );
 }
 
@@ -405,6 +429,25 @@ function requireOptionalString(raw: unknown, label: string): string | undefined 
   return raw;
 }
 
+/**
+ * 目录键只做形状校验：前缀决定作用域（local / remote / device），规范化与派生
+ * 由调用方用 `projectKeys` 完成，IPC 不发明第二套路径口径。
+ */
+function requireDirKey(value: unknown): string {
+  const key = requireString(value, 'dirKey');
+  if (!/^(local:|remote:|device:)/.test(key)) throwIpcError('INVALID_PARAMS', 'invalid dirKey');
+  return key;
+}
+
+function requireDirs(value: unknown): Array<{ dirKey: string; dirPath: string }> {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throwIpcError('INVALID_PARAMS', 'input.dirs must be an array');
+  return value.map((item, index) => {
+    const body = requireObject(item, `input.dirs[${index}]`);
+    return { dirKey: requireDirKey(body.dirKey), dirPath: requireString(body.dirPath, `input.dirs[${index}].dirPath`) };
+  });
+}
+
 /** 把未经校验的 IPC 入参收敛成事务参数：id / 时间戳在这里注入，事务保持确定性。 */
 type ProjectMutationIntent = ProjectsAction & { now: number; newId?: string };
 
@@ -433,6 +476,7 @@ function toMutation(raw: unknown, now: number): ProjectMutationIntent {
           members: Array.isArray(membersRaw)
             ? membersRaw.map((member, index) => requireSubjectRef(member, `input.members[${index}]`))
             : [],
+          dirs: requireDirs(input.dirs),
         },
       };
     }
@@ -464,6 +508,21 @@ function toMutation(raw: unknown, now: number): ProjectMutationIntent {
         action: 'removeMember',
         projectId: requireString(body.projectId, 'projectId'),
         subject: requireSubjectRef(body.subject, 'subject'),
+        now,
+      };
+    case 'addDir':
+      return {
+        action: 'addDir',
+        projectId: requireString(body.projectId, 'projectId'),
+        dirKey: requireDirKey(body.dirKey),
+        dirPath: requireString(body.dirPath, 'dirPath'),
+        now,
+      };
+    case 'removeDir':
+      return {
+        action: 'removeDir',
+        projectId: requireString(body.projectId, 'projectId'),
+        dirKey: requireDirKey(body.dirKey),
         now,
       };
     case 'transferOwner':
@@ -594,6 +653,11 @@ async function assertProjectMutationAllowed(
       return;
     case 'transferOwner':
       await requireProjectAction('transferOwner', mutation.projectId, subject, client);
+      return;
+    case 'addDir':
+    case 'removeDir':
+      // 目录决定此后新任务的默认归属，是项目级设置：负责人专属。
+      await requireProjectAction('manageDirs', mutation.projectId, subject, client);
       return;
     case 'delete':
       // 真删除只能由负责人发起：驱动码按「所需角色」给，不行的是 NOT_PROJECT_OWNER。

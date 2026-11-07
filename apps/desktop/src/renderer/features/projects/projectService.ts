@@ -67,6 +67,19 @@ export async function transferProjectOwner(
   await mutateProject({ action: 'transferOwner', projectId, subject });
 }
 
+/** 认领一个工作目录（负责人专属）。已被别的项目认领时抛 PROJECT_DIR_BOUND。 */
+export async function addProjectDir(
+  projectId: string,
+  dir: { dirKey: string; dirPath: string },
+): Promise<void> {
+  await mutateProject({ action: 'addDir', projectId, ...dir });
+}
+
+/** 取消认领；目录里的历史任务保持原绑定，不回溯改动。 */
+export async function removeProjectDir(projectId: string, dirKey: string): Promise<void> {
+  await mutateProject({ action: 'removeDir', projectId, dirKey });
+}
+
 /** 真删除。二次确认由调用方界面负责，这里只发一次请求。 */
 export async function deleteProject(projectId: string): Promise<void> {
   await mutateProject({ action: 'delete', projectId });

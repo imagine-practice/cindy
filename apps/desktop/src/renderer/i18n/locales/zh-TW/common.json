@@ -13989,7 +13989,13 @@
         "submit": "建立專案",
         "cancel": "取消",
         "nameRequired": "請填寫專案名稱",
-        "creatorMember": "建立帳號 · 必選成員"
+        "creatorMember": "建立帳號 · 必選成員",
+        "dirs": "專案目錄",
+        "dirsHint": "在這些目錄裡新建的任務預設歸入本專案；一個目錄只能屬於一個專案。",
+        "dirsPick": "選擇目錄",
+        "dirsEmpty": "未選擇目錄",
+        "dirRemove": "移除",
+        "ownerRequired": "請選擇負責人"
       },
       "detail": {
         "goal": "目標",
@@ -14003,6 +14009,11 @@
         "unassigned": "未指派",
         "workItems": "任務",
         "noWorkItems": "這個專案裡還沒有任務",
+        "dirs": "專案目錄",
+        "dirsHint": "在這些目錄裡新建的任務預設歸入本專案；一個目錄只能屬於一個專案。",
+        "addDir": "新增目錄",
+        "noDirs": "還沒有目錄。任務仍依工作目錄分組，不歸屬本專案。",
+        "removeDir": "移除",
         "newTask": "在專案中新增任務",
         "archive": "封存專案",
         "restore": "還原專案",
@@ -14030,7 +14041,8 @@
         "ownerMustTransfer": "請先轉交負責人，再移除目前的負責人。",
         "notMember": "只有專案成員可以被指派或擔任負責人。",
         "taskUnbound": "先把任務歸到專案，再指派處理人。",
-        "generic": "專案變更沒有生效。"
+        "generic": "專案變更沒有生效。",
+        "dirBound": "這個目錄已被另一個專案認領"
       },
       "progress": {
         "title": "進度",

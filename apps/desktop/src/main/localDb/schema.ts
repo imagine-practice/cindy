@@ -1732,6 +1732,34 @@ export const projects = sqliteTable(
 );
 
 /**
+ * 项目目录（项目内核 M1.1）：把「按工作目录归组」的目录认领到实体项目上。
+ *
+ * - `dir_key` 与侧栏分组同一个口径（`local:<path>` / `remote:<host>:<path>` /
+ *   `device:<id>:<path>`），身份只看它；`dir_path` 是展示用原文。
+ * - 一个目录同时只能属于一个项目：`uniq_project_dirs_dir_key` 全表唯一。
+ *   这是产品决定（用户裁决 2026-11-07），不是实现细节。
+ * - 删项目时目录行随 FK 级联删除；目录本身（磁盘上的文件）永远不碰。
+ */
+export const projectDirs = sqliteTable(
+  'project_dirs',
+  {
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    dirKey: text('dir_key').notNull(),
+    dirPath: text('dir_path').notNull(),
+    /** 仓库/机器作用域来源，便于排查；判定仍只看 dir_key。 */
+    remoteHostId: text('remote_host_id'),
+    agentDeviceId: text('agent_device_id'),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.projectId, t.dirKey] }),
+    uniqDirKey: uniqueIndex('uniq_project_dirs_dir_key').on(t.dirKey),
+  }),
+);
+
+/**
  * 项目成员。`subject_kind` 显式区分账号与伙伴，避免两者 id 撞车时被当成同一个人。
  * 去重键为 `(project_id, subject_id)`；kind 与 id 一起表达身份，同一 id 不同 kind
  * 是两个不同的主体。

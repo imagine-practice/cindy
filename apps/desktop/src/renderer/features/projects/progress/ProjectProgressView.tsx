@@ -94,7 +94,7 @@ function ProgressContent({
       >
         <p role={status === 'error' ? 'alert' : 'status'}>{label(status)}</p>
         {status === 'error' && (
-          <Button variant="secondary" className="min-h-11 self-start" onClick={onRefresh}>
+          <Button variant="secondary" className="self-start" onClick={onRefresh}>
             {label('retry')}
           </Button>
         )}
@@ -110,7 +110,7 @@ function ProgressContent({
         <p role="alert" className="text-13 text-[var(--text-secondary)]">
           {label('dataError')}
         </p>
-        <Button variant="secondary" className="min-h-11 self-start" onClick={onRefresh}>
+        <Button variant="secondary" className="self-start" onClick={onRefresh}>
           {label('retry')}
         </Button>
       </section>
@@ -142,22 +142,23 @@ function ProgressContent({
           {label('completionMeaning')}
         </p>
       </header>
+      {/* 状态筛选：整行小药丸，与应用其它列表页同款高度（28px），不占半屏。 */}
       <div
         role="group"
         aria-label={label('filter')}
-        className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+        className="flex flex-wrap items-center gap-1.5"
       >
         {statuses.map((status) => (
           <Button
             key={status}
             variant={filter === status ? 'primary' : 'secondary'}
+            size="sm"
+            compact
             aria-pressed={filter === status}
-            className="min-h-11 min-w-0"
+            className="min-w-0"
             onClick={() => setFilter(status)}
           >
-            <span className="whitespace-normal break-words">
-              {label(status)} · {count(status)}
-            </span>
+            {label(status)} · {count(status)}
           </Button>
         ))}
       </div>
@@ -187,14 +188,14 @@ function ProgressContent({
                   <Button
                     variant="secondary"
                     tone="quiet"
-                    className="min-h-11 min-w-0 max-w-full justify-start text-left"
+                    className="min-w-0 max-w-full justify-start text-left"
                     onClick={() => onOpenWorkItem(item.sessionId)}
                   >
                     <span className="whitespace-normal break-words [overflow-wrap:anywhere]">
                       {item.title || label('untitled')}
                     </span>
                   </Button>
-                  {onEditWorkItem && <Button variant="secondary" className="min-h-11 whitespace-normal"
+                  {onEditWorkItem && <Button variant="secondary" className="whitespace-normal"
                     aria-label={`${t('ccAgent.projectCore.progressEdit.title')} — ${item.title || label('untitled')}`}
                     onClick={() => onEditWorkItem(item.sessionId)}>{t('ccAgent.projectCore.progressEdit.title')}</Button>}
                   {/* 由自动化创建的工作项：只在真的存在会话 + run + 来源自动化时出现。 */}
@@ -229,7 +230,7 @@ function ProgressContent({
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <Button
                           variant="secondary"
-                          className="min-h-11 whitespace-normal"
+                          className="whitespace-normal"
                           disabled={
                             !executionEntry.canRequest ||
                             !onRequestExecution ||
@@ -246,7 +247,7 @@ function ProgressContent({
                     {!executionEntry.executor && (
                       // 没有可执行的处理人时不给可点控件，也不编造一个执行者名字。
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <Button variant="secondary" className="min-h-11 whitespace-normal" disabled>
+                        <Button variant="secondary" className="whitespace-normal" disabled>
                           {t(`${PREFIX}.execution.actionUnnamed`)}
                         </Button>
                       </div>
@@ -324,7 +325,7 @@ function ProgressContent({
         {view.history.length > 5 && (
           <Button
             variant="secondary"
-            className="min-h-11 self-start"
+            className="self-start"
             aria-expanded={expanded}
             onClick={() => setExpanded((value) => !value)}
           >
@@ -396,7 +397,7 @@ function FollowupControls({
       <div className="flex min-w-0 flex-wrap gap-2">
         <Button
           variant="secondary"
-          className="min-h-11 whitespace-normal"
+          className="whitespace-normal"
           disabled={!allowed('continue')}
           aria-pressed={draft === 'continue'}
           onClick={() => setDraft(draft === 'continue' ? null : 'continue')}
@@ -405,7 +406,7 @@ function FollowupControls({
         </Button>
         <Button
           variant="secondary"
-          className="min-h-11 whitespace-normal"
+          className="whitespace-normal"
           disabled={!allowed('approve')}
           onClick={() => send('approve')}
         >
@@ -413,7 +414,7 @@ function FollowupControls({
         </Button>
         <Button
           variant="secondary"
-          className="min-h-11 whitespace-normal"
+          className="whitespace-normal"
           disabled={!allowed('queue')}
           onClick={() => send('queue')}
         >
@@ -421,7 +422,7 @@ function FollowupControls({
         </Button>
         <Button
           variant="secondary"
-          className="min-h-11 whitespace-normal"
+          className="whitespace-normal"
           disabled={!allowed('model') || options.length === 0}
           aria-pressed={draft === 'model'}
           onClick={() => setDraft(draft === 'model' ? null : 'model')}
@@ -448,13 +449,13 @@ function FollowupControls({
           <div className="flex flex-wrap gap-2">
             <Button
               variant="primary"
-              className="min-h-11 whitespace-normal"
+              className="whitespace-normal"
               disabled={busy !== null || !onFollowup}
               onClick={() => send('continue', instruction.trim() ? { text: instruction.trim() } : undefined)}
             >
               {label('send')}
             </Button>
-            <Button variant="secondary" className="min-h-11 whitespace-normal" onClick={() => setDraft(null)}>
+            <Button variant="secondary" className="whitespace-normal" onClick={() => setDraft(null)}>
               {label('cancel')}
             </Button>
           </div>
@@ -475,7 +476,7 @@ function FollowupControls({
           <div className="flex flex-wrap gap-2">
             <Button
               variant="primary"
-              className="min-h-11 whitespace-normal"
+              className="whitespace-normal"
               disabled={busy !== null || !selected || selected === `${projection.model?.providerId ?? ''}::${projection.model?.current ?? ''}`}
               onClick={() => {
                 const option = options.find((value) => `${value.providerId ?? ''}::${value.model}` === selected);
@@ -485,7 +486,7 @@ function FollowupControls({
             >
               {label('applyModel')}
             </Button>
-            <Button variant="secondary" className="min-h-11 whitespace-normal" onClick={() => setDraft(null)}>
+            <Button variant="secondary" className="whitespace-normal" onClick={() => setDraft(null)}>
               {label('cancel')}
             </Button>
           </div>

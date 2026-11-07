@@ -17,7 +17,7 @@ vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: () => ({ dataOwnerId
 vi.mock('@/contexts/dataOwnerGeneration', () => ({ getDataOwnerGeneration: () => h.generation,
   isDataOwnerGenerationCurrent: (value: number) => value === h.generation }));
 vi.mock('@/features/bots/botStore', () => ({ useBotProfiles: () => [] }));
-vi.mock('../projectLabels', () => ({ useProjectSubjectLabel: () => (value: { id: string }) => value.id, projectSubjectAvatar: () => 'X' }));
+vi.mock('../projectLabels', () => ({ useProjectSubjectLabel: () => (value: { id: string }) => value.id, projectSubjectAvatar: () => 'X', projectSubjectVisual: (subject: { kind: 'account' | 'bot' }, name: string) => ({ kind: subject.kind, name }) }));
 // 页面里的转交负责人/移除成员要二次确认：这个 provider 在应用树外层，测试里给一个恒定的实现。
 vi.mock('@/components/ui/confirm-dialog-provider', () => ({ useConfirmDialog: () => ({ confirm: async () => false }),
   useOptionalConfirmDialog: () => ({ confirm: async () => false }) }));
@@ -33,7 +33,7 @@ vi.mock('../projectService', () => ({ readProjectDetail: h.detail,
 const key = (name: string) => `ccAgent.projectCore.progress.${name}`;
 function detail(id: string): ProjectDetail {
   return { project: { id, name: `Project ${id}`, goal: `Goal ${id}`, ownerId: 'owner', status: 'active',
-    members: [], taskCount: 0, createdAt: '2026-11-05', updatedAt: '2026-11-05' }, workItems: [] };
+    members: [], taskCount: 0, dirs: [], createdAt: '2026-11-05', updatedAt: '2026-11-05' }, workItems: [] };
 }
 function event(eventId: number, projectId = 'p1'): ProjectProgressApiHistoryEntry {
   return { eventId, projectId, sessionId: 'task-0', bindingRevision: 7, from: null, to: 'blocked',

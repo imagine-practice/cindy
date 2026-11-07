@@ -35,7 +35,7 @@ vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => k
 vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: () => ({ dataOwnerId: h.user, dataOwnerGeneration: h.generation }), useOptionalDataOwnerGeneration: () => h.generation }));
 vi.mock('@/contexts/dataOwnerGeneration', () => ({ getDataOwnerGeneration: () => h.generation, isDataOwnerGenerationCurrent: (owner: number) => owner === h.generation }));
 vi.mock('@/features/bots/botStore', () => ({ useBotProfiles: () => [] }));
-vi.mock('../projectLabels', () => ({ useProjectSubjectLabel: () => (s: { id: string }) => s.id, projectSubjectAvatar: () => 'X' }));
+vi.mock('../projectLabels', () => ({ useProjectSubjectLabel: () => (s: { id: string }) => s.id, projectSubjectAvatar: () => 'X', projectSubjectVisual: (subject: { kind: 'account' | 'bot' }, name: string) => ({ kind: subject.kind, name }) }));
 // 页面里的转交负责人/移除成员要二次确认：这个 provider 在应用树外层，测试里给一个恒定的实现。
 vi.mock('@/components/ui/confirm-dialog-provider', () => ({ useConfirmDialog: () => ({ confirm: async () => false }),
   useOptionalConfirmDialog: () => ({ confirm: async () => false }) }));
@@ -43,7 +43,7 @@ vi.mock('@/components/ui/select', () => ({ Select: (props: { label: string; valu
   <select aria-label={props.label} value={props.value} disabled={props.disabled} onChange={event => props.onValueChange(event.target.value)}>
     {props.options.map(o => <option key={o.value} value={o.value} disabled={o.disabled}>{o.label}</option>)}
   </select> }));
-vi.mock('../projectService', () => ({ readProjectDetail: async (id: string) => ({ project: { id, name: `Project ${id}`, goal: '', ownerId: 'owner', members: [], status: 'active', createdAt: '2026-11-05', taskCount: 1 }, workItems: [] }),
+vi.mock('../projectService', () => ({ readProjectDetail: async (id: string) => ({ project: { id, name: `Project ${id}`, goal: '', ownerId: 'owner', members: [], status: 'active', createdAt: '2026-11-05', taskCount: 1, dirs: [] }, workItems: [] }),
   onProjectsChanged: (fn: () => void) => { h.changed = fn; return () => { if (h.changed === fn) h.changed = undefined; }; },
   addProjectMember: vi.fn(), removeProjectMember: vi.fn(), renameProject: vi.fn(), setSessionAssignee: vi.fn(), transferProjectOwner: vi.fn() }));
 let db: Database.Database; let dir: string; let client: DbClient; let bridge: ReturnType<typeof vi.fn>;

@@ -226,7 +226,7 @@ export function ProjectProgressToGroupSection({ projectId, projectName, refreshK
         className="w-full min-w-0 sm:w-[220px]"
       />}
       {/* 没有关联群、读不到进展、或没有确认框时按钮保持可见但禁用：入口在，条件不满足就说清楚。 */}
-      <Button variant="secondary" size="md" className="min-h-11 min-w-0 whitespace-normal" disabled={!canSend}
+      <Button variant="secondary" size="md" className="min-w-0 whitespace-normal" disabled={!canSend}
         onClick={() => { void askAndSend(); }}>
         <Send size={14} strokeWidth={1.75} aria-hidden />
         <span className="min-w-0">{t(sending ? 'projectProgressToGroup.sending' : 'projectProgressToGroup.action')}</span>

@@ -285,7 +285,7 @@ export function ProjectProgressSection({ projectId, refreshKey, onAccessLost, on
       onEditWorkItem={state.status === 'ready' && current.current?.capabilities.canRecord ? openEditor : undefined} />
     {state.status === 'ready' && page?.hasMore && <div className="flex min-w-0 flex-col items-start gap-2">
       {moreError && <p role="alert" className="text-13 text-[var(--danger-text)]">{t('ccAgent.projectCore.progress.earlierFailed')}</p>}
-      <Button variant="secondary" className="min-h-11 whitespace-normal" disabled={loadingMore} onClick={() => void more()}>
+      <Button variant="secondary" className="whitespace-normal" disabled={loadingMore} onClick={() => void more()}>
         {t(`ccAgent.projectCore.progress.${loadingMore ? 'loadingEarlier' : 'loadEarlier'}`)}
       </Button>
     </div>}

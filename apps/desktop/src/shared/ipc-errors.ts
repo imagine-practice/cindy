@@ -381,6 +381,7 @@ export type IpcErrorCode =
   | 'CONTEXT_SCOPE_UNKNOWN'
   | 'PROJECT_NOT_FOUND' // 项目 id 不存在
   | 'PROJECT_ARCHIVED' // 项目已归档（与「账号不可用」分开，避免误导用户去恢复一个没归档的项目）
+  | 'PROJECT_DIR_BOUND' // 目录已被另一个项目认领：一个目录只能属于一个项目
   | 'ACCOUNT_UNAVAILABLE'; // 当前账号不可用/已切换
 
 export interface IpcError {
@@ -646,6 +647,7 @@ const IPC_ERROR_CODES: ReadonlySet<IpcErrorCode> = new Set<IpcErrorCode>([
   'CONTEXT_SCOPE_UNKNOWN',
   'PROJECT_NOT_FOUND',
   'PROJECT_ARCHIVED',
+  'PROJECT_DIR_BOUND',
   'ACCOUNT_UNAVAILABLE',
 ]);
 

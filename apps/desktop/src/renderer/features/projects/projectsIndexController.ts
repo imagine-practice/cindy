@@ -70,6 +70,13 @@ function recordsOf(raw: unknown): ProjectRecord[] {
       members.set(key, member);
     }
     if ([...members.values()].filter((m) => m.role === 'owner').length !== 1) return bad();
+    // 目录是可选的读投影：老宿主不返回时按空数组处理，不把整份列表判成非法。
+    const rawDirs = r.dirs === undefined ? [] : r.dirs;
+    if (!Array.isArray(rawDirs)) return bad();
+    const dirs = rawDirs.map((item) => {
+      const d = object(item);
+      return { dirKey: string(d.dirKey), dirPath: string(d.dirPath) };
+    });
     return {
       id,
       name: string(r.name),
@@ -78,6 +85,7 @@ function recordsOf(raw: unknown): ProjectRecord[] {
       status: r.status,
       members: [...members.values()],
       taskCount: r.taskCount as number,
+      dirs,
       createdAt: string(r.createdAt, true),
       updatedAt: string(r.updatedAt, true),
     };

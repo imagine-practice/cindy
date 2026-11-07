@@ -13989,7 +13989,13 @@
         "submit": "Create project",
         "cancel": "Cancel",
         "nameRequired": "Enter a project name",
-        "creatorMember": "생성 계정 · 필수 구성원"
+        "creatorMember": "생성 계정 · 필수 구성원",
+        "dirs": "프로젝트 폴더",
+        "dirsHint": "이 폴더에서 만든 작업은 기본적으로 이 프로젝트에 속합니다. 폴더 하나는 프로젝트 하나에만 속할 수 있습니다.",
+        "dirsPick": "폴더 선택",
+        "dirsEmpty": "선택한 폴더 없음",
+        "dirRemove": "제거",
+        "ownerRequired": "담당자를 선택하세요"
       },
       "detail": {
         "goal": "Goal",
@@ -14003,6 +14009,11 @@
         "unassigned": "Unassigned",
         "workItems": "Tasks",
         "noWorkItems": "No tasks in this project yet",
+        "dirs": "프로젝트 폴더",
+        "dirsHint": "이 폴더에서 만든 작업은 기본적으로 이 프로젝트에 속합니다. 폴더 하나는 프로젝트 하나에만 속할 수 있습니다.",
+        "addDir": "폴더 추가",
+        "noDirs": "아직 폴더가 없습니다. 작업은 작업 폴더별로 묶이며 이 프로젝트에 속하지 않습니다.",
+        "removeDir": "제거",
         "newTask": "New task in this project",
         "archive": "Archive project",
         "restore": "Restore project",
@@ -14030,7 +14041,8 @@
         "ownerMustTransfer": "Transfer ownership before removing the current owner.",
         "notMember": "Only project members can be assigned or own the project.",
         "taskUnbound": "Bind this task to a project before assigning it.",
-        "generic": "The project change did not go through."
+        "generic": "The project change did not go through.",
+        "dirBound": "이 폴더는 이미 다른 프로젝트에 속해 있습니다"
       },
       "progress": {
         "title": "진행 상황",

@@ -49,7 +49,9 @@ export type ProjectAccessAction =
   | 'removeMember'
   | 'transferOwner'
   /** 删除整个项目（真删除）：项目级设置，只有负责人能做。 */
-  | 'deleteProject';
+  | 'deleteProject'
+  /** 认领 / 取消工作目录会改变此后新任务的默认归属，属于项目级设置。 */
+  | 'manageDirs';
 
 /**
  * 动作 → 所需角色（最小权限约定）。
@@ -69,6 +71,7 @@ const ACTION_ACCESS: Record<ProjectAccessAction, Exclude<ProjectAccessLevel, 'no
   removeMember: 'owner',
   transferOwner: 'owner',
   deleteProject: 'owner',
+  manageDirs: 'owner',
 };
 
 /** 该动作需要的最低角色。未知动作按最严处理（负责人），避免新动作默认放行。 */

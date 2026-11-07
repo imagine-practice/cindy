@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { useOptionalAuth } from '@/contexts/AuthContext';
 import { useBotProfiles } from '@/features/bots/botStore';
 import type { ProjectSubject } from '../../../shared/projects';
+import type { ProjectSubjectVisual } from './ProjectSubjectAvatar';
 
 export function useProjectSubjectLabel(): (subject: ProjectSubject | null) => string {
   const auth = useOptionalAuth();
@@ -30,7 +31,24 @@ export function useProjectSubjectLabel(): (subject: ProjectSubject | null) => st
   };
 }
 
-/** 头像 emoji：账号用中性人形，伙伴用档案里的头像。 */
+/**
+ * 头像主体：账号无头像资源，伙伴沿用档案里的头像值（可能是预设哨兵或托管图片）。
+ * 渲染一律交给 ProjectSubjectAvatar，不要把 `avatar` 字符串拼进文本。
+ */
+export function projectSubjectVisual(
+  subject: ProjectSubject | null,
+  name: string,
+): ProjectSubjectVisual {
+  if (!subject) return { kind: 'account', name };
+  return {
+    kind: subject.kind,
+    name,
+    avatar: subject.avatar ?? null,
+    avatarColor: subject.avatarColor ?? null,
+  };
+}
+
+/** @deprecated 仅保留给旧调用点与测试替身；新代码用 ProjectSubjectAvatar。 */
 export function projectSubjectAvatar(subject: ProjectSubject | null): string {
   if (!subject) return '👤';
   return subject.kind === 'account' ? '👤' : (subject.avatar ?? '🤖');

@@ -13989,7 +13989,13 @@
         "submit": "Create project",
         "cancel": "Cancel",
         "nameRequired": "Enter a project name",
-        "creatorMember": "创建之账号 · 必选成员"
+        "creatorMember": "创建之账号 · 必选成员",
+        "dirs": "专案目录",
+        "dirsHint": "于此诸目录新造之务，默归本专案；一目录惟属一专案。",
+        "dirsPick": "择目录",
+        "dirsEmpty": "未择目录",
+        "dirRemove": "去之",
+        "ownerRequired": "请择负责人"
       },
       "detail": {
         "goal": "Goal",
@@ -14003,6 +14009,11 @@
         "unassigned": "Unassigned",
         "workItems": "Tasks",
         "noWorkItems": "No tasks in this project yet",
+        "dirs": "专案目录",
+        "dirsHint": "于此诸目录新造之务，默归本专案；一目录惟属一专案。",
+        "addDir": "增目录",
+        "noDirs": "尚无目录。其务仍依工目分组，不归本专案。",
+        "removeDir": "去之",
         "newTask": "New task in this project",
         "archive": "Archive project",
         "restore": "Restore project",
@@ -14030,7 +14041,8 @@
         "ownerMustTransfer": "Transfer ownership before removing the current owner.",
         "notMember": "Only project members can be assigned or own the project.",
         "taskUnbound": "Bind this task to a project before assigning it.",
-        "generic": "The project change did not go through."
+        "generic": "The project change did not go through.",
+        "dirBound": "此目录已为他专案所据"
       },
       "progress": {
         "title": "进度",

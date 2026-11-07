@@ -10,7 +10,7 @@
  * 所以右键菜单、重命名、置顶等行为与目录段完全一致。
  */
 import { memo } from 'react';
-import { ChevronDown, ChevronRight, FolderKanban, Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, FolderKanban, Layers, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { cn } from '@/lib/utils';
@@ -75,9 +75,9 @@ export const EntityProjectsSection = memo(function EntityProjectsSection({
   const { t } = useTranslation();
   if (projects.length === 0) {
     return (
-      <section className="flex flex-col gap-1 px-2 pb-1">
+      <section className="flex flex-col gap-0.5 px-2 pb-1">
         <SectionHeader label={t('ccAgent.projectCore.sectionTitle')} onNewProject={onNewProject} onOpenProjects={onOpenProjects} />
-        <p className="px-2 text-12 text-[var(--settings-section-desc)]">
+        <p className="px-3 text-12 text-[var(--settings-section-desc)]">
           {t('ccAgent.projectCore.emptyList')}
         </p>
       </section>
@@ -92,34 +92,35 @@ export const EntityProjectsSection = memo(function EntityProjectsSection({
         const sessions: readonly Session[] = project.sessions;
         return (
           <div key={project.projectKey} className="flex min-w-0 flex-col">
-            <div className="group/project-row flex h-7 min-w-0 items-center gap-1 rounded-lg pr-1 hover:bg-[var(--sidebar-item-hover)]">
+            <div className="group/project-row flex h-8 min-w-0 items-center gap-1 rounded-full pr-2 hover:bg-[var(--sidebar-item-hover)]">
               <button
                 type="button"
                 onClick={() => onToggleProject(project.projectKey)}
                 aria-label={project.displayName}
                 aria-expanded={!isCollapsed}
-                className="flex size-6 shrink-0 items-center justify-center rounded-full text-[var(--settings-section-desc)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                className="flex size-6 shrink-0 items-center justify-center rounded-full text-[var(--cmd-palette-item-meta)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
               >
                 {isCollapsed ? (
-                  <ChevronRight size={14} strokeWidth={2} />
+                  <ChevronRight size={13} strokeWidth={2} />
                 ) : (
-                  <ChevronDown size={14} strokeWidth={2} />
+                  <ChevronDown size={13} strokeWidth={2} />
                 )}
               </button>
+              {/* 与目录分组行同款：15px 线条图标 + 14px 常重文字，行高/圆角/左右边界一致。 */}
               <FolderKanban
-                size={14}
-                strokeWidth={1.75}
-                className="shrink-0 text-[var(--settings-section-desc)]"
+                size={15}
+                strokeWidth={1.8}
+                className="shrink-0 text-[var(--folder-item-icon)]"
               />
               <button
                 type="button"
                 onClick={() => onOpenProject(project.entityProjectId as string)}
-                className="min-w-0 flex-1 truncate text-left text-13 font-medium text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
+                className="min-w-0 flex-1 truncate text-left text-sm font-normal text-[var(--sidebar-list-muted)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
                 title={project.displayName}
               >
                 {project.displayName}
               </button>
-              <span className="shrink-0 text-11 text-[var(--settings-section-desc)]">
+              <span className="shrink-0 text-11 text-[var(--cmd-palette-item-meta)]">
                 {t('ccAgent.projectCore.taskCount', { count: sessions.length })}
               </span>
             </div>
@@ -163,9 +164,10 @@ function SectionHeader({
 }): React.ReactElement {
   const { t } = useTranslation();
   return (
-    <div className="flex h-7 items-center justify-between gap-2 px-2">
+    <div className="group/section flex h-8 items-center gap-2.5 rounded-full pl-3 pr-2 hover:bg-[var(--sidebar-item-hover)]">
+      <Layers size={15} strokeWidth={1.8} aria-hidden className="shrink-0 text-[var(--sidebar-list-muted)]" />
       <button type="button" onClick={onOpenProjects}
-        className="min-h-7 flex-1 rounded-lg text-left text-11 font-medium uppercase tracking-wide text-[var(--settings-section-desc)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]">
+        className="min-w-0 flex-1 truncate text-left text-sm font-normal text-[var(--sidebar-list-muted)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]">
         {label}
       </button>
       <Button
@@ -175,7 +177,7 @@ function SectionHeader({
         compact
         onClick={onNewProject}
         aria-label={t('ccAgent.projectCore.newProject')}
-        className={cn('shrink-0')}
+        className={cn('shrink-0 opacity-0 transition-opacity group-hover/section:opacity-100 focus-visible:opacity-100')}
       >
         <Plus size={13} strokeWidth={2} />
       </Button>

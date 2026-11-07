@@ -14,7 +14,7 @@ import { ProjectProgressToGroupSection } from './progress/ProjectProgressToGroup
  * `projects:changed` 广播（含其他窗口与任务侧栏），本页据此重拉。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, FolderKanban, Trash2, UserMinus, UserPlus } from 'lucide-react';
+import { ArrowLeft, FolderKanban, Plus, Trash2, UserMinus, UserPlus } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
@@ -31,23 +31,28 @@ import {
   projectSubjectKey,
   type ProjectDetail,
   type ProjectMember,
+  type ProjectSubject,
   type ProjectSubjectRef,
   type ProjectWorkItem,
 } from '../../../shared/projects';
 import {
+  addProjectDir,
   addProjectMember,
   deleteProject,
   onProjectsChanged,
   readProjectDetail,
+  removeProjectDir,
   removeProjectMember,
   renameProject,
   setSessionAssignee,
   transferProjectOwner,
 } from './projectService';
+import { projectIdentityKey } from '../../../shared/projectKeys';
 import { EditProjectDialog } from './EditProjectDialog';
 import { ProjectLinkedGroupsSection } from './ProjectLinkedGroupsSection';
 import { projectErrorKey } from './projectErrors';
-import { projectSubjectAvatar, useProjectSubjectLabel } from './projectLabels';
+import { projectSubjectVisual, useProjectSubjectLabel } from './projectLabels';
+import { ProjectSubjectAvatar } from './ProjectSubjectAvatar';
 
 const UNASSIGNED = '';
 
@@ -115,22 +120,27 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
 
   /** 可选主体：当前账号 + 全部未删除伙伴。 */
   const candidates = useMemo(() => {
-    const list: Array<{ key: string; ref: ProjectSubjectRef; label: string; avatar: string }> = [];
+    const list: Array<{ key: string; ref: ProjectSubjectRef; visual: ReturnType<typeof projectSubjectVisual> }> = [];
     if (dataOwnerId) {
+      const accountSubject: ProjectSubject = { kind: 'account', id: dataOwnerId, displayName: null, avatar: null, avatarColor: null };
       list.push({
         key: `account:${dataOwnerId}`,
         ref: { kind: 'account', id: dataOwnerId },
-        label: subjectLabel({ kind: 'account', id: dataOwnerId, displayName: null, avatar: null, avatarColor: null }),
-        avatar: '👤',
+        visual: projectSubjectVisual(accountSubject, subjectLabel(accountSubject)),
       });
     }
     for (const bot of bots) {
       if (bot.status === 'deleting') continue;
+      const ref: ProjectSubjectRef = { kind: 'bot', id: bot.id };
       list.push({
         key: `bot:${bot.id}`,
-        ref: { kind: 'bot', id: bot.id },
-        label: bot.name,
-        avatar: bot.avatar || '🤖',
+        ref,
+        visual: {
+          kind: 'bot',
+          name: bot.name,
+          avatar: bot.avatar,
+          avatarColor: bot.avatarColor,
+        },
       });
     }
     return list;
@@ -320,6 +330,73 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
           <section className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-14 font-medium text-[var(--settings-section-title)]">
+                {t('ccAgent.projectCore.detail.dirs')}
+              </h2>
+              {canEditMetadata && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  compact
+                  disabled={busyKey !== null}
+                  onClick={() => {
+                    void (async () => {
+                      const picked = await window.electronAPI.showOpenDirectoryDialog().catch(() => null);
+                      if (!picked || picked.canceled || !picked.path) return;
+                      const dirPath = picked.path;
+                      const dirKey = projectIdentityKey('local', dirPath, null);
+                      await run('dir:add', () => addProjectDir(project.id, { dirKey, dirPath }));
+                    })();
+                  }}
+                >
+                  <Plus size={13} strokeWidth={1.75} className="mr-1" />
+                  {t('ccAgent.projectCore.detail.addDir')}
+                </Button>
+              )}
+            </div>
+            <p className="text-12 leading-normal text-[var(--settings-section-desc)]">
+              {t('ccAgent.projectCore.detail.dirsHint')}
+            </p>
+            {project.dirs.length === 0 ? (
+              <p className="text-13 text-[var(--settings-section-desc)]">
+                {t('ccAgent.projectCore.detail.noDirs')}
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-1">
+                {project.dirs.map((dir) => (
+                  <li
+                    key={dir.dirKey}
+                    className="flex min-w-0 items-center gap-2 rounded-lg bg-[var(--surface-chip)] px-2 py-1.5 text-12"
+                  >
+                    <FolderKanban
+                      size={14}
+                      strokeWidth={1.8}
+                      className="shrink-0 text-[var(--folder-item-icon)]"
+                    />
+                    <span className="min-w-0 flex-1 truncate text-[var(--text-primary)]" title={dir.dirPath}>
+                      {dir.dirPath}
+                    </span>
+                    {canEditMetadata && (
+                      <Button
+                        variant="secondary"
+                        size="xxs"
+                        tone="quiet"
+                        compact
+                        disabled={busyKey !== null}
+                        onClick={() => void run(`dir:${dir.dirKey}`, () =>
+                          removeProjectDir(project.id, dir.dirKey))}
+                      >
+                        {t('ccAgent.projectCore.detail.removeDir')}
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section className="flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-14 font-medium text-[var(--settings-section-title)]">
                 {t('ccAgent.projectCore.detail.members')}
               </h2>
               {addableCandidates.length > 0 && (
@@ -328,7 +405,8 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
                   value=""
                   options={addableCandidates.map((candidate) => ({
                     value: candidate.key,
-                    label: `${candidate.avatar} ${candidate.label}`,
+                    label: candidate.visual.name,
+                    endAdornment: <ProjectSubjectAvatar subject={candidate.visual} />,
                   }))}
                   onValueChange={(value) => {
                     const candidate = addableCandidates.find((item) => item.key === value);
@@ -489,9 +567,7 @@ function MemberRow({
   const isOwner = member.role === 'owner';
   return (
     <li className="flex h-9 items-center gap-2 rounded-lg px-2 text-13 text-[var(--text-primary)]">
-      <span className="shrink-0" aria-hidden>
-        {projectSubjectAvatar(member.subject)}
-      </span>
+      <ProjectSubjectAvatar subject={projectSubjectVisual(member.subject, label)} />
       <span className="truncate">{label}</span>
       {isOwner && (
         <span className="shrink-0 rounded-full bg-[var(--surface-chip)] px-2 py-0.5 text-11 leading-none text-[var(--text-secondary)]">
@@ -542,10 +618,14 @@ function WorkItemRow({
   const { t } = useTranslation();
   const options = [
     { value: UNASSIGNED, label: t('ccAgent.projectCore.detail.unassigned') },
-    ...members.map((member) => ({
-      value: projectSubjectKey(member.subject),
-      label: member.subject.displayName ?? member.subject.id,
-    })),
+    ...members.map((member) => {
+      const name = member.subject.displayName ?? member.subject.id;
+      return {
+        value: projectSubjectKey(member.subject),
+        label: name,
+        endAdornment: <ProjectSubjectAvatar subject={projectSubjectVisual(member.subject, name)} />,
+      };
+    }),
   ];
   return (
     <li className="flex min-h-10 items-center gap-3 border-b border-[var(--cmd-palette-border)] py-2 last:border-b-0">
@@ -574,9 +654,12 @@ function WorkItemRow({
         className="w-[168px]"
         triggerAdornment={
           item.assignee ? (
-            <span className="shrink-0" aria-hidden>
-              {projectSubjectAvatar(item.assignee)}
-            </span>
+            <ProjectSubjectAvatar
+              subject={projectSubjectVisual(
+                item.assignee,
+                item.assignee.displayName ?? item.assignee.id,
+              )}
+            />
           ) : null
         }
       />

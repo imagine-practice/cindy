@@ -14184,7 +14184,13 @@
         "submit": "Create project",
         "cancel": "Cancel",
         "nameRequired": "Enter a project name",
-        "creatorMember": "Cuenta creadora · Miembro obligatorio"
+        "creatorMember": "Cuenta creadora · Miembro obligatorio",
+        "dirs": "Carpetas del proyecto",
+        "dirsHint": "Las tareas creadas en estas carpetas pertenecen a este proyecto de forma predeterminada. Una carpeta solo puede pertenecer a un proyecto.",
+        "dirsPick": "Elegir carpeta",
+        "dirsEmpty": "Sin carpetas seleccionadas",
+        "dirRemove": "Quitar",
+        "ownerRequired": "Selecciona un responsable"
       },
       "detail": {
         "goal": "Goal",
@@ -14198,6 +14204,11 @@
         "unassigned": "Unassigned",
         "workItems": "Tasks",
         "noWorkItems": "No tasks in this project yet",
+        "dirs": "Carpetas del proyecto",
+        "dirsHint": "Las tareas nuevas en estas carpetas se asignan a este proyecto por defecto. Una carpeta solo puede pertenecer a un proyecto.",
+        "addDir": "Añadir carpeta",
+        "noDirs": "Aún no hay carpetas. Las tareas siguen agrupadas por carpeta de trabajo y no forman parte de este proyecto.",
+        "removeDir": "Quitar",
         "newTask": "New task in this project",
         "archive": "Archive project",
         "restore": "Restore project",
@@ -14225,7 +14236,8 @@
         "ownerMustTransfer": "Transfer ownership before removing the current owner.",
         "notMember": "Only project members can be assigned or own the project.",
         "taskUnbound": "Bind this task to a project before assigning it.",
-        "generic": "The project change did not go through."
+        "generic": "The project change did not go through.",
+        "dirBound": "Esa carpeta ya pertenece a otro proyecto"
       },
       "progress": {
         "title": "Progreso",

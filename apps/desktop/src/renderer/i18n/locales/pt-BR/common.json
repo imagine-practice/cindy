@@ -14184,7 +14184,13 @@
         "submit": "Create project",
         "cancel": "Cancel",
         "nameRequired": "Enter a project name",
-        "creatorMember": "Conta criadora · Membro obrigatório"
+        "creatorMember": "Conta criadora · Membro obrigatório",
+        "dirs": "Pastas do projeto",
+        "dirsHint": "As tarefas criadas nestas pastas pertencem a este projeto por padrão. Uma pasta só pode pertencer a um projeto.",
+        "dirsPick": "Escolher pasta",
+        "dirsEmpty": "Nenhuma pasta selecionada",
+        "dirRemove": "Remover",
+        "ownerRequired": "Selecione um responsável"
       },
       "detail": {
         "goal": "Goal",
@@ -14198,6 +14204,11 @@
         "unassigned": "Unassigned",
         "workItems": "Tasks",
         "noWorkItems": "No tasks in this project yet",
+        "dirs": "Pastas do projeto",
+        "dirsHint": "As novas tarefas nestas pastas entram neste projeto por padrão. Uma pasta só pode pertencer a um projeto.",
+        "addDir": "Adicionar pasta",
+        "noDirs": "Ainda não há pastas. As tarefas continuam agrupadas por pasta de trabalho e não fazem parte deste projeto.",
+        "removeDir": "Remover",
         "newTask": "New task in this project",
         "archive": "Archive project",
         "restore": "Restore project",
@@ -14225,7 +14236,8 @@
         "ownerMustTransfer": "Transfer ownership before removing the current owner.",
         "notMember": "Only project members can be assigned or own the project.",
         "taskUnbound": "Bind this task to a project before assigning it.",
-        "generic": "The project change did not go through."
+        "generic": "The project change did not go through.",
+        "dirBound": "Essa pasta já pertence a outro projeto"
       },
       "progress": {
         "title": "Progresso",

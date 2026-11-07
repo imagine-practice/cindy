@@ -21,7 +21,7 @@ vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: () => ({ dataOwnerId
 vi.mock('@/contexts/dataOwnerGeneration', () => ({ getDataOwnerGeneration: () => env.generation,
   isDataOwnerGenerationCurrent: (owner: number) => owner === env.generation }));
 vi.mock('@/features/bots/botStore', () => ({ useBotProfiles: () => [] }));
-vi.mock('../projectLabels', () => ({ useProjectSubjectLabel: () => (subject: { id: string }) => subject.id, projectSubjectAvatar: () => 'X' }));
+vi.mock('../projectLabels', () => ({ useProjectSubjectLabel: () => (subject: { id: string }) => subject.id, projectSubjectAvatar: () => 'X', projectSubjectVisual: (subject: { kind: 'account' | 'bot' }, name: string) => ({ kind: subject.kind, name }) }));
 vi.mock('@/components/ui/select', () => ({ Select: (props: { label: string; value: string; disabled?: boolean;
   options: { value: string; label: string }[]; onValueChange(value: string): void }) =>
   <select aria-label={props.label} value={props.value} disabled={props.disabled}
@@ -49,7 +49,7 @@ vi.mock('../projectService', async importOriginal => {
 }; } );
 function detail(id: string, name = id): ProjectDetail {
   return { project: { id, name, goal: null, status: 'active', ownerId: 'owner', members: [],
-    taskCount: 0, createdAt: '', updatedAt: '' }, workItems: [] };
+    taskCount: 0, dirs: [], createdAt: '', updatedAt: '' }, workItems: [] };
 }
 function pending<T>() {
   let resolve!: (value: T) => void;

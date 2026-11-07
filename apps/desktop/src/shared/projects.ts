@@ -44,6 +44,18 @@ export interface ProjectMember {
   addedAt: string;
 }
 
+/**
+ * 项目目录：把「按工作目录归组」的目录认领到项目上。
+ *
+ * 身份只用 `dirKey`（`local:<path>` / `remote:<host>:<path>` / `device:<id>:<path>`，
+ * 与侧栏分组同一个口径）；`dirPath` 只用于展示，不参与判定。一个目录同时只能属于
+ * 一个项目，由 `uniq_project_dirs_dir_key` 保证；项目可以有多条目录。
+ */
+export interface ProjectDir {
+  dirKey: string;
+  dirPath: string;
+}
+
 export interface ProjectRecord {
   id: string;
   name: string;
@@ -53,6 +65,8 @@ export interface ProjectRecord {
   members: ProjectMember[];
   /** 绑定到本项目的任务数（不含已删除任务）。 */
   taskCount: number;
+  /** 认领的工作目录；在该目录下新建的任务默认归属本项目。 */
+  dirs: ProjectDir[];
   createdAt: string;
   updatedAt: string;
 }
@@ -79,6 +93,8 @@ export interface ProjectCreateInput {
   owner?: ProjectSubjectRef;
   /** 其余成员。负责人会被去重剔除，不会重复插入。 */
   members?: ProjectSubjectRef[];
+  /** 要认领的工作目录；已被别的项目认领的目录会让整次创建失败。 */
+  dirs?: ProjectDir[];
 }
 
 /**
@@ -99,6 +115,9 @@ export type ProjectsAction =
   | { action: 'addMember'; projectId: string; subject: ProjectSubjectRef }
   | { action: 'removeMember'; projectId: string; subject: ProjectSubjectRef }
   | { action: 'transferOwner'; projectId: string; subject: ProjectSubjectRef }
+  /** 认领一个工作目录。只能认领未被别的项目认领的目录。 */
+  | { action: 'addDir'; projectId: string; dirKey: string; dirPath: string }
+  | { action: 'removeDir'; projectId: string; dirKey: string }
   | { action: 'bindSession'; sessionId: string; projectId: string | null }
   | { action: 'setAssignee'; sessionId: string; assignee: ProjectSubjectRef | null }
   /**
@@ -132,6 +151,9 @@ export const PROJECTS_MUTATE_CHANNEL = 'local-db:projects:mutate';
 /** 项目名上限：侧栏单行可读，同时挡住误把整段说明粘进名称。 */
 export const PROJECT_NAME_MAX_LENGTH = 120;
 export const PROJECT_GOAL_MAX_LENGTH = 2000;
+/** 目录键上限：Windows 长路径 + 远端前缀仍留足余量，只挡异常超长输入。 */
+export const PROJECT_DIR_KEY_MAX_LENGTH = 4096;
+export const PROJECT_DIR_PATH_MAX_LENGTH = 4096;
 
 export function isProjectSubjectKind(value: unknown): value is ProjectSubjectKind {
   return value === 'account' || value === 'bot';

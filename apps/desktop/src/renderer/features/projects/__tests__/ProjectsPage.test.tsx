@@ -85,6 +85,7 @@ function project(id = 'p1', patch: Partial<ProjectRecord> = {}): ProjectRecord {
     status: 'active',
     members: [member(), member('bot', 'creator', 'member'), member('bot', 'creator', 'member')],
     taskCount: 4,
+    dirs: [],
     createdAt: '2026-11-05T00:00:00Z',
     updatedAt: '2026-11-05T00:00:00Z',
     ...patch,
@@ -287,9 +288,7 @@ it('uses frozen real dialog -> real create service, then rereads only on confirm
   fireEvent.change(await screen.findByPlaceholderText('ccAgent.projectCore.form.namePlaceholder'), {
     target: { value: 'Created project' },
   });
-  fireEvent.change(screen.getByRole('combobox', { name: 'ccAgent.projectCore.form.owner' }), {
-    target: { value: 'bot:creator' },
-  });
+  fireEvent.click(screen.getByRole('radio', { name: /Bot owner/ }));
   fireEvent.click(screen.getByRole('button', { name: 'ccAgent.projectCore.form.submit' }));
   await waitFor(() => expect(api.list).toHaveBeenCalledTimes(2));
   expect(api.mutate).toHaveBeenCalledExactlyOnceWith({
@@ -299,8 +298,23 @@ it('uses frozen real dialog -> real create service, then rereads only on confirm
       goal: null,
       owner: { kind: 'bot', id: 'creator' },
       members: [{ kind: 'account', id: 'creator' }],
+      dirs: [],
     },
   });
+});
+it('never preselects an owner and refuses to submit without one', async () => {
+  render(<ProjectsPage onOpenProject={openProject} />);
+  await ready();
+  fireEvent.click(newButton());
+  fireEvent.change(await screen.findByPlaceholderText('ccAgent.projectCore.form.namePlaceholder'), {
+    target: { value: 'No owner yet' },
+  });
+  const radios = screen.getAllByRole('radio');
+  expect(radios.length).toBeGreaterThan(0);
+  expect(radios.every((radio) => !(radio as HTMLInputElement).checked)).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'ccAgent.projectCore.form.submit' }));
+  await waitFor(() => expect(screen.getByText('ccAgent.projectCore.form.ownerRequired')).toBeTruthy());
+  expect(api.mutate).not.toHaveBeenCalled();
 });
 it.each(['resolve', 'reject'] as const)(
   'old create %s after epoch change cannot reload/close current form or show old error',

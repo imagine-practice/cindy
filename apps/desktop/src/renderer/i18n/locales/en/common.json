@@ -14055,7 +14055,13 @@
         "submit": "Create project",
         "cancel": "Cancel",
         "nameRequired": "Enter a project name",
-        "creatorMember": "Creating account · Required member"
+        "creatorMember": "Creating account · Required member",
+        "dirs": "Project folders",
+        "dirsHint": "Tasks created in these folders belong to this project by default. A folder can belong to only one project.",
+        "dirsPick": "Choose folder",
+        "dirsEmpty": "No folders selected",
+        "dirRemove": "Remove",
+        "ownerRequired": "Select an owner"
       },
       "detail": {
         "goal": "Goal",
@@ -14069,6 +14075,11 @@
         "unassigned": "Unassigned",
         "workItems": "Tasks",
         "noWorkItems": "No tasks in this project yet",
+        "dirs": "Project folders",
+        "dirsHint": "New tasks in these folders default to this project. A folder can belong to only one project.",
+        "addDir": "Add folder",
+        "noDirs": "No folders yet. Tasks stay grouped by working folder and are not part of this project.",
+        "removeDir": "Remove",
         "newTask": "New task in this project",
         "archive": "Archive project",
         "restore": "Restore project",
@@ -14096,7 +14107,8 @@
         "ownerMustTransfer": "Transfer ownership before removing the current owner.",
         "notMember": "Only project members can be assigned or own the project.",
         "taskUnbound": "Bind this task to a project before assigning it.",
-        "generic": "The project change did not go through."
+        "generic": "The project change did not go through.",
+        "dirBound": "That folder already belongs to another project"
       },
       "progress": {
         "title": "Progress",

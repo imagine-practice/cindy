@@ -10,12 +10,12 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
+import { FolderKanban } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/ui/form-field';
 import { Input, Textarea } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { useOptionalAuth } from '@/contexts/AuthContext';
 import { getDataOwnerGeneration, isDataOwnerGenerationCurrent } from '@/contexts/dataOwnerGeneration';
@@ -23,8 +23,11 @@ import { useBotProfiles } from '@/features/bots/botStore';
 import {
   PROJECT_GOAL_MAX_LENGTH,
   PROJECT_NAME_MAX_LENGTH,
+  type ProjectDir,
   type ProjectSubjectRef,
 } from '../../../shared/projects';
+import { projectIdentityKey } from '../../../shared/projectKeys';
+import { ProjectSubjectAvatar, type ProjectSubjectVisual } from './ProjectSubjectAvatar';
 import { createProject } from './projectService';
 import { projectErrorKey } from './projectErrors';
 
@@ -56,7 +59,9 @@ function NewProjectDialogScope({
   const [name, setName] = useState('');
   const [goal, setGoal] = useState('');
   const [ownerKey, setOwnerKey] = useState('');
+  const [ownerError, setOwnerError] = useState(false);
   const [memberKeys, setMemberKeys] = useState<string[]>([]);
+  const [dirs, setDirs] = useState<ProjectDir[]>([]);
   const [nameError, setNameError] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -75,13 +80,12 @@ function NewProjectDialogScope({
 
   /** 可选主体：当前账号 + 全部未删除的伙伴。 */
   const candidates = useMemo(() => {
-    const list: Array<{ key: string; ref: ProjectSubjectRef; label: string; avatar: string }> = [];
+    const list: Array<{ key: string; ref: ProjectSubjectRef; visual: ProjectSubjectVisual }> = [];
     if (dataOwnerId) {
       list.push({
         key: `account:${dataOwnerId}`,
         ref: { kind: 'account', id: dataOwnerId },
-        label: accountLabel,
-        avatar: '👤',
+        visual: { kind: 'account', name: accountLabel },
       });
     }
     for (const bot of bots) {
@@ -89,8 +93,12 @@ function NewProjectDialogScope({
       list.push({
         key: `bot:${bot.id}`,
         ref: { kind: 'bot', id: bot.id },
-        label: bot.name,
-        avatar: bot.avatar || '🤖',
+        visual: {
+          kind: 'bot',
+          name: bot.name,
+          avatar: bot.avatar,
+          avatarColor: bot.avatarColor,
+        },
       });
     }
     return list;
@@ -101,13 +109,16 @@ function NewProjectDialogScope({
     if (!open) return;
     setName('');
     setGoal('');
-    setOwnerKey(accountKey);
+    // 负责人不预选：默认替用户认领一个负责人，等于替用户做了业务决定。
+    setOwnerKey('');
     setMemberKeys([]);
+    setDirs([]);
     setNameError(false);
+    setOwnerError(false);
     setSubmitError(null);
   }, [accountKey, open]);
 
-  const selectedOwner = ownerKey || accountKey;
+  const selectedOwner = ownerKey;
 
   const submit = async (event: React.FormEvent): Promise<void> => {
     event.preventDefault();
@@ -119,7 +130,7 @@ function NewProjectDialogScope({
     }
     const owner = candidates.find((candidate) => candidate.key === selectedOwner);
     if (!owner) {
-      setSubmitError(t('ccAgent.projectCore.error.generic'));
+      setOwnerError(true);
       return;
     }
     const members = candidates
@@ -138,6 +149,7 @@ function NewProjectDialogScope({
         goal: goal.trim() ? goal.trim() : null,
         owner: owner.ref,
         members,
+        dirs,
       });
       if (!valid()) return;
       onOpenChange(false);
@@ -150,6 +162,18 @@ function NewProjectDialogScope({
         setBusy(false);
       }
     }
+  };
+
+  /** 原生目录选择：只认本地目录，目录键与侧栏分组同一口径（local:<path>）。 */
+  const pickDir = async (): Promise<void> => {
+    const picked = await window.electronAPI.showOpenDirectoryDialog().catch(() => null);
+    if (!picked || picked.canceled || !picked.path) return;
+    const dirPath = picked.path;
+    const dirKey = projectIdentityKey('local', dirPath, null);
+    setDirs((current) =>
+      current.some((dir) => dir.dirKey === dirKey) ? current : [...current, { dirKey, dirPath }],
+    );
+    setSubmitError(null);
   };
 
   const toggleMember = (key: string): void => {
@@ -222,24 +246,104 @@ function NewProjectDialogScope({
                 )}
               </FormField>
 
-              <FormField label={t('ccAgent.projectCore.form.owner')}>
+              {/* 负责人：不预选、用行列表而不是下拉——头像和名字要一起看见，
+                  下拉只能塞字符串，内部哨兵值会直接漏到界面上。 */}
+              <div className="flex min-w-0 flex-col gap-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-13 font-medium text-[var(--settings-section-title)]">
+                    {t('ccAgent.projectCore.form.dirs')}
+                  </span>
+                  <Button type="button" variant="secondary" size="sm" compact onClick={() => void pickDir()}>
+                    {t('ccAgent.projectCore.form.dirsPick')}
+                  </Button>
+                </div>
+                <p className="text-12 leading-normal text-[var(--settings-section-desc)]">
+                  {t('ccAgent.projectCore.form.dirsHint')}
+                </p>
+                {dirs.length === 0 ? (
+                  <p className="text-12 text-[var(--settings-section-desc)]">
+                    {t('ccAgent.projectCore.form.dirsEmpty')}
+                  </p>
+                ) : (
+                  <ul className="flex flex-col gap-1">
+                    {dirs.map((dir) => (
+                      <li key={dir.dirKey} className="flex min-w-0 items-center gap-2 rounded-lg bg-[var(--surface-chip)] px-2 py-1.5">
+                        <FolderKanban size={14} strokeWidth={1.8} className="shrink-0 text-[var(--folder-item-icon)]" />
+                        <span className="min-w-0 flex-1 truncate text-12 text-[var(--text-primary)]" title={dir.dirPath}>
+                          {dir.dirPath}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="xxs"
+                          tone="quiet"
+                          compact
+                          aria-label={t('ccAgent.projectCore.form.dirRemove')}
+                          onClick={() => setDirs((current) => current.filter((item) => item.dirKey !== dir.dirKey))}
+                        >
+                          {t('ccAgent.projectCore.form.dirRemove')}
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <FormField
+                label={t('ccAgent.projectCore.form.owner')}
+                error={ownerError ? t('ccAgent.projectCore.form.ownerRequired') : undefined}
+                required
+              >
                 {(control) => (
-                  <Select
-                    {...control}
-                    label={t('ccAgent.projectCore.form.owner')}
-                    value={selectedOwner}
-                    options={candidates.map((candidate) => ({
-                      value: candidate.key,
-                      label: `${candidate.avatar} ${candidate.label}`,
-                    }))}
-                    onValueChange={(value) => {
-                      setOwnerKey(value);
-                      setMemberKeys((current) =>
-                        current.includes(value) ? current : [...current, value],
+                  <ul
+                    role="radiogroup"
+                    aria-label={t('ccAgent.projectCore.form.owner')}
+                    aria-required
+                    aria-invalid={ownerError || undefined}
+                    aria-describedby={control['aria-describedby']}
+                    className="flex max-h-[168px] flex-col gap-0.5 overflow-y-auto"
+                  >
+                    {candidates.map((candidate) => {
+                      const selected = candidate.key === selectedOwner;
+                      return (
+                        <li key={candidate.key}>
+                          <label
+                            className={cn(
+                              'flex h-9 min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2',
+                              'text-13 text-[var(--text-primary)] transition-colors',
+                              selected
+                                ? 'bg-[var(--surface-chip)]'
+                                : 'hover:bg-[var(--surface-hover)]',
+                            )}
+                          >
+                            <input
+                              type="radio"
+                              name={control.id}
+                              className="size-3.5 accent-[var(--text-primary)]"
+                              checked={selected}
+                              onChange={() => {
+                                setOwnerKey(candidate.key);
+                                setMemberKeys((current) =>
+                                  current.includes(candidate.key) || candidate.key === accountKey
+                                    ? current
+                                    : [...current, candidate.key],
+                                );
+                                setOwnerError(false);
+                                setSubmitError(null);
+                              }}
+                            />
+                            <ProjectSubjectAvatar subject={candidate.visual} />
+                            <span className="truncate">{candidate.visual.name}</span>
+                            {selected && (
+                              <span className="ml-auto shrink-0 rounded-full bg-[var(--surface-chip)] px-2 text-11 text-[var(--text-secondary)]">
+                                {t('ccAgent.projectCore.detail.ownerBadge')}
+                              </span>
+                            )}
+                          </label>
+                        </li>
                       );
-                      setSubmitError(null);
-                    }}
-                  />
+                    })}
+                  </ul>
                 )}
               </FormField>
 
@@ -247,7 +351,7 @@ function NewProjectDialogScope({
                 <span className="text-13 font-medium text-[var(--settings-section-title)]">
                   {t('ccAgent.projectCore.form.members')}
                 </span>
-                <ul className="flex max-h-[180px] flex-col gap-1 overflow-y-auto">
+                <ul className="flex max-h-[180px] flex-col gap-0.5 overflow-y-auto">
                   {candidates.map((candidate) => {
                     const isOwner = candidate.key === selectedOwner;
                     const isCreatorMember = candidate.key === accountKey && !isOwner;
@@ -270,8 +374,8 @@ function NewProjectDialogScope({
                             disabled={isOwner || isCreatorMember}
                             onChange={() => toggleMember(candidate.key)}
                           />
-                          <span className="shrink-0">{candidate.avatar}</span>
-                          <span className="truncate">{candidate.label}</span>
+                          <ProjectSubjectAvatar subject={candidate.visual} />
+                          <span className="truncate">{candidate.visual.name}</span>
                           {isOwner && (
                             <span className="ml-auto shrink-0 rounded-full bg-[var(--surface-chip)] px-2 text-11 text-[var(--text-secondary)]">
                               {t('ccAgent.projectCore.detail.ownerBadge')}

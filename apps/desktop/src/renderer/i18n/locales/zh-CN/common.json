@@ -13989,7 +13989,13 @@
         "submit": "创建项目",
         "cancel": "取消",
         "nameRequired": "请填写项目名称",
-        "creatorMember": "创建账号 · 必选成员"
+        "creatorMember": "创建账号 · 必选成员",
+        "dirs": "项目目录",
+        "dirsHint": "在这些目录里新建的任务默认归入本项目；一个目录只能属于一个项目。",
+        "dirsPick": "选择目录",
+        "dirsEmpty": "未选择目录",
+        "dirRemove": "移除",
+        "ownerRequired": "请选择负责人"
       },
       "detail": {
         "goal": "目标",
@@ -14003,6 +14009,11 @@
         "unassigned": "未分配",
         "workItems": "任务",
         "noWorkItems": "这个项目里还没有任务",
+        "dirs": "项目目录",
+        "dirsHint": "在这些目录里新建的任务默认归入本项目；一个目录只能属于一个项目。",
+        "addDir": "添加目录",
+        "noDirs": "还没有目录。任务仍按工作目录分组，不归属本项目。",
+        "removeDir": "移除",
         "newTask": "在项目中新建任务",
         "archive": "归档项目",
         "restore": "恢复项目",
@@ -14030,7 +14041,8 @@
         "ownerMustTransfer": "请先转交负责人，再移除当前负责人。",
         "notMember": "只有项目成员可以被指派或担任负责人。",
         "taskUnbound": "先把任务归到项目，再指派处理人。",
-        "generic": "项目改动没有生效。"
+        "generic": "项目改动没有生效。",
+        "dirBound": "这个目录已经被另一个项目认领"
       },
       "progress": {
         "title": "进度",

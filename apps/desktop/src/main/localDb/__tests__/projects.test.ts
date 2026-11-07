@@ -44,6 +44,80 @@ function expectIpcCode(run: () => unknown, code: string): void {
   throw new Error(`expected ${code}`);
 }
 
+describe('project dirs', () => {
+  let db: Database.Database;
+  beforeEach(() => {
+    db = createBetterSqliteDatabase(':memory:');
+    db.pragma('foreign_keys=ON');
+    db.exec(`CREATE TABLE sessions (
+         id TEXT PRIMARY KEY,
+         title TEXT,
+         status TEXT NOT NULL DEFAULT 'active',
+         updated_at INTEGER NOT NULL DEFAULT 1
+       );`);
+    db.exec(projectSchemaSql());
+    // 事务入口 prepare 了带 project_binding_revision 的语句，先跑 0148 补齐列。
+    for (const prefix of ['0147_', '0148_', '0149_', '0150_', '0154_']) {
+      const migration = readdirSync(DRIZZLE_DIR).find(name => name.startsWith(prefix) && name.endsWith('.sql'))!;
+      db.exec(readFileSync(path.join(DRIZZLE_DIR, migration), 'utf8').split('--> statement-breakpoint').join(';'));
+    }
+    // delete 分支会把定时任务的项目置空；这张表不在项目 migration 里，按最小形状建表。
+    db.exec('CREATE TABLE schedules (id TEXT PRIMARY KEY, project_id TEXT)');
+  });
+  afterEach(() => db.close());
+  const run = (input: Record<string, unknown>): ProjectsMutationResult =>
+    runProjectsTransaction(db, { actor: { kind: 'account', id: 'acc-1' }, ...input });
+  const create = (id: string, dirs: Array<{ dirKey: string; dirPath: string }>) =>
+    run({ action: 'create', newId: id, now: 1,
+      input: { name: id, owner: { kind: 'account', id: 'acc-1' }, dirs } });
+  const dirsOf = (projectId: string) =>
+    db.prepare('SELECT dir_key AS dirKey FROM project_dirs WHERE project_id = ? ORDER BY dir_key').all(projectId);
+  const key = (path: string) => `local:${path}`;
+
+  it('claims folders at creation and rejects claiming the same folder twice', () => {
+    create('p1', [{ dirKey: key('/work/a'), dirPath: '/work/a' }]);
+    expect(dirsOf('p1')).toEqual([{ dirKey: key('/work/a') }]);
+    // 同一项目重复认领是幂等 no-op：不报错、不产生第二行。
+    run({ action: 'addDir', projectId: 'p1', dirKey: key('/work/a'), dirPath: '/work/a', now: 2 });
+    expect(dirsOf('p1')).toHaveLength(1);
+    // 另一个项目再认领同一目录：整次写入失败，不静默改归属。
+    create('p2', []);
+    expectIpcCode(
+      () => run({ action: 'addDir', projectId: 'p2', dirKey: key('/work/a'), dirPath: '/work/a', now: 3 }),
+      'PROJECT_DIR_BOUND',
+    );
+    expect(dirsOf('p2')).toEqual([]);
+  });
+
+  it('removes a claim without touching tasks, then another project may claim it', () => {
+    create('p1', [{ dirKey: key('/work/b'), dirPath: '/work/b' }]);
+    run({ action: 'removeDir', projectId: 'p1', dirKey: key('/work/b'), now: 2 });
+    expect(dirsOf('p1')).toEqual([]);
+    create('p3', [{ dirKey: key('/work/b'), dirPath: '/work/b' }]);
+    expect(dirsOf('p3')).toEqual([{ dirKey: key('/work/b') }]);
+  });
+
+  it('rejects malformed folder keys and non-owner claims', () => {
+    create('p1', []);
+    expectIpcCode(
+      () => run({ action: 'addDir', projectId: 'p1', dirKey: '/not-a-key', dirPath: '/not-a-key', now: 2 }),
+      'INVALID_PARAMS',
+    );
+    expectIpcCode(
+      () => runProjectsTransaction(db, { action: 'addDir', projectId: 'p1', dirKey: key('/x'), dirPath: '/x',
+        now: 3, actor: { kind: 'account', id: 'someone-else' } }),
+      'FORBIDDEN',
+    );
+  });
+
+  it('frees the folder key when the project is deleted', () => {
+    create('p1', [{ dirKey: key('/work/c'), dirPath: '/work/c' }]);
+    run({ action: 'delete', projectId: 'p1', now: 2 });
+    create('p2', [{ dirKey: key('/work/c'), dirPath: '/work/c' }]);
+    expect(dirsOf('p2')).toEqual([{ dirKey: key('/work/c') }]);
+  });
+});
+
 describe('project core transactions', () => {
   let db: Database.Database;
 
@@ -63,7 +137,8 @@ describe('project core transactions', () => {
     const bindingMigration = readdirSync(DRIZZLE_DIR).find(name => name.startsWith('0148_') && name.endsWith('.sql'))!;
     db.exec(readFileSync(path.join(DRIZZLE_DIR, bindingMigration), 'utf8').split('--> statement-breakpoint').join(';'));
     // 材料 / 引用 / 群关联是删除级联的真实范围，一并跑它们的真 migration 产物。
-    for (const prefix of ['0147_', '0149_', '0150_']) {
+    // 0154 = project_dirs（项目目录）；删项目要连带清掉认领关系。
+    for (const prefix of ['0147_', '0149_', '0150_', '0154_']) {
       const migration = readdirSync(DRIZZLE_DIR).find(name => name.startsWith(prefix) && name.endsWith('.sql'))!;
       db.exec(readFileSync(path.join(DRIZZLE_DIR, migration), 'utf8').split('--> statement-breakpoint').join(';'));
     }
@@ -575,6 +650,7 @@ describe('project core transactions', () => {
     expect(count('SELECT COUNT(*) FROM material_contexts WHERE project_id = ?', 'proj-1')).toBe(0);
     expect(count('SELECT COUNT(*) FROM project_group_links WHERE project_id = ?', 'proj-1')).toBe(0);
     expect(count('SELECT COUNT(*) FROM project_group_link_requests WHERE relation_id = ?', 'link-1')).toBe(0);
+    expect(count('SELECT COUNT(*) FROM project_dirs WHERE project_id = ?', 'proj-1')).toBe(0);
     expect(count('SELECT COUNT(*) FROM work_item_progress WHERE project_id = ?', 'proj-1')).toBe(0);
     expect(count('SELECT COUNT(*) FROM work_item_progress_events WHERE project_id = ?', 'proj-1')).toBe(0);
     // 任务与定时任务保留，只是回到「无项目」；解绑推进绑定代数。

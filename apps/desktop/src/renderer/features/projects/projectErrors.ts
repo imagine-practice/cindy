@@ -15,6 +15,8 @@ export function projectErrorKey(error: unknown): string {
       return 'ccAgent.projectCore.error.notMember';
     case 'PROJECT_TASK_UNBOUND':
       return 'ccAgent.projectCore.error.taskUnbound';
+    case 'PROJECT_DIR_BOUND':
+      return 'ccAgent.projectCore.error.dirBound';
     default:
       return 'ccAgent.projectCore.error.generic';
   }

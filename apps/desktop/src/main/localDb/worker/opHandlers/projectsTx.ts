@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import type { Statement } from 'better-sqlite3';
 import type { ProjectsMutationResult } from '../../../../shared/projects';
 
 /**
@@ -17,6 +18,8 @@ export function runProjectsTransaction(
   // 与 shared/projects.ts 的 PROJECT_NAME_MAX_LENGTH / PROJECT_GOAL_MAX_LENGTH 对齐。
   const NAME_MAX = 120;
   const GOAL_MAX = 2000;
+  const DIR_KEY_MAX = 4096;
+  const DIR_PATH_MAX = 4096;
 
   const fail = (code: string, message: string): never => {
     throw new Error(`[${code}] ${message}`);
@@ -63,6 +66,25 @@ export function runProjectsTransaction(
     return value.map(asSubject);
   };
 
+  /**
+   * 目录键 = 侧栏分组口径（`local:` / `remote:<host>:` / `device:<id>:`）。
+   * 只校验前缀与长度：路径规范化已在上游完成，事务里再做一次归一化会产生第二套口径。
+   */
+  const asDirKey = (value: unknown): string => {
+    const key = asText(value, DIR_KEY_MAX, 'dirKey');
+    if (!/^(local:|remote:|device:)/.test(key)) return fail('INVALID_PARAMS', 'invalid dirKey');
+    return key;
+  };
+  const asDirs = (value: unknown): Array<{ dirKey: string; dirPath: string }> => {
+    if (value === null || value === undefined) return [];
+    if (!Array.isArray(value)) return fail('INVALID_PARAMS', 'dirs must be an array');
+    // 没有「目录数量上限」：目录不是业务限额；重复键在写入时按项目内去重。
+    return value.map((item) => {
+      const body = asRecord(item, 'dir');
+      return { dirKey: asDirKey(body.dirKey), dirPath: asText(body.dirPath, DIR_PATH_MAX, 'dirPath') };
+    });
+  };
+
   const selectProject = db.prepare(
     'SELECT id, name, goal, owner_id AS ownerId, status, created_at AS createdAt, updated_at AS updatedAt FROM projects WHERE id = ?',
   );
@@ -73,6 +95,27 @@ export function runProjectsTransaction(
     'INSERT OR IGNORE INTO project_members (project_id, subject_kind, subject_id, role, added_at) VALUES (?, ?, ?, ?, ?)',
   );
   const touchProject = db.prepare('UPDATE projects SET updated_at = ? WHERE id = ?');
+  /**
+   * 目录语句按需 prepare：0154 之前的库、以及按版本回放的中途快照没有 `project_dirs`，
+   * 在函数入口直接 prepare 会让「建项目 / 改成员」这些与目录无关的动作一起失败。
+   */
+  let dirStatements: { selectOwner: Statement; insert: Statement; remove: Statement } | null | undefined;
+  const dirs = () => {
+    if (dirStatements !== undefined) return dirStatements;
+    const exists = db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'project_dirs'")
+      .get();
+    dirStatements = exists
+      ? {
+          selectOwner: db.prepare('SELECT project_id AS projectId FROM project_dirs WHERE dir_key = ?'),
+          insert: db.prepare(
+            'INSERT OR IGNORE INTO project_dirs (project_id, dir_key, dir_path, remote_host_id, agent_device_id, created_at) VALUES (?, ?, ?, NULL, NULL, ?)',
+          ),
+          remove: db.prepare('DELETE FROM project_dirs WHERE project_id = ? AND dir_key = ?'),
+        }
+      : null;
+    return dirStatements;
+  };
   const selectSession = db.prepare(
     'SELECT id, project_id AS projectId, assignee_kind AS assigneeKind, assignee_id AS assigneeId, status FROM sessions WHERE id = ?',
   );
@@ -155,6 +198,30 @@ export function runProjectsTransaction(
     return row;
   };
 
+  /**
+   * 认领目录。一个目录同时只能属于一个项目：已被任何项目（包括自己）认领的键直接拒绝，
+   * 不静默挪动归属——那会让另一个项目的成员在不知情时失去目录。
+   */
+  const claimDirs = (
+    projectId: string,
+    entries: ReadonlyArray<{ dirKey: string; dirPath: string }>,
+    now: number,
+  ): void => {
+    const statements = dirs();
+    if (!statements) {
+      // 旧库没有目录表：不认领目录，但也不该假装成功。
+      if (entries.length > 0) return fail('PRECONDITION_FAILED', 'Project dirs are unavailable');
+      return;
+    }
+    for (const dir of entries) {
+      const bound = statements.selectOwner.get(dir.dirKey) as { projectId: string } | undefined;
+      if (bound && bound.projectId !== projectId) {
+        return fail('PROJECT_DIR_BOUND', `Directory already belongs to project ${bound.projectId}`);
+      }
+      statements.insert.run(projectId, dir.dirKey, dir.dirPath, now);
+    }
+  };
+
   return db.transaction((): ProjectsMutationResult => {
     const args = asRecord(raw, 'projects tx');
     const action = args.action;
@@ -188,6 +255,7 @@ export function runProjectsTransaction(
         if (member.kind === owner.kind && member.id === owner.id) continue;
         insertMember.run(newId, member.kind, member.id, 'member', now);
       }
+      claimDirs(newId, asDirs(input.dirs), now);
       return { ok: true, projectId: newId, sessionId: null };
     }
 
@@ -275,6 +343,26 @@ export function runProjectsTransaction(
         now,
         projectId,
       );
+      return { ok: true, projectId, sessionId: null };
+    }
+
+    if (action === 'addDir') {
+      const projectId = asText(args.projectId, 200, 'projectId');
+      const now = asTimestamp(args.now, 'now');
+      requireProject(projectId);
+      requireAccess(projectId, true);
+      claimDirs(projectId, [{ dirKey: asDirKey(args.dirKey), dirPath: asText(args.dirPath, DIR_PATH_MAX, 'dirPath') }], now);
+      touchProject.run(now, projectId);
+      return { ok: true, projectId, sessionId: null };
+    }
+
+    if (action === 'removeDir') {
+      const projectId = asText(args.projectId, 200, 'projectId');
+      const now = asTimestamp(args.now, 'now');
+      requireProject(projectId);
+      requireAccess(projectId, true);
+      dirs()?.remove.run(projectId, asDirKey(args.dirKey));
+      touchProject.run(now, projectId);
       return { ok: true, projectId, sessionId: null };
     }
 

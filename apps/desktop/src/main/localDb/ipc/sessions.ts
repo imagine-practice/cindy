@@ -86,6 +86,7 @@ import * as imageCacheStore from '../../imageCacheStore';
 import { removeSessionRefsIfDeleted as removeDeletedSessionMediaRefs } from '../../cindy-media/ledger';
 import { imAttachmentsRoot, removeImSessionAttachmentDirs } from '../../im/shared/inboundFileStaging';
 import { upsertRecentWorkdir } from './recentWorkdirs';
+import { resolveDefaultProjectId } from '../projectDirBinding';
 import { assertProjectBindable, resolveProjectActor } from './projects';
 import { createLogger } from '../../logger';
 import {
@@ -1796,6 +1797,25 @@ export function registerSessionIpc(
       workspaceKind === 'dialogue' && !explicitWorkingDir
         ? ensureDialogueWorkspaceDir(id, now)
         : explicitWorkingDir;
+    // 项目目录的默认归属：只有「没显式指定项目 + 真在工作目录里建任务」才生效。
+    // 成员资格已在 resolveDefaultProjectId 内判定；不满足就当没有归属，不报错。
+    let defaultProjectId: string | null = null;
+    if (!bodyObj.projectId && workspaceKind === 'project' && explicitWorkingDir) {
+      try {
+        defaultProjectId = await resolveDefaultProjectId(
+          client,
+          {
+            workingDir: explicitWorkingDir,
+            remoteHostId: normalizeRemoteHostId(createBody?.remoteHostId),
+            agentDeviceId: normalizeRemoteHostId(createBody?.agentDeviceId),
+          },
+          actor,
+        );
+      } catch {
+        defaultProjectId = null;
+      }
+      assertCreateOwnerCurrent();
+    }
     if (workspaceKind === 'dialogue' && !explicitWorkingDir) {
       log.info('[localDb] allocated dialogue workspace', { sessionId: id, workingDir });
     }
@@ -1840,7 +1860,8 @@ export function registerSessionIpc(
     try {
       ({ row: insertRow } = await openSession({ id, now,
         assertCurrent: assertCreateOwnerCurrent,
-        body: { ...createBody, workspaceKind, workingDir },
+        body: { ...createBody, workspaceKind, workingDir,
+          ...(defaultProjectId ? { projectId: defaultProjectId } : {}) },
         ...(provisional ? { deferGitInit: true } : {}),
       }, async (prepared, assertCurrent) => {
         const resource = !prepared.remoteHostId && prepared.workingDir

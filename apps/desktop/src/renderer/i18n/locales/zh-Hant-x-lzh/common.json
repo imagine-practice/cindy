@@ -13989,7 +13989,13 @@
         "submit": "Create project",
         "cancel": "Cancel",
         "nameRequired": "Enter a project name",
-        "creatorMember": "建立之帳號 · 必選成員"
+        "creatorMember": "建立之帳號 · 必選成員",
+        "dirs": "專案目錄",
+        "dirsHint": "於此諸目錄新造之務，默歸本專案；一目錄惟屬一專案。",
+        "dirsPick": "擇目錄",
+        "dirsEmpty": "未擇目錄",
+        "dirRemove": "去之",
+        "ownerRequired": "請擇負責人"
       },
       "detail": {
         "goal": "Goal",
@@ -14003,6 +14009,11 @@
         "unassigned": "Unassigned",
         "workItems": "Tasks",
         "noWorkItems": "No tasks in this project yet",
+        "dirs": "專案目錄",
+        "dirsHint": "於此諸目錄新造之務，默歸本專案；一目錄惟屬一專案。",
+        "addDir": "增目錄",
+        "noDirs": "尚無目錄。其務仍依工目分組，不歸本專案。",
+        "removeDir": "去之",
         "newTask": "New task in this project",
         "archive": "Archive project",
         "restore": "Restore project",
@@ -14030,7 +14041,8 @@
         "ownerMustTransfer": "Transfer ownership before removing the current owner.",
         "notMember": "Only project members can be assigned or own the project.",
         "taskUnbound": "Bind this task to a project before assigning it.",
-        "generic": "The project change did not go through."
+        "generic": "The project change did not go through.",
+        "dirBound": "此目錄已為他專案所據"
       },
       "progress": {
         "title": "進度",
