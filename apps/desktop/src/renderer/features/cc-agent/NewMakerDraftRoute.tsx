@@ -731,7 +731,16 @@ export function NewMakerDraftRoute() {
    * 归属项目（项目内核 M1）：从项目详情页「新建任务」带过来，也可在本页改。
    * 没有项目时保持 null —— 是否归项目只听这个显式选择，不按目录推断。
    */
-  const rawRouteProjectId = (location.state as { projectId?: unknown } | null)?.projectId;
+  const routeState = location.state as {
+    projectId?: unknown;
+    projectWorkingDir?: unknown;
+  } | null;
+  const rawRouteProjectId = routeState?.projectId;
+  /** 项目认领的目录：从项目详情页带过来，用作这个草稿的默认工作目录。 */
+  const rawRouteProjectWorkingDir =
+    typeof routeState?.projectWorkingDir === 'string' && routeState.projectWorkingDir.trim()
+      ? routeState.projectWorkingDir.trim()
+      : null;
   const routeProjectId = typeof rawRouteProjectId === 'string' && rawRouteProjectId.length > 0
     ? rawRouteProjectId : null;
   const [projectBinding, setProjectBinding] = useState(() => ({
@@ -783,6 +792,19 @@ export function NewMakerDraftRoute() {
   const { createSession: createSessionRow } = useCCSessions();
   const createSessionErrorRef = useRef<unknown>(null);
   const createSessionErrorHandledRef = useRef(false);
+  /**
+   * 项目目录当默认 cwd：只在本路由第一次进入、且草稿还没有工作目录时写入，
+   * 不覆盖用户已经选过的目录。没有目录的项目仍走 dialogue 托管目录。
+   */
+  const seededProjectDirRouteKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!boundProjectId || !rawRouteProjectWorkingDir) return;
+    if (seededProjectDirRouteKeyRef.current === location.key) return;
+    seededProjectDirRouteKeyRef.current = location.key;
+    if (draft.workingDir) return;
+    patchDraft({ workingDir: rawRouteProjectWorkingDir });
+  }, [boundProjectId, draft.workingDir, location.key, rawRouteProjectWorkingDir]);
+
   const directoryRecoveryRef = useRef<DraftDirectoryRecovery | null>(null);
   const directoryRecoveryContextRef = useRef<DraftDirectoryRecoveryContext | null>(null);
   /**

@@ -243,7 +243,12 @@ it('opens the composer for a new task bound to this project, with no duplicate e
   expect(entries).toHaveLength(1);
   fireEvent.click(entries[0]);
   expect(env.navigate).toHaveBeenCalledWith('/cc-agent/new', {
-    state: { projectId: 'p1', projectName: 'p1' },
+    state: {
+      projectId: 'p1',
+      projectName: 'p1',
+      // 项目没有目录时显式传 null：新建页据此回落到托管目录。
+      projectWorkingDir: null,
+    },
   });
 });
 

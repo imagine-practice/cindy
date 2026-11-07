@@ -301,7 +301,12 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
             disabled={archived}
             onClick={() =>
               navigate('/cc-agent/new', {
-                state: { projectId: project.id, projectName: project.name },
+                state: {
+                  projectId: project.id,
+                  projectName: project.name,
+                  // 项目认领了目录就用它当默认工作目录；没有目录由新建页回落到托管目录。
+                  projectWorkingDir: project.dirs[0]?.dirPath ?? null,
+                },
               })
             }
           >
@@ -517,7 +522,12 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
                     size="sm"
                     onClick={() =>
                       navigate('/cc-agent/new', {
-                        state: { projectId: project.id, projectName: project.name },
+                        state: {
+                  projectId: project.id,
+                  projectName: project.name,
+                  // 项目认领了目录就用它当默认工作目录；没有目录由新建页回落到托管目录。
+                  projectWorkingDir: project.dirs[0]?.dirPath ?? null,
+                },
                       })
                     }
                   >
