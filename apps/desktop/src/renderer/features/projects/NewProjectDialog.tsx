@@ -76,7 +76,9 @@ function NewProjectDialogScope({
   }, []);
 
   const accountKey = dataOwnerId ? `account:${dataOwnerId}` : '';
-  const accountLabel = user?.name || t('ccAgent.projectCore.detail.ownerBadge');
+  // 账号没有登录昵称时显示「当前账号」：绝不能退化成「负责人」——那是角色，
+  // 会让负责人列表里凭空多出一个叫「负责人」的人。
+  const accountLabel = user?.name || t('ccAgent.projectCore.form.currentAccount');
 
   /** 可选主体：当前账号 + 全部未删除的伙伴。 */
   const candidates = useMemo(() => {
@@ -352,7 +354,7 @@ function NewProjectDialogScope({
                   {t('ccAgent.projectCore.form.members')}
                 </span>
                 <ul className="flex max-h-[180px] flex-col gap-0.5 overflow-y-auto">
-                  {candidates.map((candidate) => {
+                  {candidates.filter((candidate) => candidate.key !== selectedOwner).map((candidate) => {
                     const isOwner = candidate.key === selectedOwner;
                     const isCreatorMember = candidate.key === accountKey && !isOwner;
                     const checked = isOwner || isCreatorMember || memberKeys.includes(candidate.key);

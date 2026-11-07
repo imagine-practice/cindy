@@ -350,7 +350,8 @@ export function runProjectsTransaction(
       const projectId = asText(args.projectId, 200, 'projectId');
       const now = asTimestamp(args.now, 'now');
       requireProject(projectId);
-      requireAccess(projectId, true);
+      // 目录只是默认归属来源，任何成员都能维护；它不会改变谁能看/写这个项目。
+      requireAccess(projectId);
       claimDirs(projectId, [{ dirKey: asDirKey(args.dirKey), dirPath: asText(args.dirPath, DIR_PATH_MAX, 'dirPath') }], now);
       touchProject.run(now, projectId);
       return { ok: true, projectId, sessionId: null };
@@ -360,7 +361,7 @@ export function runProjectsTransaction(
       const projectId = asText(args.projectId, 200, 'projectId');
       const now = asTimestamp(args.now, 'now');
       requireProject(projectId);
-      requireAccess(projectId, true);
+      requireAccess(projectId);
       dirs()?.remove.run(projectId, asDirKey(args.dirKey));
       touchProject.run(now, projectId);
       return { ok: true, projectId, sessionId: null };

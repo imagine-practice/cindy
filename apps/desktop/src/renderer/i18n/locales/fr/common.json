@@ -14190,7 +14190,8 @@
         "dirsPick": "Choisir un dossier",
         "dirsEmpty": "Aucun dossier sélectionné",
         "dirRemove": "Retirer",
-        "ownerRequired": "Sélectionnez un responsable"
+        "ownerRequired": "Sélectionnez un responsable",
+        "currentAccount": "Compte actuel"
       },
       "detail": {
         "goal": "Goal",
@@ -14209,6 +14210,8 @@
         "addDir": "Ajouter un dossier",
         "noDirs": "Aucun dossier pour l'instant. Les tâches restent regroupées par dossier de travail et ne font pas partie de ce projet.",
         "removeDir": "Retirer",
+        "changeDir": "Changer",
+        "createFirstTask": "Créer la première tâche",
         "newTask": "New task in this project",
         "archive": "Archive project",
         "restore": "Restore project",

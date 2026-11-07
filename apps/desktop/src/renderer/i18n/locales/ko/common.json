@@ -13995,7 +13995,8 @@
         "dirsPick": "폴더 선택",
         "dirsEmpty": "선택한 폴더 없음",
         "dirRemove": "제거",
-        "ownerRequired": "담당자를 선택하세요"
+        "ownerRequired": "담당자를 선택하세요",
+        "currentAccount": "현재 계정"
       },
       "detail": {
         "goal": "Goal",
@@ -14014,6 +14015,8 @@
         "addDir": "폴더 추가",
         "noDirs": "아직 폴더가 없습니다. 작업은 작업 폴더별로 묶이며 이 프로젝트에 속하지 않습니다.",
         "removeDir": "제거",
+        "changeDir": "변경",
+        "createFirstTask": "첫 작업 만들기",
         "newTask": "New task in this project",
         "archive": "Archive project",
         "restore": "Restore project",

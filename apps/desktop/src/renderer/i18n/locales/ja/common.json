@@ -13995,7 +13995,8 @@
         "dirsPick": "フォルダを選択",
         "dirsEmpty": "フォルダ未選択",
         "dirRemove": "削除",
-        "ownerRequired": "担当者を選択してください"
+        "ownerRequired": "担当者を選択してください",
+        "currentAccount": "現在のアカウント"
       },
       "detail": {
         "goal": "Goal",
@@ -14014,6 +14015,8 @@
         "addDir": "フォルダを追加",
         "noDirs": "フォルダはまだありません。タスクは作業フォルダ単位でまとまり、このプロジェクトには属しません。",
         "removeDir": "削除",
+        "changeDir": "変更",
+        "createFirstTask": "最初のタスクを作成",
         "newTask": "New task in this project",
         "archive": "Archive project",
         "restore": "Restore project",

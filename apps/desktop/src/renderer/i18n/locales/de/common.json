@@ -14061,7 +14061,8 @@
         "dirsPick": "Ordner wählen",
         "dirsEmpty": "Keine Ordner ausgewählt",
         "dirRemove": "Entfernen",
-        "ownerRequired": "Verantwortliche Person auswählen"
+        "ownerRequired": "Verantwortliche Person auswählen",
+        "currentAccount": "Aktuelles Konto"
       },
       "detail": {
         "goal": "Goal",
@@ -14080,6 +14081,8 @@
         "addDir": "Ordner hinzufügen",
         "noDirs": "Noch keine Ordner. Aufgaben bleiben nach Arbeitsordner gruppiert und gehören nicht zu diesem Projekt.",
         "removeDir": "Entfernen",
+        "changeDir": "Ändern",
+        "createFirstTask": "Erste Aufgabe erstellen",
         "newTask": "New task in this project",
         "archive": "Archive project",
         "restore": "Restore project",

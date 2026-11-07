@@ -153,6 +153,8 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
   const addableCandidates = candidates.filter((candidate) => !memberKeys.has(candidate.key));
   // Member kind/id/role is authoritative for the presentation hint, including same-ID bots.
   // Main still enforces owner-only update at the actual transaction boundary.
+  // 目录只影响新任务的默认归属，不授予访问：成员就能维护（归档后只读）。
+  const canManageDirs = members.length > 0 && project?.status !== 'archived';
   const canEditMetadata = !!dataOwnerId && members.some(member =>
     member.subject.kind === 'account' && member.subject.id === dataOwnerId && member.role === 'owner');
   const metadataBoundary = JSON.stringify([projectId, project?.id ?? null, dataOwnerId,
@@ -332,7 +334,7 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
               <h2 className="text-14 font-medium text-[var(--settings-section-title)]">
                 {t('ccAgent.projectCore.detail.dirs')}
               </h2>
-              {canEditMetadata && (
+              {canManageDirs && (
                 <Button
                   variant="secondary"
                   size="sm"
@@ -375,18 +377,42 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
                     <span className="min-w-0 flex-1 truncate text-[var(--text-primary)]" title={dir.dirPath}>
                       {dir.dirPath}
                     </span>
-                    {canEditMetadata && (
-                      <Button
-                        variant="secondary"
-                        size="xxs"
-                        tone="quiet"
-                        compact
-                        disabled={busyKey !== null}
-                        onClick={() => void run(`dir:${dir.dirKey}`, () =>
-                          removeProjectDir(project.id, dir.dirKey))}
-                      >
-                        {t('ccAgent.projectCore.detail.removeDir')}
-                      </Button>
+                    {canManageDirs && (
+                      <>
+                        <Button
+                          variant="secondary"
+                          size="xxs"
+                          tone="quiet"
+                          compact
+                          disabled={busyKey !== null}
+                          onClick={() => {
+                            void (async () => {
+                              const picked = await window.electronAPI.showOpenDirectoryDialog().catch(() => null);
+                              if (!picked || picked.canceled || !picked.path) return;
+                              const dirPath = picked.path;
+                              const dirKey = projectIdentityKey('local', dirPath, null);
+                              if (dirKey === dir.dirKey) return;
+                              await run('dir:change', async () => {
+                                await addProjectDir(project.id, { dirKey, dirPath });
+                                await removeProjectDir(project.id, dir.dirKey);
+                              });
+                            })();
+                          }}
+                        >
+                          {t('ccAgent.projectCore.detail.changeDir')}
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="xxs"
+                          tone="quiet"
+                          compact
+                          disabled={busyKey !== null}
+                          onClick={() => void run(`dir:${dir.dirKey}`, () =>
+                            removeProjectDir(project.id, dir.dirKey))}
+                        >
+                          {t('ccAgent.projectCore.detail.removeDir')}
+                        </Button>
+                      </>
                     )}
                   </li>
                 ))}
@@ -454,13 +480,45 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
           </section>
 
           <section className="flex flex-col gap-3">
-            <h2 className="text-14 font-medium text-[var(--settings-section-title)]">
-              {t('ccAgent.projectCore.detail.workItems')}
-            </h2>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-14 font-medium text-[var(--settings-section-title)]">
+                {t('ccAgent.projectCore.detail.workItems')}
+              </h2>
+              {!archived && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  compact
+                  onClick={() =>
+                    navigate('/cc-agent/new', {
+                      state: { projectId: project.id, projectName: project.name },
+                    })
+                  }
+                >
+                  <Plus size={13} strokeWidth={1.75} className="mr-1" />
+                  {t('ccAgent.projectCore.detail.newTask')}
+                </Button>
+              )}
+            </div>
             {detail && detail.workItems.length === 0 ? (
-              <p className="text-13 text-[var(--settings-section-desc)]">
-                {t('ccAgent.projectCore.detail.noWorkItems')}
-              </p>
+              <div className="flex flex-col items-start gap-2">
+                <p className="text-13 text-[var(--settings-section-desc)]">
+                  {t('ccAgent.projectCore.detail.noWorkItems')}
+                </p>
+                {!archived && (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() =>
+                      navigate('/cc-agent/new', {
+                        state: { projectId: project.id, projectName: project.name },
+                      })
+                    }
+                  >
+                    {t('ccAgent.projectCore.detail.createFirstTask')}
+                  </Button>
+                )}
+              </div>
             ) : (
               <ul className="flex flex-col">
                 {detail?.workItems.map((item) => (

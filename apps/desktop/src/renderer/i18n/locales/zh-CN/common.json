@@ -13995,7 +13995,8 @@
         "dirsPick": "选择目录",
         "dirsEmpty": "未选择目录",
         "dirRemove": "移除",
-        "ownerRequired": "请选择负责人"
+        "ownerRequired": "请选择负责人",
+        "currentAccount": "当前账号"
       },
       "detail": {
         "goal": "目标",
@@ -14014,6 +14015,8 @@
         "addDir": "添加目录",
         "noDirs": "还没有目录。任务仍按工作目录分组，不归属本项目。",
         "removeDir": "移除",
+        "changeDir": "更换",
+        "createFirstTask": "新建第一个任务",
         "newTask": "在项目中新建任务",
         "archive": "归档项目",
         "restore": "恢复项目",

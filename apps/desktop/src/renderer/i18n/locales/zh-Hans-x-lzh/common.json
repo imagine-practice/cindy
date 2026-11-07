@@ -13995,7 +13995,8 @@
         "dirsPick": "择目录",
         "dirsEmpty": "未择目录",
         "dirRemove": "去之",
-        "ownerRequired": "请择负责人"
+        "ownerRequired": "请择负责人",
+        "currentAccount": "今帐"
       },
       "detail": {
         "goal": "Goal",
@@ -14014,6 +14015,8 @@
         "addDir": "增目录",
         "noDirs": "尚无目录。其务仍依工目分组，不归本专案。",
         "removeDir": "去之",
+        "changeDir": "易之",
+        "createFirstTask": "新造首务",
         "newTask": "New task in this project",
         "archive": "Archive project",
         "restore": "Restore project",

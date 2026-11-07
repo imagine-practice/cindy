@@ -254,9 +254,15 @@ async function readProjectRecords(client: DbClient): Promise<ProjectRecord[]> {
     `${PROJECT_ROW_SQL} ORDER BY (status = 'active') DESC, updated_at DESC, name ASC`,
   );
   const memberRows = await client.query<MemberRow>(MEMBER_ROW_SQL);
-  const dirRows = await client.query<DirRow>(
-    'SELECT project_id AS projectId, dir_key AS dirKey, dir_path AS dirPath FROM project_dirs ORDER BY created_at ASC, dir_key ASC',
-  );
+  // 0154 之前的库没有 project_dirs：读投影降级为空目录，不让整个项目列表报错。
+  let dirRows: DirRow[] = [];
+  try {
+    dirRows = await client.query<DirRow>(
+      'SELECT project_id AS projectId, dir_key AS dirKey, dir_path AS dirPath FROM project_dirs ORDER BY created_at ASC, dir_key ASC',
+    );
+  } catch {
+    dirRows = [];
+  }
   const taskCounts = await client.query<{ projectId: string; taskCount: number }>(
     "SELECT project_id AS projectId, COUNT(*) AS taskCount FROM sessions WHERE project_id IS NOT NULL AND status <> 'deleted' GROUP BY project_id",
   );

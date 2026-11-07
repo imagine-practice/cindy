@@ -14190,7 +14190,8 @@
         "dirsPick": "Escolher pasta",
         "dirsEmpty": "Sem pastas selecionadas",
         "dirRemove": "Remover",
-        "ownerRequired": "Selecione um responsável"
+        "ownerRequired": "Selecione um responsável",
+        "currentAccount": "Conta atual"
       },
       "detail": {
         "goal": "Goal",
@@ -14209,6 +14210,8 @@
         "addDir": "Adicionar pasta",
         "noDirs": "Ainda não há pastas. As tarefas continuam agrupadas por pasta de trabalho e não pertencem a este projeto.",
         "removeDir": "Remover",
+        "changeDir": "Alterar",
+        "createFirstTask": "Criar a primeira tarefa",
         "newTask": "New task in this project",
         "archive": "Archive project",
         "restore": "Restore project",

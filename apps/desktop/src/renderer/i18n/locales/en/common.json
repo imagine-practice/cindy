@@ -14061,7 +14061,8 @@
         "dirsPick": "Choose folder",
         "dirsEmpty": "No folders selected",
         "dirRemove": "Remove",
-        "ownerRequired": "Select an owner"
+        "ownerRequired": "Select an owner",
+        "currentAccount": "Current account"
       },
       "detail": {
         "goal": "Goal",
@@ -14080,6 +14081,8 @@
         "addDir": "Add folder",
         "noDirs": "No folders yet. Tasks stay grouped by working folder and are not part of this project.",
         "removeDir": "Remove",
+        "changeDir": "Change",
+        "createFirstTask": "Create the first task",
         "newTask": "New task in this project",
         "archive": "Archive project",
         "restore": "Restore project",

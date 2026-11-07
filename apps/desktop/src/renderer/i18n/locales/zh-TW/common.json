@@ -13995,7 +13995,8 @@
         "dirsPick": "選擇目錄",
         "dirsEmpty": "未選擇目錄",
         "dirRemove": "移除",
-        "ownerRequired": "請選擇負責人"
+        "ownerRequired": "請選擇負責人",
+        "currentAccount": "目前帳號"
       },
       "detail": {
         "goal": "目標",
@@ -14014,6 +14015,8 @@
         "addDir": "新增目錄",
         "noDirs": "還沒有目錄。任務仍依工作目錄分組，不歸屬本專案。",
         "removeDir": "移除",
+        "changeDir": "更換",
+        "createFirstTask": "建立第一個任務",
         "newTask": "在專案中新增任務",
         "archive": "封存專案",
         "restore": "還原專案",

@@ -14190,7 +14190,8 @@
         "dirsPick": "Elegir carpeta",
         "dirsEmpty": "Sin carpetas seleccionadas",
         "dirRemove": "Quitar",
-        "ownerRequired": "Selecciona un responsable"
+        "ownerRequired": "Selecciona un responsable",
+        "currentAccount": "Cuenta actual"
       },
       "detail": {
         "goal": "Goal",
@@ -14209,6 +14210,8 @@
         "addDir": "Añadir carpeta",
         "noDirs": "Aún no hay carpetas. Las tareas siguen agrupadas por carpeta de trabajo y no forman parte de este proyecto.",
         "removeDir": "Quitar",
+        "changeDir": "Cambiar",
+        "createFirstTask": "Crear la primera tarea",
         "newTask": "New task in this project",
         "archive": "Archive project",
         "restore": "Restore project",
