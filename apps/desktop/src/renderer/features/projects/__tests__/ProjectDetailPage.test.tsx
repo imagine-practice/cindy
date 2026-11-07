@@ -200,6 +200,9 @@ it('preserves materials/task navigation and member/assignee write inputs', async
   fireEvent.click(screen.getByRole('button', { name: 'ccAgent.materials.entry' }));
   expect(env.navigate).toHaveBeenCalledWith('/cc-agent/projects/p1/items/s1');
   fireEvent.click(screen.getByRole('button', { name: 'Work item' })); expect(env.navigate).toHaveBeenCalledWith('/cc-agent/s1');
+  // 未分配时必须显示「未分配」，不能因为用了空字符串值而回退成字段名「处理人」。
+  expect(screen.getByRole('combobox', { name: 'ccAgent.projectCore.detail.assignee' }).textContent)
+    .toContain('ccAgent.projectCore.detail.unassigned');
   await act(async () => fireEvent.change(screen.getByRole('combobox', { name: 'ccAgent.projectCore.detail.assignee' }), { target: { value: 'bot:partner' } }));
   expect(env.assign).toHaveBeenCalledExactlyOnceWith('s1', { kind: 'bot', id: 'partner' });
   await act(async () => fireEvent.click(screen.getByRole('button', { name: 'ccAgent.projectCore.detail.transferOwner' })));

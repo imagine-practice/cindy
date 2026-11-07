@@ -54,7 +54,8 @@ import { projectErrorKey } from './projectErrors';
 import { projectSubjectVisual, useProjectSubjectLabel } from './projectLabels';
 import { ProjectSubjectAvatar } from './ProjectSubjectAvatar';
 
-const UNASSIGNED = '';
+// 非空哨兵：Radix Select 把空字符串当成「没有值」，会回退显示字段名（"处理人"）。
+const UNASSIGNED = '__unassigned__';
 
 export function ProjectDetailPage(): React.ReactElement {
   const { projectId = '' } = useParams();
@@ -723,7 +724,7 @@ function WorkItemRow({
       <span className="shrink-0 text-11 text-[var(--settings-section-desc)]">
         {item.status === 'archived'
           ? t('ccAgent.projectCore.detail.archived')
-          : item.status}
+          : t('ccAgent.projectCore.detail.statusActive')}
       </span>
       <Button variant="secondary" size="xs" tone="quiet" compact onClick={onOpenMaterials}>
         {t('ccAgent.materials.entry')}

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/input';
 import { WORK_ITEM_STATUSES, type WorkItemStatus } from '../../../../shared/workItemStatus';
@@ -151,11 +152,16 @@ function ProgressContent({
         {statuses.map((status) => (
           <Button
             key={status}
-            variant={filter === status ? 'primary' : 'secondary'}
+            variant="secondary"
             size="sm"
             compact
             aria-pressed={filter === status}
-            className="min-w-0"
+            className={cn(
+              'min-w-0',
+              // 选中态用反色而不是「浅灰 chip」：亮色主题下浅灰与未选中几乎同色。
+              filter === status &&
+                '[--button-face-bg:var(--text-primary)] [--button-face-border:var(--text-primary)] text-[var(--surface-elevated)] hover:[--button-face-bg:var(--text-primary)]',
+            )}
             onClick={() => setFilter(status)}
           >
             {label(status)} · {count(status)}
@@ -163,7 +169,7 @@ function ProgressContent({
         ))}
       </div>
       <div className="flex min-w-0 flex-col gap-2">
-        <h3 className="text-14 font-medium">{label('workItems')}</h3>
+        <h3 className="text-14 font-medium">{label('executionTitle')}</h3>
         {view.items.length === 0 ? (
           <p className={detailClass}>{label('empty')}</p>
         ) : visible.length === 0 ? (
@@ -275,7 +281,8 @@ function ProgressContent({
             })}
           </ul>
         )}
-        {executionUnavailable && (
+        {/* 空项目没有执行状态可读：此时报「读不到」是假错误，只在真有工作项时提示。 */}
+        {executionUnavailable && view.items.length > 0 && (
           <p role="status" className={detailClass}>
             {label('execution.unavailableState')}
           </p>
