@@ -4,6 +4,7 @@ import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { describe, expect, it, vi } from 'vitest';
 import { buildUserProvider, connectedProvidersForAgent, getModel, isModelSelectableForNewRoute, type PiReasoningEffort, type ProviderView } from '@cindy/model-providers';
+import {prepareLocalGoalWorktree} from '../localGoalWorktree';
 import { createWorkerLabel } from '../workerLabel';
 import type { CollabDraft } from '@/state/newMakerDraft';
 import { resolveSessionExecutionSelection } from '../../../../main/maker-ipc/sessionExecutionSelection';
@@ -107,6 +108,7 @@ function provider(id = providerId, efforts: PiReasoningEffort[] = []): ProviderV
 
 async function submit(options: {
   entry?: 'send' | 'goal';
+  projectId?: string | null;
   pluginRoute?: () => Promise<GhostStartTaskRouteResult>;
   effort?: Effort;
   submittedEffort?: Effort;
@@ -213,6 +215,7 @@ async function submit(options: {
     proceed: options.authCatalogKey === undefined || params.deviceId === options.authCatalogKey,
   }));
   const environment = {
+    boundProjectId: options.projectId ?? null,
     deviceDisplayName, dbToMakerAgentKind, askPluginModelRoute, writePluginModelRouteNote, modelCatalogKey,
     controlledModelRoute: { catalogHostDeviceId: options.catalogHostDeviceId },
     activePluginModel: options.pluginRoute ? { pluginId: 'router', pluginName: 'Router', id: 'auto', name: 'Auto' } : null,
@@ -242,7 +245,7 @@ async function submit(options: {
       ? { enabled: true, confirmedIneligible: false, baseRepo, name: 'creator', sourceBranch: 'other-branch', branchPreferenceReady: true, supportsRecoveryKeyDiscard: true }
       : { enabled: false, confirmedIneligible: true } },
     wtPreferenceSavingRef: { current: false }, wtPreferenceAuthorityUnknownRef: { current: false },
-    wtBranchPreferenceSavingRef: { current: false },
+    wtBranchPreferenceSavingRef: { current: false }, wtBranchPreferenceErrorRef: {current:null}, prepareLocalGoalWorktree,
     getDataOwnerGeneration: () => ({ dataOwnerId: 'fixture' }), dataOwnerId: 'fixture',
     isDataOwnerGenerationCurrent: () => true,
     markSendInFlight: (value: boolean) => { if (!value) done(); },
@@ -707,3 +710,25 @@ describe.each(['send', 'goal'] as const)('%s draft model identity', entry => {
     expect(result.environment.chatPrefs.effort).toBe('medium');
   });
 });
+
+// Project binding regression: real complete local submission callbacks -> renderer sessionService -> IPC spy.
+// Existing cases varied engines/effort/worktree but supplied no explicit owning project. Unit, no actual send/DB.
+it.each(['send', 'goal'] as const)(
+  'retains explicit project through ordinary and worktree %s creation',
+  async (entry) => {
+    for (const worktree of [false, true]) {
+      const result = await submit({
+        entry,
+        projectId: 'p2',
+        ...(worktree ? { worktreeSkills: [] } : {}),
+        providers: [provider(providerId, ['medium'])],
+      });
+      expect(result.errors).toEqual([]);
+      expect(result.createSession).toHaveBeenCalledTimes(1);
+      expect(result.ipcCreate.mock.calls[0][0]).toMatchObject({
+        projectId: 'p2',
+        workspaceKind: 'project',
+      });
+    }
+  },
+);

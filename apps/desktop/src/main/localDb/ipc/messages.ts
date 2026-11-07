@@ -30,6 +30,7 @@ import { projectMcpAppHistory } from '../../mcp-apps/history.js';
 
 import { getDbClient, getCurrentDbClientSnapshot } from '../client/current';
 import type { DbClient } from '../client/DbClient';
+import type { MaterialMessageWriteAuthority } from '../materialDispatchQueue';
 import type { ContextRebuildArgs } from '../client/tx/types';
 import { latestVisiblePreviewRow } from '../latestMessageText';
 import { messages, sessions } from '../schema';
@@ -1772,9 +1773,17 @@ export async function createMessage(
      * must not broadcast a row into the next signed-in owner.
      */
     broadcastOwnerScope?: DataOwnerBroadcastScope | null;
+    /** Main-only material queue authority, independent of the public message body. */
+    materialDispatch?: MaterialMessageWriteAuthority;
   },
 ): Promise<Message> {
-  const dbClient = getDbClient();
+  const material = opts?.materialDispatch;
+  material?.assertCurrent();
+  if (material && (body.role !== 'user' || opts?.beforePublish || material.key.sessionId !== sessionId || material.key.clientId !== body.clientId)) {
+    throw new Error('[INVALID_PARAMS] Material queue writer requires its captured user-message key');
+  }
+  const dbClient = material?.client ?? getDbClient();
+  const materialOwnerScope = material ? (opts?.broadcastOwnerScope ?? captureOwnerBroadcastScope()) : undefined;
   const db = dbClient.drizzle;
   const guarded =
     opts !== undefined && Object.prototype.hasOwnProperty.call(opts, 'expectedClearBoundaryMs');
@@ -1790,7 +1799,7 @@ export async function createMessage(
   // The unguarded API keeps its historical fast idempotency read. Guarded
   // optimistic sends must skip it: a pre-clear row can otherwise be returned
   // before the compare-and-set boundary is checked.
-  if (!guarded) {
+  if (!guarded && !material) {
     const existing = await db
       .select()
       .from(messages)
@@ -1820,11 +1829,20 @@ export async function createMessage(
     guarded,
     expectedClearBoundaryMs: guarded ? (expected ?? null) : undefined,
     ...(opts?.requireNoUserMessage ? { requireNoUserMessage: true } : {}),
+    ...(material ? { materialDispatch: { revision: material.revision, host: { actor: material.actor, now: Date.now() } } } : {}),
   };
   try {
     const inserted = await dbClient.tx('message.insert', { ...insertArgs,
       ...(opts?.beforePublish ? { publication: 'stage' as const } : {}),
     });
+    material?.assertCurrent();
+    if (material && inserted.changes === 0) {
+      const [existing] = await db.select().from(messages)
+        .where(and(eq(messages.sessionId, sessionId), eq(messages.clientId, body.clientId))).limit(1);
+      material.assertCurrent();
+      if (!existing) throw new Error('[MESSAGE_MISMATCH] Material queue message missing after replay');
+      return messageToCamel(existing);
+    }
     if (opts?.beforePublish) {
       await opts.beforePublish();
       try {
@@ -1881,6 +1899,8 @@ export async function createMessage(
       throw new Error('Message insert skipped without a clear-boundary change');
     }
   } catch (err) {
+    // A messages row alone cannot prove attachment; keep a lost ACK unresolved.
+    if (material) throw err;
     if (opts?.beforePublish) {
       await dbClient.tx('message.insert', { ...insertArgs, publication: 'discard' });
       throw err;
@@ -1937,6 +1957,7 @@ export async function createMessage(
     rewindAt: null,
   };
   const [restoredRow] = await restoreTaskImageRows(dbClient, [row]);
+  material?.assertCurrent();
   const msg = messageToCamel(restoredRow);
   // 媒体总仓挂账钩子(规则 25):消息落库是"blob 归属本会话"的
   // 确定时点,覆盖所有落库来源(renderer IPC / hook / im / agent echo / 合成
@@ -1975,9 +1996,11 @@ export async function createMessage(
   // 的 makerChatStore push 到 in-memory state, 让消息流实时刷新。
   // Renderer 自己调 createMessage IPC 时也会触发这个 broadcast, 但因为它已经
   // 主动 push 过, 监听端按 (sessionId, clientId) dedupe 就不会重复显示。
+  material?.assertCurrent();
   if (opts?.shouldBroadcast?.() !== false) {
-    broadcastMessageRow(sessionId, msg, opts?.broadcastOwnerScope);
-    await maybeBroadcastSessionListPreview(sessionId, restoredRow, opts?.broadcastOwnerScope);
+    broadcastMessageRow(sessionId, msg, material ? materialOwnerScope : opts?.broadcastOwnerScope);
+    await maybeBroadcastSessionListPreview(sessionId, restoredRow, material ? materialOwnerScope : opts?.broadcastOwnerScope);
+    material?.assertCurrent();
   }
   // chat-history-embedder hook (Phase 1.2) —— fire-and-forget, 不 await。
   // 内部已有 enabled / cutoff / role / size 守卫; 关闭状态下零成本直接 return。

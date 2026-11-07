@@ -1,6 +1,19 @@
+import type { ProjectWorkItemExecutionRequest, ProjectWorkItemExecutionResult } from '../../../../shared/projectWorkItemExecution';
+import type { MaterialDispatchRequest, MaterialDispatchResult, MaterialDispatchHost } from '../../worker/opHandlers/materialDispatchTx';
+import type { ProjectGroupLinksTxRequest } from '../../worker/opHandlers/projectGroupLinksTx';
+import type { ProjectGroupLinksProjectReadContext } from '../../worker/opHandlers/projectGroupLinksProjectReadTx';
+import type {
+  ProjectGroupLinksProjectListResult,
+  ProjectGroupLinksResult,
+} from '../../../../shared/projectGroupLinks';
+import type { ProjectProgressReadRequest, ProjectProgressReadContext, ProjectProgressReadResult } from '../../../../shared/projectProgressApi';
+import type { AuthorizedSessionCreateRequest, AuthorizedSessionCreateResult } from '../../authorizedSessionPersistence';
+import type { WorkItemProgressIntent, WorkItemProgressContext, WorkItemProgressResult } from '../../../../shared/workItemProgress';
 import type { PluginUsageTransaction, PluginUsageHandle } from '../../../../shared/pluginUsage.js';
 import type { TaskTagRequest, TaskTagResult } from '@cindy/maker-shared';
+import type { ProjectsMutation, ProjectsMutationResult } from '../../../../shared/projects';
 import type { ChatCacheTransaction, ChatCacheResult } from '../../worker/opHandlers/chatCacheTx.js';
+import type { MaterialsTxRequest, MaterialsTxResult } from '../../worker/opHandlers/materialsTx.js';
 
 export type DbTxName =
   | 'chatCache.execute'
@@ -9,6 +22,14 @@ export type DbTxName =
   | 'pluginUsage.execute'
   | 'sessionImport.execute'
   | 'taskTags.execute'
+  | 'projects.execute'
+  | 'materials.execute'
+  | 'workItemProgress.execute'
+  | 'sessions.createAuthorized'
+  | 'materialDispatch.execute'
+  | 'projectGroupLinks.execute'
+  | 'projectGroupLinks.listProject'
+  | 'projectProgress.read'
   | 'rewind.commit'
   | 'session.treeRehydrate'
   | 'fork.session'
@@ -53,6 +74,8 @@ export type DbTxName =
   | 'bots.reparentDelegations'
   | 'bots.createDelegation'
   | 'bots.reopenDelegation'
+  | 'bots.followupRequest'
+  | 'bots.adoptProjectWorkItem'
   | 'bots.pauseLifecycle'
   | 'bots.resumeLifecycle'
   | 'bots.archiveLifecycle'
@@ -424,6 +447,8 @@ export interface MessageInsertArgs {
   requireNoUserMessage?: boolean;
   /** Host-only publication; stages belong to a connection-local TEMP table. */
   publication?: 'stage' | 'publish' | 'discard' | 'rollback';
+  /** Main-only captured authority and exact durable intent revision. Never public request fields. */
+  materialDispatch?: { revision: number; host: MaterialDispatchHost };
 }
 
 export interface MessageUpdateContentArgs {
@@ -982,6 +1007,7 @@ export interface BotGroupsAppendMessageResult {
 }
 
 export interface BotsReopenDelegationArgs {
+  expectedRunSequence: number;
   worktreePath?: string | null;
   maxActiveChildren: number;
   delegationId: string;
@@ -1001,6 +1027,31 @@ export interface BotsReopenDelegationResult {
   reopened: boolean;
   previousParentSessionId: string | null;
 }
+
+/** Host-only, owner-DB scoped persistent follow-up admission. */
+export type BotFollowupReceipt =
+  | { ok: false; errorCode: string; message: string }
+  | { ok: true; delegationId: string; childSessionId: string | null; resumed: boolean;
+      queued?: boolean; queuedMessageId?: string; delivery: 'queued' | 'accepted' | 'interaction' };
+export interface BotFollowupRequestRecord {
+  taskId: string; requesterBotId: string; keyDigest: string; bodyDigest: string;
+  inputId: string; admittedRunSequence: number; childSessionId: string;
+  phase: 'admitted' | 'dispatching' | 'unknown' | 'settled';
+  nativeAcceptedAt: number | null; result: BotFollowupReceipt | null;
+  createdAt: number; updatedAt: number;
+}
+export interface BotFollowupScope { taskId: string; requesterBotId: string; keyDigest: string }
+export type BotFollowupRequestArgs =
+  | ({ action: 'lookup' } & BotFollowupScope)
+  | { action: 'input'; taskId: string; inputId: string }
+  | { action: 'run'; taskId: string; runSequence: number }
+  | ({ action: 'admit'; bodyDigest: string; inputId: string; childSessionId: string;
+       expectedRunSequence: number; now: number; reopen?: BotsReopenDelegationArgs } & BotFollowupScope)
+  | { action: 'claim' | 'accepted' | 'unknown'; taskId: string; inputId: string; now: number }
+  | { action: 'finish'; taskId: string; inputId: string; now: number; result: BotFollowupReceipt };
+export type BotFollowupRequestResult =
+  | { kind: 'missing' | 'changed' | 'conflict' }
+  | { kind: 'request' | 'admitted' | 'claimed'; request: BotFollowupRequestRecord };
 
 export interface BotsLifecycleTransitionArgs {
   botId: string;
@@ -1412,6 +1463,19 @@ export type DbTxArgsByName = {
   'sessionImport.execute': SessionImportTransactionArgs;
   'chatCache.execute': ChatCacheTransaction;
   'taskTags.execute': TaskTagRequest & { newId?: string; callerSessionId?: string };
+  'projects.execute': ProjectsMutation;
+  'materialDispatch.execute': MaterialDispatchRequest;
+  'projectGroupLinks.execute': ProjectGroupLinksTxRequest;
+  /** Main-only envelope: the public `action` field never reaches the transaction. */
+  'projectGroupLinks.listProject': {
+    request: { projectId: string };
+    context: ProjectGroupLinksProjectReadContext;
+  };
+  'projectProgress.read': { request: ProjectProgressReadRequest; context: ProjectProgressReadContext };
+  'sessions.createAuthorized': AuthorizedSessionCreateRequest;
+  'materials.execute': MaterialsTxRequest;
+  /** Main-only envelope. Context must be derived by the authenticated host. */
+  'workItemProgress.execute': { intent: WorkItemProgressIntent; context: WorkItemProgressContext };
   'projectAliases.replaceIdentity': ProjectAliasesReplaceIdentityArgs;
   'toolResults.compactSession': CompactSessionToolResultsArgs;
   'session.agentSwitchFallback': SessionAgentSwitchFallbackArgs;
@@ -1435,6 +1499,8 @@ export type DbTxArgsByName = {
   'bots.reparentDelegations': BotsReparentDelegationsArgs;
   'bots.createDelegation': BotsCreateDelegationArgs;
   'bots.reopenDelegation': BotsReopenDelegationArgs;
+  'bots.followupRequest': BotFollowupRequestArgs;
+  'bots.adoptProjectWorkItem': ProjectWorkItemExecutionRequest;
   'bots.pauseLifecycle': BotsLifecycleTransitionArgs;
   'bots.resumeLifecycle': BotsLifecycleTransitionArgs;
   'bots.archiveLifecycle': BotsArchiveLifecycleArgs;
@@ -1510,6 +1576,14 @@ export type DbTxResultByName = {
   'sessionImport.execute': SessionImportTransactionResult;
   'chatCache.execute': ChatCacheResult;
   'taskTags.execute': TaskTagResult;
+  'projects.execute': ProjectsMutationResult;
+  'materialDispatch.execute': MaterialDispatchResult;
+  'projectGroupLinks.execute': ProjectGroupLinksResult;
+  'projectGroupLinks.listProject': ProjectGroupLinksProjectListResult;
+  'projectProgress.read': ProjectProgressReadResult;
+  'sessions.createAuthorized': AuthorizedSessionCreateResult;
+  'materials.execute': MaterialsTxResult;
+  'workItemProgress.execute': WorkItemProgressResult;
   'projectAliases.replaceIdentity': {
     projectKey: string;
     alias: string;
@@ -1537,6 +1611,8 @@ export type DbTxResultByName = {
   'bots.reparentDelegations': BotsReparentDelegationsResult;
   'bots.createDelegation': undefined;
   'bots.reopenDelegation': BotsReopenDelegationResult;
+  'bots.followupRequest': BotFollowupRequestResult;
+  'bots.adoptProjectWorkItem': ProjectWorkItemExecutionResult;
   'bots.pauseLifecycle': undefined;
   'bots.resumeLifecycle': undefined;
   'bots.archiveLifecycle': { sessions: number };

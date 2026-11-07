@@ -162,6 +162,10 @@ import {
   requestRemoteReseed,
 } from '@/features/device-link/remoteProjectsStore';
 import { getStickySessionDeviceId } from '@/features/device-link/stickySessionOrigin';
+import {
+  materialDispatchRejectionKey,
+  materialDispatchSendFailureReason,
+} from '@/features/materials/materialDispatchRejection';
 import { inputHandoffDialogHasContent, isInputHandoffAwaitingOwner, parsePendingInputHandoff } from '@/features/input-handoff/inputHandoffModel';
 import { clearCachedMessages, readCachedMessages, persistListMessage, sessionCacheInvalidationToken } from '@/features/device-link/mirrorCacheClient';
 import {
@@ -14231,6 +14235,8 @@ function buildQueuedMessage(
     /** 订阅槽①:透传一次性跳过意识拦截钩标记(预留;v1 无强制发送 UI,无调用点置位)。 */
     bypassGhostHooks?: boolean;
     replyQuote?: import('../../shared/chatReplyQuote').ChatReplyQuote;
+    /** 已固定的材料上下文快照，随本次发送交给 Main 准备与消费。 */
+    materialDispatch?: { selector: import('../../shared/materialDispatch').MaterialDispatchSelector; expectedRevision: number };
   },
   identity?: { clientId: string; createdAt: string },
 ): QueuedMessage {
@@ -14301,6 +14307,7 @@ function buildQueuedMessage(
     createOpts,
     userName: currentUserName,
     ...(opts?.bypassGhostHooks ? { bypassGhostHooks: true } : {}),
+    ...(opts?.materialDispatch ? { materialDispatch: opts.materialDispatch } : {}),
   };
 }
 
@@ -15180,6 +15187,9 @@ type SendMessageOpts = {
   bypassGhostHooks?: boolean;
   /** 伙伴私聊引用回复:随消息落库,气泡显示引用块,宿主把原消息作背景附给伙伴。 */
   replyQuote?: import('../../shared/chatReplyQuote').ChatReplyQuote;
+  /** 已固定的材料上下文快照,随本次发送交给 Main 准备与消费。
+   * 只有渲熟侧选择器与首次意图修订;准备、准入与消费全部在 Main。 */
+  materialDispatch?: { selector: import('../../shared/materialDispatch').MaterialDispatchSelector; expectedRevision: number };
   /** 远程预检在乐观投影建立后执行；false 时按 clientId 精确回滚。 */
   beforeEnqueue?: () => Promise<boolean>;
   /** Renderer-local correlation, never serialized into a message or wire payload. */
@@ -15626,7 +15636,14 @@ async function sendMessageCore(
     .catch((err) => {
       // 远端 lazy-create/startSession 抛的 [REMOTE_*] 不可恢复错误走 IPC reject 落这里
       // (不经 stream error event reducer),同样要解码成 i18n 文案,别裸显 bracket code。
-      const message = decodeRemoteErrorMessage(err instanceof Error ? err.message : String(err));
+      // 材料发送被 Main 拒绝(旧修订已被替换/冻结/已消费)时也不漏成通用失败:复用既有
+      // 材料拒绝文案说明原因,并且不自动重发,由用户重新挂载后再发。
+      const materialRejection = queued.materialDispatch
+        ? materialDispatchSendFailureReason(err)
+        : null;
+      const message = materialRejection
+        ? i18n.t(materialDispatchRejectionKey(materialRejection))
+        : decodeRemoteErrorMessage(err instanceof Error ? err.message : String(err));
       setState(sessionId, (s) => ({
         ...s,
         error: message,

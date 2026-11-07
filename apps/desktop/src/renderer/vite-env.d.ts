@@ -1172,8 +1172,11 @@ interface ElectronAPI {
   ) => () => void;
   osRelease: string;
   appVersion: string;
-  /** 运行期端点清单(main 启动时远程 → 缓存 → 烘焙解析;重启生效)。 */
-  clientEndpoints: { websiteUrl: string };
+  /**
+   * 运行期端点清单(main 启动时远程 → 缓存 → 烘焙解析;重启生效)。
+   * `chatApiBaseUrl` 供群 ↔ 项目关联定位服务器房间;旧宿主没有该字段。
+   */
+  clientEndpoints: { websiteUrl: string; chatApiBaseUrl?: string };
   appDisplayVersion: string;
   appDisplayVersionDetail: string;
   preferredSystemLocale: ApplicationMenuLocale;
@@ -5243,6 +5246,51 @@ interface ElectronAPI {
       execute: (
         request: import('@cindy/maker-shared').TaskTagRequest,
       ) => Promise<import('@cindy/maker-shared').TaskTagResult>;
+    };
+    projects: {
+      list: () => Promise<import('../shared/projects').ProjectRecord[]>;
+      detail: (
+        projectId: string,
+      ) => Promise<import('../shared/projects').ProjectDetail>;
+      mutate: (
+        mutation: import('../shared/projects').ProjectsAction,
+      ) => Promise<import('../shared/projects').ProjectsMutationResult>;
+      /** Broadcast: 项目/成员/任务绑定任一变化后通知;返回退订函数。 */
+      onChanged: (
+        callback: (
+          data: unknown,
+          ownerStamp?: import('../shared/dataOwnerPush').DataOwnerPushStamp,
+        ) => void,
+      ) => () => void;
+    };
+    /**
+     * 材料与版本（M2-A）。投影不含 `storageRef`：`media` 的受管地址与 `file` 的原文件
+     * 绝对路径都留在 main，renderer 只从 `materials.preview` 取受控预览结果。
+     */
+    projectGroupLinks: {
+      list(request: import('../shared/projectGroupLinks').ProjectGroupLinksListIntent): Promise<import('../shared/projectGroupLinks').ProjectGroupLinksResponse>;
+      listProject(request: import('../shared/projectGroupLinks').ProjectGroupLinksListProjectIntent): Promise<import('../shared/projectGroupLinks').ProjectGroupLinksProjectListResult | import('../shared/projectGroupLinks').ProjectGroupLinksFailure>;
+      link(request: import('../shared/projectGroupLinks').ProjectGroupLinkIntent): Promise<import('../shared/projectGroupLinks').ProjectGroupLinksResponse>;
+      unlink(request: import('../shared/projectGroupLinks').ProjectGroupUnlinkIntent): Promise<import('../shared/projectGroupLinks').ProjectGroupLinksResponse>;
+    };
+    projectProgress: {
+      read: (request: import('../shared/projectProgressApi').ProjectProgressReadRequest) => Promise<import('../shared/projectProgressApi').ProjectProgressReadResult>;
+      update: (intent: import('../shared/workItemProgress').WorkItemProgressIntent) => Promise<import('../shared/workItemProgress').WorkItemProgressResult>;
+    };
+    projectExecution: {
+      read: (request: import('../shared/projectWorkItemExecutionRequest').ProjectWorkItemExecutionReadRequest) => Promise<import('../shared/projectWorkItemExecutionRequest').ProjectWorkItemExecutionReadResult>;
+      request: (intent: import('../shared/projectWorkItemExecutionRequest').ProjectWorkItemExecutionRequestIntent) => Promise<import('../shared/projectWorkItemExecutionRequest').ProjectWorkItemExecutionRequestResult>;
+      followup: (intent: import('../shared/projectWorkItemExecutionRequest').ProjectWorkItemFollowupIntent) => Promise<import('../shared/projectWorkItemExecutionRequest').ProjectWorkItemFollowupResult>;
+    };
+    /** R1: scope/epoch are explicit; responses advertise referenceContract:1. */
+    materials: import('../shared/materialReferenceBridge').MaterialsReferenceApi & {
+      readPreviewBytes(
+        params: import('../shared/materials').MaterialPreviewBytesParams,
+      ): Promise<import('../shared/materials').MaterialPreviewBytesResult>;
+    };
+    materialContexts: import('../shared/materialReferenceBridge').MaterialContextsReferenceApi;
+    materialDispatch: {
+      status(params: { sessionId: string }): Promise<import('../shared/materialDispatch').MaterialDispatchStatusList>;
     };
     projectAliases: {
       list: () => Promise<import('../shared/projectAliases').ProjectAlias[]>;

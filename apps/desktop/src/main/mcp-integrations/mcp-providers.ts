@@ -1,3 +1,5 @@
+import { createProjectWorkItemExecution } from './projectWorkItemExecution';
+import { createProjectWorkItemHost } from '../maker-ipc/projectWorkItemHost';
 import { getPiKernelManager } from '../agent-binaries/index.js';
 import { PiKernelError } from '../agent-binaries/pi-kernel-manager.js';
 import { manageAppSettings } from '../app-settings/sections.js';
@@ -22,6 +24,8 @@ import { executeTaskTags } from '../localDb/ipc/taskTags.js';
 import { getPluginMarketService } from '../plugin-market/service.js';
 import { resolveHelperSurface, resolveHelperSystemSkillsOff } from './helperSurface.js';
 import { createProject } from './createProject.js';
+import { createEntityProjectMutation } from './entityProjectMutation.js';
+import { createEntityProjectManagement } from './entityProjectManagement.js';
 import { createMoveSession } from './moveSession.js';
 import { createTaskWorktreeHost } from './createTaskWorktree.js';
 import { sessionImportCallbacks } from '../session-import/agentTools.js';
@@ -86,6 +90,7 @@ import {
   tryGetOrcaCollabService,
   isSessionInTurn,
   getTaskActionInputState,
+  isTaskExecutionPaused,
   getTaskActionSession,
   confirmTaskAction,
   requestMcpSetupForSession,
@@ -877,6 +882,9 @@ export function createDesktopMcpProviders(deps: DesktopMcpProvidersDeps): LiziMc
       moveSession: createMoveSession(isSessionInTurn),
       createTaskWorktree: createTaskWorktreeHost(),
       projectManagement: { list: listProjects, rename: renameProject, remove: removeProject },
+      entityProjects: createEntityProjectManagement({ input: getTaskActionInputState, getSession: getTaskActionSession }),
+      projectWorkItemExecution: createProjectWorkItemExecution({ input: getTaskActionInputState, getSession: getTaskActionSession, delegation: tryGetBotDelegationService, isExecutionPaused: isTaskExecutionPaused }),
+      entityProjectMutation: createEntityProjectMutation({ input: getTaskActionInputState, getSession: getTaskActionSession }),
       authorizeSkillLearning: async (request, context) => {
         if (!isCindyLearnSkillEnabled()) {
           return {
@@ -1167,7 +1175,9 @@ export function createDesktopMcpProviders(deps: DesktopMcpProvidersDeps): LiziMc
               message: 'Session task service not initialized',
             };
           }
-          return svc.getSessionTask(callerSessionId, taskId, queuedMessageId);
+          return createProjectWorkItemHost({ callerSessionId, delegation: svc,
+            runtime: { input: getTaskActionInputState, getSession: getTaskActionSession },
+          }).get(taskId, queuedMessageId);
         },
         stopSessionTask: async ({ callerSessionId, taskId, mode }) => {
           const svc = tryGetBotDelegationService();

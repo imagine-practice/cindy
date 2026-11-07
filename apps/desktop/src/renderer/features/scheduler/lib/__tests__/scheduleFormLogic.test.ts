@@ -344,6 +344,7 @@ function makeForm(overrides: Partial<ScheduleFormState> = {}): ScheduleFormState
     workspaceKind: 'project',
     workingDir: '/repo/project',
     useWorktree: true,
+    projectId: '',
     targetSessionId: '',
     persistentSession: false,
     silentWhenIdle: false,
@@ -358,6 +359,42 @@ function makeForm(overrides: Partial<ScheduleFormState> = {}): ScheduleFormState
 
 const hasKey = (obj: object, key: string): boolean =>
   Object.prototype.hasOwnProperty.call(obj, key);
+
+describe('project entity binding in the automation form', () => {
+  it('sends the chosen project for a run that creates a task, and clears it when emptied', () => {
+    const bound = buildScheduleInput(makeForm({ projectId: 'p-1' }));
+    expect(bound.projectId).toBe('p-1');
+    // 清空必须带 key：update patch 靠「key 在 + undefined」把旧绑定写成 NULL。
+    const cleared = buildScheduleInput(makeForm({ projectId: '' }));
+    expect(hasKey(cleared, 'projectId')).toBe(true);
+    expect(cleared.projectId).toBeUndefined();
+  });
+
+  it('omits the project for runs that never create a task', () => {
+    // 绑定既有会话(heartbeat)与脚本模式都不新建会话，存下的值永远不会生效。
+    expect(buildScheduleInput(makeForm({ projectId: 'p-1', targetSessionId: 'session-1' })).projectId)
+      .toBeUndefined();
+    const script = buildScheduleInput(makeForm({
+      projectId: 'p-1',
+      executionMode: 'script',
+      scriptCommand: 'node check.mjs',
+    }));
+    expect(script.projectId).toBeUndefined();
+  });
+
+  it('keeps the project when cloning an automation', () => {
+    const cloned = scheduleToUserCreateInput({
+      ...makeForm({ projectId: 'p-1' }),
+      id: 's-1',
+      kind: 'cron',
+      notify: { desktop: true, feishu: false },
+      status: 'active',
+      createdAt: 1,
+      updatedAt: 1,
+    } as unknown as Schedule);
+    expect(cloned.projectId).toBe('p-1');
+  });
+});
 
 describe('schedule timing mode conversion', () => {
   it('preserves the authoritative interval when cronExpr is stale', () => {

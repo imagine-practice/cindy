@@ -35,6 +35,8 @@ export const TASK_ACTION_TOOLS: ReadonlySet<string> = new Set([
   'rename_sessions',
   'move_session',
   'manage_session_prs',
+  'mutate_project_entity',
+  'execute_project_work_item',
 ]);
 
 export const ORCA_TASK_ACTION_TOOLS: ReadonlySet<string> = new Set([

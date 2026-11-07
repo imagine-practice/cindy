@@ -1,3 +1,7 @@
+import { registerProjectGroupLinksIpc } from './projectGroupLinks';
+import { registerProjectProgressIpc } from './projectProgress';
+import { readMaterialPreviewPdfBytes } from '../../materialPreviewBytes';
+import { MATERIALS_READ_PREVIEW_BYTES_CHANNEL } from '../../../shared/materials';
 import { registerCompanionImport } from '../../bot-import/registration.js';
 import { registerTaskTagsIpc } from './taskTags';
 import { registerRoutineRemoteResources } from '../../routines/remote.js';
@@ -29,6 +33,8 @@ import { registerSessionImportIpc } from '../../session-import/ipc';
 import { registerSessionShareIpc } from './session-share';
 import { registerRecentWorkdirsIpc } from './recentWorkdirs';
 import { registerProjectAliasesIpc } from './projectAliases';
+import { registerProjectsIpc } from './projects';
+import { registerMaterialsIpc } from './materials';
 import { registerRightSidebarTabsIpc } from './rightSidebarTabs';
 import { registerSubagentRunsIpc } from './subagentRuns';
 import { enqueueDurableWrite } from '../../messagePersistBroadcaster';
@@ -234,6 +240,11 @@ export function registerLocalDbIpc(opts: RegisterLocalDbIpcOpts = {}): void {
   registerOrcaWorkflowIpc();
   registerRecentWorkdirsIpc();
   registerProjectAliasesIpc();
+  registerProjectsIpc();
+  registerMaterialsIpc();
+  ipcMain.handle(MATERIALS_READ_PREVIEW_BYTES_CHANNEL, readMaterialPreviewPdfBytes);
+  registerProjectProgressIpc();
+  registerProjectGroupLinksIpc();
   registerTaskTagsIpc();
   registerRightSidebarTabsIpc();
   // Durable Subagent projection writes share the agent event path's FIFO, so a

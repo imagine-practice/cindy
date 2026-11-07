@@ -1,5 +1,48 @@
 # Agent 与用户同权：工具能力不以「Agent 不该做」为由少给
 
+## 已有项目任务公开执行入口（2026-11-06，待主人审查）
+
+`execute_project_work_item` 由Desktop可选宿主回调注册。当前本机Bot以真实caller/current input、权限与暂停代次采用原Session；actor/executor/requestToken由main决定。非Bot和group lane不降级另一主体，群由独立原生跟进来源通道负责。输入必须带实际绑定代次，不补最新值。
+
+`recover`仅按已返回requestToken读取原请求，不admit或dispatch；未知请求不能换key冒充新执行。工具ACK完全丢失时可用原项目Session ID调用既有`get_session_task`，只读定位现有执行。accepted仅原生接收事实，不是provider消费/任务完成。公开工具接线仍待受控链路测试与主人审查，不宣称真实Host/模型通过；UI按钮、继续/批准/队列/模型route及重启恢复尚未完成。
+
+
+## 实体项目宿主读写适配（2026-11-06，本机中央接线）
+
+`list_project_entities`、`get_project_entity`、`get_project_progress` 与原目录工具
+`list_projects` / `create_project` 并存。Desktop 的 `mcp-providers` 提供 `entityProjects`
+回调，公共 self-management 索引按回调是否注册说明可用性；旧宿主不提供时不暴露这三个工具。
+实体 ID 不接受目录替代，也不根据远端请求回落本机。
+
+本片在独立工作树实现本机读取：调用身份只取宿主绑定的当前任务、实时输入与群执行租约。
+普通主人任务／插件任务使用账号；伙伴的已核验主人代办使用账号，自主／受托轮使用伙伴主体；
+复用 `teammateTurnPrincipal`，同 ID 的 account 与 bot 不混同。群请求沿正式
+`authorizeGroupTool(..., 'owner-action')`，`read-self`、群名和来源分类不授予项目读取权；
+非主人渠道发言、共享访客和未知来源明确拒绝。
+
+列表／详情复用显式 actor 与捕获客户端的项目服务；进度使用显式 actor 的
+`projectProgress.read` 事务，完整当前工作项不受历史游标分页截断。读取前后核对数据库客户端、
+账号代次、当前调用任务／输入、伙伴状态、群租约及实际项目成员资格，撤权后不返回正文、名称、
+计数或路径；底层异常只返回固定代码和通用提示。
+
+公共 MCP transport → 实际宿主 adapter → 完整迁移的内存 SQLite 已有专项测试；
+网络、Electron、账号生命周期及实时输入来源仍由测试控制，不能当作真实 Host／群／多端验收。
+Desktop 的 `entityProjectMutation` 已与只读回调独立接线，公开工具为
+`mutate_project_entity`，支持创建、更新名称/目标/状态、增删成员、转交负责人、
+绑定已有任务与设置处理人七种 action。未安装写回调的宿主不注册该工具，索引如实返回
+`mutationRegistered:false`；旧目录 `create_project` / `list_projects` 语义保留。
+
+写操作复用 `authorizeTaskToolCall` / `withToolCallAuthority` 和当前任务权限，
+不新增审批或按「自主工具白名单」收窄。身份取正式 caller/当前输入/账号客户端与群租约，
+不读模型自报 actor/role，create.input.owner 只是业务目标。所有异步预检之后、实际事务之前
+再次核验来源与权限；beforeDispatch 拒绝为 not-applied，派发后结果不明为 unknown，
+不自动重试或声称回滚。成功删除/转交后失去项目读取权不抹掉已提交事实。
+
+公共 MCP → 实际 provider 属性回调 → main adapter → 当前正式迁移 SQLite 的本机
+专项回归属于受控宿主证据；真实 Electron/群/跨端与完整 provider 启动尚未验收。
+本工具不创建或执行任务，不把设置处理人当工作项执行。进度写工具、群跟进与跨电脑
+实体读写仍有后续同权缺口，不能宣传全产品同权已完成。
+
 2026-10-14 裁决。用户本人能对自己的任务、定时任务、项目、伙伴做的操作，Agent 也要有对应工具，
 包括操作用户另一台电脑上的数据。
 

@@ -12,6 +12,12 @@ import { clearCurrentDbClient, setCurrentDbClient } from '../client/current';
 import type { DbClient } from '../client/DbClient';
 import { listMigrations, runMigrationReplay } from '../migrationRunner';
 import { initializeTaskTagPresets } from '../taskTagPresets';
+import { runProjectsTransaction } from '../worker/opHandlers/projectsTx';
+import { runWorkItemProgressTransaction } from '../worker/opHandlers/workItemProgressTx';
+import { runMaterialsTransaction } from '../worker/opHandlers/materialsTx';
+import { runProjectGroupLinksTransaction } from '../worker/opHandlers/projectGroupLinksTx';
+import { runMaterialDispatchTransaction } from '../worker/opHandlers/materialDispatchTx';
+import { createHash } from 'node:crypto';
 
 const canRunMigrationReplay = process.platform === 'win32' || process.platform === 'darwin';
 const describeMigrationReplay = canRunMigrationReplay ? describe : describe.skip;
@@ -167,12 +173,83 @@ function columnNames(db: Database.Database, tableName: string): string[] {
     .map((row) => String((row as { name: unknown }).name));
 }
 
+
+/**
+ * `schedules` 在 0152 时的真实形状（0010 建表 + 其后每一处 ALTER）。
+ *
+ * 0153 是裸 `ALTER TABLE schedules ADD project_id`，而一批"从中途版本回放"的断言夹具从
+ * 125+ 起步、自己从不建这张表（真实库自 0010 起必有它）。这些夹具**逐条**调用本常量补出
+ * 0152 形状，而不是在 `createTempDb()` 里统一补一个壳：0010 是
+ * `CREATE TABLE IF NOT EXISTS`，先建一个只有 id 的壳会让 0010 跳过建全表，
+ * 后续读写这些列的迁移反而会崩。迁移文件本身不做条件式改写。
+ *
+ * 列来源：0010（id…expire_at）、0011 job_type/job_config、0013 manual、
+ * 0014 last_finished_at、0015 interval_ms、0021 persistent_session、
+ * 0027 source/project_config_id、0037 workspace_kind、0041 fast_mode、
+ * 0046 silent_when_idle、0050 provider_id、0061 pre_run_hook_command/
+ * pre_run_hook_timeout_ms/skip_log_session_id、0073 execution_mode/script_config、
+ * 0079 legacy_session_fallback、0084 notify_wecom_group、0104 model_agent_kind、
+ * 0130 agent_device_id、0134 model_agent_device_id、0140 pre_run_plugin_id/
+ * pre_run_plugin_on_failure。
+ */
+const SCHEDULES_AT_0152_SQL = `
+  CREATE TABLE schedules (
+    id TEXT PRIMARY KEY NOT NULL,
+    name TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    kind TEXT DEFAULT 'cron' NOT NULL,
+    cron_expr TEXT NOT NULL,
+    timezone TEXT NOT NULL,
+    recurring INTEGER DEFAULT 1 NOT NULL,
+    agent_kind TEXT NOT NULL,
+    model TEXT,
+    effort TEXT,
+    working_dir TEXT,
+    use_worktree INTEGER DEFAULT 0 NOT NULL,
+    target_session_id TEXT,
+    notify_desktop INTEGER DEFAULT 1 NOT NULL,
+    notify_feishu INTEGER DEFAULT 0 NOT NULL,
+    status TEXT DEFAULT 'active' NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    last_fired_at INTEGER,
+    next_fire_at INTEGER,
+    expire_at INTEGER,
+    job_type TEXT DEFAULT 'prompt' NOT NULL,
+    job_config TEXT,
+    manual INTEGER DEFAULT 0 NOT NULL,
+    last_finished_at INTEGER,
+    interval_ms INTEGER,
+    persistent_session INTEGER DEFAULT 0 NOT NULL,
+    source TEXT DEFAULT 'user',
+    project_config_id TEXT,
+    workspace_kind TEXT DEFAULT 'project' NOT NULL,
+    fast_mode INTEGER DEFAULT 0 NOT NULL,
+    silent_when_idle INTEGER DEFAULT 0 NOT NULL,
+    provider_id TEXT,
+    pre_run_hook_command TEXT,
+    pre_run_hook_timeout_ms INTEGER,
+    skip_log_session_id TEXT,
+    execution_mode TEXT DEFAULT 'agent' NOT NULL,
+    script_config TEXT,
+    legacy_session_fallback INTEGER DEFAULT 0 NOT NULL,
+    notify_wecom_group INTEGER DEFAULT 0 NOT NULL,
+    model_agent_kind TEXT,
+    agent_device_id TEXT,
+    model_agent_device_id TEXT,
+    pre_run_plugin_id TEXT,
+    pre_run_plugin_on_failure TEXT
+  )`;
+
 describeMigrationReplay('migration replay', () => {
   it.each(['missing', 'legacy', 'partial'])(
     'replays remote report persistence with %s Worker schema',
     (shape) => {
       const { db, cleanup } = createTempDb();
       try {
+
+        // 0153 的裸 ALTER 需要这张表存在；真实库自 0010 起必有。逐条夹具补，不做全局补丁。
+        db.exec(SCHEDULES_AT_0152_SQL);
         // Later migrations need the sessions and task tables these Worker fixtures omit.
         db.exec("CREATE TABLE migration_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE migration_history (seq INTEGER PRIMARY KEY, file_name TEXT NOT NULL, content_hash TEXT NOT NULL, applied_at INTEGER NOT NULL); CREATE TABLE sessions (id TEXT PRIMARY KEY)");
         if (shape !== 'missing') db.exec(`CREATE TABLE orca_workers (id TEXT PRIMARY KEY${shape === 'partial' ? ', pending_remote_report TEXT' : ''}); INSERT INTO orca_workers (id) VALUES ('worker-1');`);
@@ -185,7 +262,7 @@ describeMigrationReplay('migration replay', () => {
         const result = runMigrationReplay(db, { drizzleDir: drizzleDir(), currentVersion: 124 });
         expect(result.applied.map((migration) => migration.seq)).toEqual([
           125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142,
-          143, 144, 145,
+          143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153,
         ]);
         expect(columnNames(db, 'chat_cache_rooms')).toEqual(['namespace', 'room_id', 'state', 'version']);
         expect(columnNames(db, 'sessions')).toContain('scheduled_model_baseline');
@@ -216,6 +293,9 @@ describeMigrationReplay('migration replay', () => {
     (existing) => {
       const { db, cleanup } = createTempDb();
       try {
+
+        // 0153 的裸 ALTER 需要这张表存在；真实库自 0010 起必有。逐条夹具补，不做全局补丁。
+        db.exec(SCHEDULES_AT_0152_SQL);
         db.exec(
           'CREATE TABLE migration_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE migration_history (seq INTEGER PRIMARY KEY, file_name TEXT NOT NULL, content_hash TEXT NOT NULL, applied_at INTEGER NOT NULL); CREATE TABLE sessions (id TEXT PRIMARY KEY)',
         );
@@ -269,6 +349,9 @@ describeMigrationReplay('migration replay', () => {
   it('keeps existing tool usage when upgrading the invocation ledger', () => {
     const { db, cleanup } = createTempDb();
     try {
+
+        // 0153 的裸 ALTER 需要这张表存在；真实库自 0010 起必有。逐条夹具补，不做全局补丁。
+        db.exec(SCHEDULES_AT_0152_SQL);
       db.exec("CREATE TABLE migration_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE migration_history (seq INTEGER PRIMARY KEY, file_name TEXT NOT NULL, content_hash TEXT NOT NULL, applied_at INTEGER NOT NULL)");
       db.exec(readFileSync(path.join(drizzleDir(), '0128_demonic_odin.sql'), 'utf-8'));
       db.exec('CREATE TABLE sessions (id TEXT PRIMARY KEY)');
@@ -333,6 +416,9 @@ describeMigrationReplay('migration replay', () => {
   it('adds nullable sessions.hidden_at to a populated database without touching existing tasks', () => {
     const { db, cleanup } = createTempDb();
     try {
+
+        // 0153 的裸 ALTER 需要这张表存在；真实库自 0010 起必有。逐条夹具补，不做全局补丁。
+        db.exec(SCHEDULES_AT_0152_SQL);
       db.exec("CREATE TABLE migration_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE migration_history (seq INTEGER PRIMARY KEY, file_name TEXT NOT NULL, content_hash TEXT NOT NULL, applied_at INTEGER NOT NULL)");
       db.exec("CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL, status TEXT NOT NULL, pinned_at INTEGER, updated_at INTEGER NOT NULL); INSERT INTO sessions VALUES ('a', 'Visible', 'active', NULL, 1), ('b', 'Pinned', 'archived', 5, 2);");
       db.exec("CREATE TABLE bot_delegations (id TEXT PRIMARY KEY)");
@@ -354,6 +440,9 @@ describeMigrationReplay('migration replay', () => {
   it('defaults sessions.notifications_muted to unmuted on a populated database', () => {
     const { db, cleanup } = createTempDb();
     try {
+
+        // 0153 的裸 ALTER 需要这张表存在；真实库自 0010 起必有。逐条夹具补，不做全局补丁。
+        db.exec(SCHEDULES_AT_0152_SQL);
       db.exec("CREATE TABLE migration_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE migration_history (seq INTEGER PRIMARY KEY, file_name TEXT NOT NULL, content_hash TEXT NOT NULL, applied_at INTEGER NOT NULL)");
       db.exec("CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL, status TEXT NOT NULL, updated_at INTEGER NOT NULL); INSERT INTO sessions VALUES ('a', 'Loud', 'active', 1), ('b', 'Archived', 'archived', 2);");
       db.exec("CREATE TABLE plugin_usage_events (call_id TEXT PRIMARY KEY)");
@@ -363,7 +452,7 @@ describeMigrationReplay('migration replay', () => {
       db.exec(readFileSync(path.join(drizzleDir(), '0045_living_namor.sql'), 'utf-8'));
       const result = runMigrationReplay(db, { drizzleDir: drizzleDir(), currentVersion: 129 });
       expect(result.applied.map((migration) => migration.seq)).toEqual([
-        130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145,
+        130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153,
       ]);
       expect(columnNames(db, 'sessions')).toContain('notifications_muted');
       // 存量任务全部回填为「未静音」：升级不能替用户少发提醒。
@@ -528,6 +617,9 @@ describeMigrationReplay('migration replay', () => {
       expect(tableExists(db, 'wechat_outbox')).toBe(true);
       expect(tableExists(db, 'wechat_file_attachments')).toBe(true);
       expect(tableExists(db, 'schedule_session_latest_runs')).toBe(true);
+      // 0153 的加列写在 companion 脚本里（SQLite 的 ADD COLUMN 无 IF NOT EXISTS）：
+      // 真实库必须真的多出这一列，守卫不能退化成静默 no-op。
+      expect(columnNames(db, 'schedules')).toContain('project_id');
       expect(tableExists(db, 'bot_groups')).toBe(true);
       expect(tableExists(db, 'bot_group_members')).toBe(true);
       expect(tableExists(db, 'bot_group_messages')).toBe(true);
@@ -681,6 +773,9 @@ describeMigrationReplay('migration replay', () => {
   it('bridges the exact legacy migration lineage through 0074 replay', () => {
     const { db, cleanup } = createTempDb();
     try {
+
+        // 0153 的裸 ALTER 需要这张表存在；真实库自 0010 起必有。逐条夹具补，不做全局补丁。
+        db.exec(SCHEDULES_AT_0152_SQL);
       db.exec(`
         CREATE TABLE migration_meta (
           key TEXT PRIMARY KEY NOT NULL,
@@ -715,6 +810,8 @@ describeMigrationReplay('migration replay', () => {
 
       db.exec(readFileSync(path.join(drizzleDir(), '0045_living_namor.sql'), 'utf-8'));
 
+      // 本 fixture 自带 0152 形状的 schedules（见 SCHEDULES_AT_0152_SQL）：0153 的裸 ALTER
+      // 需要这张表存在，其余表仍是最小库，迁移链必须能一路走完而不是中途炸掉。
       const result = runMigrationReplay(db, {
         drizzleDir: drizzleDir(),
         currentVersion: 73,
@@ -740,9 +837,10 @@ describeMigrationReplay('migration replay', () => {
           'cost_attribution',
         ]),
       );
-      // fixture 故意不建 schedules(最小库 + 各迁移自带守卫的设计):0084 的
-      // 裸 ALTER 靠 runner 的冻结缺陷守卫跳过,迁移链必须能走完而不是中途炸掉。
-      expect(tableExists(db, 'schedules')).toBe(false);
+      // 本 fixture 现在自带 0152 形状的 schedules：0153 是裸 ALTER，不能作用在不存在的表上
+      // （真实库自 0010 起必有该表）。0084 的裸 ALTER 因列已存在而由冻结缺陷守卫跳过。
+      expect(tableExists(db, 'schedules')).toBe(true);
+      expect(columnNames(db, 'schedules')).toContain('project_id');
       expect(tableExists(db, 'project_aliases')).toBe(true);
       expect(tableExists(db, 'device_link_ownership')).toBe(true);
       expect(
@@ -856,5 +954,461 @@ describeMigrationReplay('migration replay', () => {
       cleanupDb();
       cleanupDrizzle();
     }
+  });
+});
+
+// Migration tier, B1: upgrade a populated pre-generation database, then use the real binder.
+// Fresh-schema tests cannot detect lost material/context rows or the old default generation.
+describeMigrationReplay('project/material/B1 upgrade', () => {
+  it('preserves old rows, defaults generation to zero, and retains progress history across bindings', () => {
+    const { db, cleanup } = createTempDb();
+    const staged = mkdtempSync(path.join(tmpdir(), 'cindy-project-upgrade-'));
+    try {
+      for (const migration of listMigrations(drizzleDir()).filter(m => m.seq <= 147)) {
+        copyFileSync(migration.sqlPath, path.join(staged, migration.fileName));
+        if (migration.tsScriptPath) {
+          mkdirSync(path.join(staged, 'scripts'), { recursive: true });
+          copyFileSync(migration.tsScriptPath, path.join(staged, 'scripts', path.basename(migration.tsScriptPath)));
+        }
+      }
+      runMigrationReplay(db, { drizzleDir: staged });
+      db.exec(`INSERT INTO sessions (id,created_at,updated_at,project_id) VALUES ('s',1,1,'p');
+        INSERT INTO projects VALUES ('p','Project',NULL,'owner','active',1,1), ('q','Other',NULL,'owner','active',1,1);
+        INSERT INTO project_members VALUES ('p','account','owner','owner',1), ('q','account','owner','owner',1);
+        INSERT INTO materials VALUES ('m','p','s','doc.txt','active','account','owner',1,1);
+        INSERT INTO material_versions VALUES ('v','m',1,'digest',3,'text/plain','file','/fixture/doc.txt',1,'ready',NULL,'account','owner',1);
+        INSERT INTO material_contexts VALUES ('c','s','reference','[{"materialId":"m","version":1,"readStateAtPin":"ready"}]','account','owner',1);`);
+      const snapshot = () => ['projects','project_members','materials','material_versions','material_contexts']
+        .map(table => db.prepare(table === 'material_contexts' ? 'SELECT id,work_item_id,purpose,refs_json,created_by_kind,created_by_id,created_at FROM material_contexts' : 'SELECT * FROM ' + table).all());
+      const old = snapshot();
+      const result = runMigrationReplay(db, { drizzleDir: drizzleDir() });
+      expect(result.applied.map(m => m.seq)).toEqual([148, 149, 150, 151, 152, 153]);
+      expect(snapshot()).toEqual(old);
+      expect(db.prepare('SELECT project_binding_revision FROM sessions').pluck().get()).toBe(0);
+      expect(columnNames(db, 'session_pr_refs')).toEqual(expect.arrayContaining(['provider', 'host']));
+      expect(columnNames(db, 'work_item_progress_events')).toContain('binding_revision');
+      const insertEvent = db.prepare(`INSERT INTO work_item_progress_events
+        (event_id,project_id,session_id,binding_revision,actor_kind,actor_id,request_id,intent_json,
+         from_status,to_status,created_at,revision,before_json,after_json,completion_note)
+        VALUES (?,'p','s',?,'account','owner','request','{}',NULL,'done',1,1,'null','{}','confirmed')`);
+      insertEvent.run(1, 0);
+      db.exec(`INSERT INTO work_item_progress
+        (session_id,project_id,binding_revision,status,revision,completion_event_id,updated_by_kind,updated_by_id,updated_at)
+        VALUES ('s','p',0,'done',1,1,'account','owner',1)`);
+      const history = db.prepare('SELECT * FROM work_item_progress_events').all();
+      const current = db.prepare('SELECT * FROM work_item_progress').all();
+      for (const projectId of ['q','p',null,'p']) {
+        runProjectsTransaction(db, { actor: { kind: 'account', id: 'owner' }, action: 'bindSession', sessionId: 's', projectId });
+      }
+      expect(db.prepare('SELECT project_binding_revision FROM sessions').pluck().get()).toBe(4);
+      expect(db.prepare('SELECT * FROM work_item_progress_events').all()).toEqual(history);
+      expect(db.prepare('SELECT * FROM work_item_progress').all()).toEqual(current);
+      expect(() => insertEvent.run(2, 0)).toThrow(/UNIQUE/);
+      insertEvent.run(2, 4); // Same request is legal in a new binding generation.
+      expect(db.prepare('SELECT COUNT(*) FROM work_item_progress_events').pluck().get()).toBe(2);
+      expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+      expect(runMigrationReplay(db, { drizzleDir: drizzleDir() }).applied).toEqual([]);
+      expect(snapshot()).toEqual(old);
+    } finally {
+      rmSync(staged, { recursive: true, force: true });
+      cleanup();
+    }
+  });
+});
+
+// Migration tier, B1 integration: target-fixture tests cannot prove the generated SQL,
+// actual bindSession producer and fixed progress consumer agree on the binding epoch.
+// Minimal ABA: done in p, p -> q/null -> p without intermediate progress, then replay.
+describeMigrationReplay('B1 generated schema and production transaction integration', () => {
+  it.each(['q', null])('rejects old epoch after p -> %s -> p and starts new progress from unknown', (via) => {
+    const { db, cleanup } = createTempDb();
+    try {
+      runMigrationReplay(db, { drizzleDir: drizzleDir() });
+      for (const projectId of ['p', 'q']) {
+        runProjectsTransaction(db, {
+          actor: { kind: 'account', id: 'owner' },
+          action: 'create', newId: projectId, now: 1000,
+          input: { name: projectId, owner: { kind: 'account', id: 'owner' } },
+        });
+      }
+      db.prepare('INSERT INTO sessions (id, created_at, updated_at) VALUES (?, 1, 1)').run('s');
+      const bind = (projectId: string | null) =>
+        runProjectsTransaction(db, { actor: { kind: 'account', id: 'owner' }, action: 'bindSession', sessionId: 's', projectId });
+      const epoch = () => db.prepare('SELECT project_binding_revision FROM sessions WHERE id = ?')
+        .pluck().get('s') as number;
+      const snapshot = () => ({
+        current: db.prepare('SELECT * FROM work_item_progress').all(),
+        events: db.prepare('SELECT * FROM work_item_progress_events ORDER BY event_id').all(),
+      });
+      bind('p');
+      expect(epoch()).toBe(1);
+      const oldIntent = {
+        projectId: 'p', sessionId: 's', expectedRevision: 0, expectedBindingRevision: epoch(),
+        requestId: 'same-request', to: 'done', completionNote: 'Owner confirmed progress',
+      };
+      const context = { actor: { kind: 'account' as const, id: 'owner' }, now: 2000 };
+      const first = runWorkItemProgressTransaction(db, oldIntent, context);
+      expect(first.record).toMatchObject({ status: 'done', bindingRevision: 1, revision: 1,
+        completionEventId: first.eventId });
+      const old = snapshot();
+      bind('p');
+      runProjectsTransaction(db, { actor: { kind: 'account', id: 'owner' }, action: 'setAssignee', sessionId: 's',
+        assignee: { kind: 'account', id: 'owner' } });
+      expect(epoch()).toBe(1);
+      expect(runWorkItemProgressTransaction(db, oldIntent, context)).toEqual({ ...first, replayed: true });
+      expect(snapshot()).toEqual(old);
+      bind(via);
+      bind('p');
+      expect(epoch()).toBe(3);
+      expect(snapshot()).toEqual(old);
+      // Both replay and a fresh write with the old binding token must be rejected without writes.
+      const beforeRejectedWrites = db.prepare('SELECT total_changes()').pluck().get();
+      for (const requestId of ['same-request', 'new-stale-request']) {
+        expect(() => runWorkItemProgressTransaction(db, { ...oldIntent, requestId }, context))
+          .toThrow('[BINDING_CONFLICT]');
+        expect(db.prepare('SELECT total_changes()').pluck().get()).toBe(beforeRejectedWrites);
+        expect(snapshot()).toEqual(old);
+      }
+      expect(() => runWorkItemProgressTransaction(db, {
+        ...oldIntent, expectedBindingRevision: epoch(), expectedRevision: 1,
+      }, context)).toThrow('[REVISION_CONFLICT]');
+      expect(snapshot()).toEqual(old);
+      const newIntent = {
+        projectId: 'p', sessionId: 's', expectedRevision: 0, expectedBindingRevision: epoch(),
+        requestId: 'same-request', to: 'doing',
+      };
+      const next = runWorkItemProgressTransaction(db, newIntent, { ...context, now: 3000 });
+      expect(next).toMatchObject({ replayed: false, revision: 1,
+        record: { status: 'doing', bindingRevision: 3, completionEventId: null } });
+      expect(next.eventId).not.toBe(first.eventId);
+      const saved = snapshot();
+      expect(saved.events[0]).toEqual(old.events[0]);
+      expect(saved.events[1]).toMatchObject({ from_status: null, before_json: 'null', binding_revision: 3 });
+      expect(saved.events).toHaveLength(2);
+      expect(runWorkItemProgressTransaction(db, newIntent, context)).toEqual({ ...next, replayed: true });
+      expect(snapshot()).toEqual(saved);
+      expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+// Migration tier, R1/R12: real populated pre-reference DB, generated SQL + real companion.
+// Covers adoption/null-epoch history, immutable snapshot bytes, rollback and reopen idempotency.
+describeMigrationReplay('R1 legacy reference adoption', () => {
+  it('conservatively migrates each legacy scope and preserves old rows through failure, retry and reopen', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'cindy-material-r1-'));
+    const staged = path.join(root, 'before'); mkdirSync(staged);
+    const filename = path.join(root, 'fixture.db');
+    let db = createBetterSqliteDatabase(filename);
+    try {
+      loadSqliteVec(db);
+      for (const m of listMigrations(drizzleDir()).filter(m => m.seq <= 148)) {
+        copyFileSync(m.sqlPath, path.join(staged, m.fileName));
+        if (m.tsScriptPath) {
+          mkdirSync(path.join(staged, 'scripts'), { recursive: true });
+          copyFileSync(m.tsScriptPath, path.join(staged, 'scripts', path.basename(m.tsScriptPath)));
+        }
+      }
+      runMigrationReplay(db, { drizzleDir: staged });
+      const actor = { kind: 'account' as const, id: 'owner' };
+      for (const p of ['p','q']) runProjectsTransaction(db, { action: 'create', newId: p, actor, now: 1, input: { name: p, owner: actor } });
+      const insertTask = db.prepare('INSERT INTO sessions (id,project_id,status,project_binding_revision,created_at,updated_at) VALUES (?,?,?,?,1,1)');
+      insertTask.run('initial','p','active',0); insertTask.run('later','p','active',7);
+      insertTask.run('deleted','p','deleted',0); insertTask.run('other','q','active',0);
+      insertTask.run('unbound',null,'active',2);
+      const cases = [
+        { id: 'project', task: null, status: 'active' },
+        { id: 'initial', task: 'initial', status: 'active' },
+        { id: 'removed', task: 'initial', status: 'removed' },
+        ...['later','deleted','other','missing','unbound'].map(task => ({ id: task, task, status: 'active' })),
+        { id: 'no-version', task: null, status: 'active' },
+      ];
+      const insertMaterial = db.prepare("INSERT INTO materials VALUES (?,'p',?, ?,?,'account','owner',1,2)");
+      const insertVersion = db.prepare(`INSERT INTO material_versions VALUES (?,?,?, ?,1,'text/plain','file','/fixture/source.txt',1,'ready',NULL,'account','owner',1)`);
+      for (const c of cases) {
+        insertMaterial.run(c.id, c.task, c.id+'.txt', c.status);
+        if (c.id !== 'no-version') for (const v of [1,2]) insertVersion.run(c.id+'-v'+v,c.id,v,String(v).repeat(64));
+      }
+      const refsJson = JSON.stringify([{ materialId: 'initial', version: 1, readStateAtPin: 'ready' }]);
+      db.prepare('INSERT INTO material_contexts VALUES (?,?,?,?,?,?,?)').run('snapshot','initial','reference',refsJson,'account','owner',1);
+      const oldVersions = db.prepare('SELECT * FROM material_versions ORDER BY id').all();
+      const oldMaterials = db.prepare('SELECT * FROM materials ORDER BY id').all();
+      // Fail after the reference INSERT to prove DDL and backfill roll back together.
+      db.exec(`CREATE TRIGGER fail_r1 BEFORE INSERT ON migration_meta
+        WHEN NEW.key='material_reference_r1_migration_summary'
+        BEGIN SELECT RAISE(ABORT,'r1 fixture failure'); END`);
+      expect(() => runMigrationReplay(db, { drizzleDir: drizzleDir() })).toThrow('r1 fixture failure');
+      expect(tableExists(db, 'material_references')).toBe(false);
+      expect(columnNames(db,'material_contexts')).not.toContain('binding_revision');
+      expect(db.prepare("SELECT value FROM migration_meta WHERE key='schema_version'").pluck().get()).toBe('148');
+      db.exec('DROP TRIGGER fail_r1');
+      expect(runMigrationReplay(db, { drizzleDir: drizzleDir() }).applied.map(m => m.seq)).toEqual([149,150,151,152,153]);
+      expect(db.prepare('SELECT * FROM material_versions ORDER BY id').all()).toEqual(oldVersions);
+      expect(db.prepare('SELECT * FROM materials ORDER BY id').all()).toEqual(oldMaterials);
+      expect(db.prepare('SELECT refs_json,project_id,binding_revision FROM material_contexts').get()).toEqual({
+        refs_json: refsJson, project_id: null, binding_revision: null,
+      });
+      const refs = db.prepare('SELECT material_id,binding_revision,version,status FROM material_references ORDER BY material_id').all() as Array<Record<string, unknown>>;
+      expect(refs).toHaveLength(8);
+      expect(refs.find(r => r.material_id === 'initial')).toMatchObject({ binding_revision: 0, version: 2, status: 'active' });
+      expect(refs.find(r => r.material_id === 'removed')).toMatchObject({ binding_revision: 0, version: 2, status: 'removed' });
+      for (const id of ['later','deleted','other','missing','unbound']) expect(refs.find(r => r.material_id === id)?.binding_revision).toBeNull();
+      expect(JSON.parse(db.prepare("SELECT value FROM migration_meta WHERE key='material_reference_r1_migration_summary'").pluck().get() as string)).toEqual({
+        projectReferences: 1, initialTaskReferences: 2, unresolvedTaskReferences: 5, materialsWithoutVersion: 1,
+      });
+      const base = { actor, projectId: 'p' };
+      const list = (task: string | null, binding: number | null) => runMaterialsTransaction(db, {
+        ...base, action: 'list', workItemId: task, bindingRevision: binding,
+      }) as { materials: Array<{ currentVersion: number }> };
+      expect(list(null,null).materials).toHaveLength(1);
+      expect(list('initial',0).materials).toHaveLength(1);
+      expect(list('later',7).materials).toEqual([]);
+      expect((runMaterialsTransaction(db, { ...base, action: 'list', workItemId: 'later', history: true }) as { materials: unknown[] }).materials).toHaveLength(1);
+      expect(() => db.exec("UPDATE material_references SET version=99 WHERE material_id='initial'")).toThrow(/FOREIGN KEY/);
+      expect(() => db.exec("UPDATE material_references SET binding_revision=0 WHERE material_id='project'")).toThrow(/CHECK/);
+      expect(() => db.exec(`INSERT INTO material_references SELECT 'duplicate',project_id,work_item_id,binding_revision,material_id,version,status,created_by_kind,created_by_id,created_at,updated_at FROM material_references WHERE material_id='removed'`)).toThrow(/UNIQUE/);
+      for (const projectId of [null,'p']) runProjectsTransaction(db, { action: 'bindSession', actor, sessionId: 'initial', projectId });
+      expect(list('initial',2).materials).toEqual([]);
+      expect((runMaterialsTransaction(db, { action: 'resolveVersion', actor, contextId: 'snapshot', materialId: 'initial', version: 1 }) as { version: { version: number } }).version.version).toBe(1);
+      const stored = db.prepare('SELECT * FROM material_references ORDER BY id').all();
+      db.close(); db = createBetterSqliteDatabase(filename); loadSqliteVec(db);
+      expect(runMigrationReplay(db, { drizzleDir: drizzleDir() }).applied).toEqual([]);
+      expect(db.prepare('SELECT * FROM material_references ORDER BY id').all()).toEqual(stored);
+      expect(db.prepare('SELECT refs_json FROM material_contexts').pluck().get()).toBe(refsJson);
+      expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
+  });
+});
+
+// Migration tier: true 0149 upgrade, DDL rollback, persisted receipts across reopen.
+// Existing R1 replay does not cover link CAS/replay; a lost ACK must not relink a tombstone.
+describeMigrationReplay('project/group local link upgrade and durable replay', () => {
+  it('creates empty metadata tables, rolls back partial DDL, then recovers old link receipts after reopen', () => {
+    const root=mkdtempSync(path.join(tmpdir(),'cindy-group-link-upgrade-'));
+    const staged=path.join(root,'before');mkdirSync(staged);
+    const filename=path.join(root,'fixture.db');let db=createBetterSqliteDatabase(filename);
+    try {
+      loadSqliteVec(db);
+      for(const migration of listMigrations(drizzleDir()).filter(m=>m.seq<=149)) {
+        copyFileSync(migration.sqlPath,path.join(staged,migration.fileName));
+        if(migration.tsScriptPath){mkdirSync(path.join(staged,'scripts'),{recursive:true});copyFileSync(migration.tsScriptPath,path.join(staged,'scripts',path.basename(migration.tsScriptPath)));}
+      }
+      runMigrationReplay(db,{drizzleDir:staged});
+      const actor={kind:'account' as const,id:'owner'};
+      runProjectsTransaction(db,{action:'create',newId:'p',actor,now:1,input:{name:'private-title',goal:'private-goal',owner:actor}});
+      db.exec("CREATE TABLE project_group_links(id TEXT PRIMARY KEY)");
+      expect(()=>runMigrationReplay(db,{drizzleDir:drizzleDir()})).toThrow(/already exists/);
+      expect(tableExists(db,'project_group_link_requests')).toBe(false);
+      expect(db.prepare("SELECT value FROM migration_meta WHERE key='schema_version'").pluck().get()).toBe('149');
+      expect(db.prepare('SELECT seq FROM migration_history WHERE seq=150').get()).toBeUndefined();
+      db.exec('DROP TABLE project_group_links');
+      expect(runMigrationReplay(db,{drizzleDir:drizzleDir()}).applied.map(m=>m.seq)).toEqual([150,151,152,153]);
+      expect(db.prepare('SELECT COUNT(*) FROM project_group_links').pluck().get()).toBe(0);
+      expect(db.prepare('SELECT COUNT(*) FROM project_group_link_requests').pluck().get()).toBe(0);
+      const group={endpoint:'https://chat.example/Case/API',roomId:'aaaaaaaa-1111-4111-8111-111111111111'};
+      const target={accountId:'account',deviceId:'device',projectId:'p'};
+      const context={actor,accountId:'account',deviceId:'device',group,now:1000};
+      const intent={action:'link',requestId:'lost-ack',group,target,expectedRevision:0};
+      runProjectGroupLinksTransaction(db,{intent,context,newRelationId:'stable-row'});
+      runProjectGroupLinksTransaction(db,{context,intent:{action:'unlink',requestId:'remove',group,target,relationId:'stable-row',expectedRevision:1}});
+      const rows=db.prepare('SELECT * FROM project_group_links').all(),receipts=db.prepare('SELECT * FROM project_group_link_requests ORDER BY request_id').all();
+      expect(JSON.stringify([rows,receipts])).not.toMatch(/private-title|private-goal|storageRef|grant/);
+      db.close();db=createBetterSqliteDatabase(filename);loadSqliteVec(db);
+      expect(runMigrationReplay(db,{drizzleDir:drizzleDir()}).applied).toEqual([]);
+      const before=db.prepare('SELECT total_changes()').pluck().get();
+      expect(runProjectGroupLinksTransaction(db,{intent,context,newRelationId:'not-used'})).toMatchObject({
+        replayed:true,commit:{relationId:'stable-row',revision:1,statusAtCommit:'active'},current:{revision:2,status:'removed'},
+      });
+      expect(db.prepare('SELECT total_changes()').pluck().get()).toBe(before);
+      expect(db.prepare('SELECT * FROM project_group_links').all()).toEqual(rows);
+      expect(db.prepare('SELECT * FROM project_group_link_requests ORDER BY request_id').all()).toEqual(receipts);
+      expect(runProjectGroupLinksTransaction(db,{context,newRelationId:'ignored',intent:{...intent,requestId:'restore',expectedRevision:2}})).toMatchObject({
+        replayed:false,current:{relationId:'stable-row',revision:3,status:'active'},
+      });
+      expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    } finally {
+      db.close();const relative=path.relative(tmpdir(),root);
+      if(relative.startsWith('..')||path.isAbsolute(relative))throw new Error('Unsafe temporary cleanup');
+      rmSync(root,{recursive:true,force:true});
+    }
+  });
+});
+
+// Migration tier: real 0150 -> generated 0151 rollback and file-backed restart.
+// Lost outcome writes must leave the original attempt for reconciliation, never resend.
+describeMigrationReplay('material dispatch upgrade and durable recovery', () => {
+  it('rolls back partial DDL and recovers pending/unknown evidence after reopen without another consumer call', () => {
+    const root=mkdtempSync(path.join(tmpdir(),'cindy-material-dispatch-upgrade-'));
+    const staged=path.join(root,'before');mkdirSync(staged);
+    const filename=path.join(root,'fixture.db');let db=createBetterSqliteDatabase(filename);
+    const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
+    const actor={kind:'account' as const,id:'owner'},host={actor,now:1000},key={sessionId:'task',clientId:'input'};
+    const selector={projectId:'p',workItemId:'task',bindingRevision:1,contextId:'context',purpose:'reference'};
+    const call=(args:Record<string,unknown>)=>runMaterialDispatchTransaction(db,{key,host,...args});
+    const cleanup=()=>{
+      db.close();const relative=path.relative(tmpdir(),root);
+      if(relative.startsWith('..')||path.isAbsolute(relative))throw Error('Unsafe temporary cleanup');
+      rmSync(root,{recursive:true,force:true});
+    };
+    try {
+      loadSqliteVec(db);
+      for(const m of listMigrations(drizzleDir()).filter(m=>m.seq<=150)) {
+        copyFileSync(m.sqlPath,path.join(staged,m.fileName));
+        if(m.tsScriptPath){mkdirSync(path.join(staged,'scripts'),{recursive:true});copyFileSync(m.tsScriptPath,path.join(staged,'scripts',path.basename(m.tsScriptPath)));}
+      }
+      runMigrationReplay(db,{drizzleDir:staged});
+      db.exec('CREATE TABLE material_dispatch_messages(collision TEXT)');
+      expect(()=>runMigrationReplay(db,{drizzleDir:drizzleDir()})).toThrow(/already exists/);
+      expect(tableExists(db,'material_dispatch_attempts')).toBe(false);
+      expect(db.prepare('SELECT seq FROM migration_history WHERE seq=151').get()).toBeUndefined();
+      expect(db.prepare("SELECT value FROM migration_meta WHERE key='schema_version'").pluck().get()).toBe('150');
+      db.exec('DROP TABLE material_dispatch_messages');
+      expect(runMigrationReplay(db,{drizzleDir:drizzleDir()}).applied.map(m=>m.seq)).toEqual([151,152,153]);
+      db.prepare("INSERT INTO sessions(id,title,created_at,updated_at) VALUES ('task','private title',1,1)").run();
+      runProjectsTransaction(db,{action:'create',actor,newId:'p',now:1,input:{name:'private project',owner:actor}});
+      runProjectsTransaction(db,{action:'bindSession',actor,sessionId:'task',projectId:'p'});
+      runMaterialsTransaction(db,{action:'add',...selector,actor,now:1,files:[{referenceId:'ref',materialId:'m',versionId:'v',name:'private.txt',
+        sha256:hash('bytes'),sizeBytes:5,mime:'text/plain',storageKind:'file',storageRef:'/not-read',sourceMtime:1}]});
+      runMaterialsTransaction(db,{action:'createContext',...selector,actor,now:2,newId:'context',refs:[{referenceId:'ref',materialId:'m',version:1}]});
+      const content=JSON.stringify({text:'private input'});
+      call({action:'queue',expectedRevision:0,selector,contentSha256:hash(content)});
+      call({action:'prepare',revision:1,preparation:{preparationKey:hash('prepared'),items:[{referenceId:'ref',materialId:'m',version:1,versionId:'v',expectedSha256:hash('bytes'),verifiedSha256:hash('bytes'),
+        readiness:'ready',failureCode:null,representation:'text',textSha256:hash('text'),coverage:null}]}});
+      db.prepare("INSERT INTO messages(id,session_id,client_id,role,content,created_at,agent_meta) VALUES ('message','task','input','user',?,1,'{\"sdk\":true}')").run(content);
+      call({action:'attachMessage',revision:1,messageId:'message'});
+      const begin={action:'begin',revision:1,attemptId:'actual-attempt',turnGeneration:7,consumer:'provider',preparationKey:hash('prepared'),referenceIds:['ref'],payloadSha256:hash('wire')};
+      let consumerCalls=0;
+      if('started' in call(begin)&& (db.prepare("SELECT outcome FROM material_dispatch_attempts").pluck().get()==='pending'))consumerCalls++;
+      // Consumer accepted, but no receipt write occurred before process loss.
+      const immutableIntent=db.prepare('SELECT * FROM material_dispatch_revisions').all();
+      db.close();db=createBetterSqliteDatabase(filename);loadSqliteVec(db);
+      expect(runMigrationReplay(db,{drizzleDir:drizzleDir()}).applied).toEqual([]);
+      expect(call(begin)).toMatchObject({started:false,attempt:{outcome:'pending'}});
+      expect(()=>call({...begin,attemptId:'blind-new'})).toThrow('[OUTCOME_UNRESOLVED]');
+      call({action:'recordOutcome',revision:1,attemptId:'actual-attempt',turnGeneration:7,consumer:'provider',evidence:{source:'session-send-result',outcome:'unknown',receiptSha256:hash('unknown')}});
+      db.close();db=createBetterSqliteDatabase(filename);loadSqliteVec(db);
+      expect(runMigrationReplay(db,{drizzleDir:drizzleDir()}).applied).toEqual([]);
+      expect(call(begin)).toMatchObject({started:false,attempt:{outcome:'unknown'}});
+      call({action:'recordOutcome',revision:1,attemptId:'actual-attempt',turnGeneration:7,consumer:'provider',evidence:{source:'reconciliation',outcome:'confirmed',receiptSha256:hash('accepted receipt')}});
+      expect(consumerCalls).toBe(1);
+      expect(db.prepare('SELECT outcome FROM material_dispatch_attempts').pluck().get()).toBe('confirmed');
+      expect(db.prepare('SELECT evidence_json FROM material_dispatch_observations ORDER BY rowid').all()).toHaveLength(2);
+      expect(db.prepare('SELECT * FROM material_dispatch_revisions').all()).toEqual(immutableIntent);
+      expect(db.prepare('SELECT content,agent_meta FROM messages').get()).toEqual({content,agent_meta:'{"sdk":true}'});
+      expect(JSON.stringify(db.prepare('SELECT * FROM material_dispatch_attempts').all())).not.toMatch(/private input|private title|private.txt|not-read/);
+      const another=createBetterSqliteDatabase(':memory:');
+      try {loadSqliteVec(another);runMigrationReplay(another,{drizzleDir:drizzleDir()});
+        expect(()=>runMaterialDispatchTransaction(another,{action:'read',key,host})).toThrow('[NOT_FOUND]');
+      } finally {another.close();}
+      expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    } finally { cleanup(); }
+  });
+});
+
+// Migration tier / frozen 5a data contract: real generated 0152 schema vs exact SQL
+// target fixture. Existing replay lacks follow-up PK/check/cascade and durable phase
+// evidence. Minimal failures: duplicate input admitted or dispatching lost on restart.
+// Raw SQL below validates storage only, not service admission/reopen/dispatch behavior.
+describeMigrationReplay('frozen follow-up ledger schema and persistence', () => {
+  const table='bot_task_followup_requests';
+  const seed=(db:Database.Database)=>{
+    db.prepare("INSERT INTO bot_profiles(id,display_name,created_at,updated_at) VALUES ('followup-bot','fixture',1,1)").run();
+    db.prepare("INSERT INTO sessions(id,title,created_at,updated_at) VALUES ('followup-parent','fixture parent',1,1),('followup-child','fixture child',1,1),('followup-next','fixture next',1,1)").run();
+    db.prepare("INSERT INTO bot_delegations(id,requesting_bot_id,parent_session_id,child_session_id,objective,status,run_sequence,permission_snapshot_json,created_at,updated_at) VALUES ('followup-task','followup-bot','followup-parent','followup-child','fixture objective','completed',3,'{\"original\":true}',1,1)").run();
+    db.prepare("INSERT INTO bot_delegations(id,requesting_bot_id,objective,created_at,updated_at) VALUES ('other-task','followup-bot','fixture second task',1,1)").run();
+  };
+  const insert=(db:Database.Database,patch:Record<string,unknown>={})=>{
+    const row={task_id:'followup-task',requester_bot_id:'followup-bot',key_digest:'a'.repeat(64),body_digest:'b'.repeat(64),
+      input_id:'fixed-input',admitted_run_sequence:3,child_session_id:'followup-child',phase:'admitted',native_accepted_at:null,result_json:null,created_at:1000,updated_at:1000,...patch};
+    db.prepare(`INSERT INTO ${table} (${Object.keys(row).join(',')}) VALUES (${Object.keys(row).map(()=>'?').join(',')})`).run(...Object.values(row));
+  };
+  const rows=(db:Database.Database)=>db.prepare(`SELECT * FROM ${table} ORDER BY task_id,requester_bot_id,key_digest`).all();
+
+  it('new generated schema matches the frozen fixture columns/keys/FK and observable constraint matrix',()=>{
+    const {db,cleanup}=createTempDb(),fixture=createBetterSqliteDatabase(':memory:');
+    try {
+      runMigrationReplay(db,{drizzleDir:drizzleDir()});seed(db);
+      fixture.pragma('foreign_keys=ON');fixture.exec('CREATE TABLE bot_delegations(id TEXT PRIMARY KEY)');
+      fixture.prepare("INSERT INTO bot_delegations VALUES ('followup-task'),('other-task')").run();
+      fixture.exec(readFileSync(path.join(__dirname,'fixtures','botTaskFollowupRequests.sql'),'utf8'));
+      const columns=(database:Database.Database)=>database.prepare(`PRAGMA table_info(${table})`).all();
+      expect(columns(db)).toEqual(columns(fixture));expect(columns(db)).toHaveLength(12);
+      const foreignKeys=(database:Database.Database)=>database.prepare(`PRAGMA foreign_key_list(${table})`).all();
+      expect(foreignKeys(db)).toEqual(foreignKeys(fixture));
+      // Drizzle names a UNIQUE index; the fixture uses an SQLite autoindex. Column
+      // identities and uniqueness are the same, physical index names are not API.
+      const uniqueColumns=(database:Database.Database)=>(database.prepare(`PRAGMA index_list(${table})`).all() as {name:string;unique:number}[])
+        .filter(i=>i.unique===1).map(i=>(database.prepare(`PRAGMA index_info('${i.name}')`).all() as {name:string}[]).map(c=>c.name).join(',')).sort();
+      expect(uniqueColumns(db)).toEqual(uniqueColumns(fixture));
+      for(const database of [db,fixture]) {
+        const rejects=(patch:Record<string,unknown>,error:RegExp)=>{const before=rows(database);expect(()=>insert(database,patch)).toThrow(error);expect(rows(database)).toEqual(before);};
+        for(const col of ['task_id','requester_bot_id','key_digest','body_digest','input_id','admitted_run_sequence','child_session_id','phase','created_at','updated_at'])
+          rejects({[col]:null},/NOT NULL/);
+        rejects({admitted_run_sequence:0},/CHECK/);rejects({admitted_run_sequence:-1},/CHECK/);rejects({phase:'running'},/CHECK/);
+        rejects({task_id:'missing-task'},/FOREIGN KEY/);
+        insert(database); // native_accepted_at/result_json intentionally nullable.
+        rejects({input_id:'different-input',body_digest:'c'.repeat(64),admitted_run_sequence:4},/UNIQUE/);
+        rejects({task_id:'other-task',requester_bot_id:'other-bot',key_digest:'different'},/UNIQUE/);
+        insert(database,{task_id:'other-task',input_id:'other-task-input'});
+        insert(database,{requester_bot_id:'other-bot',input_id:'other-bot-input'});
+        for(const phase of ['dispatching','unknown','settled'])insert(database,{key_digest:phase,input_id:phase+'-input',phase,
+          result_json:phase==='settled'?'{"status":"queued","inputId":"settled-input"}':null});
+        database.prepare('DELETE FROM bot_delegations WHERE id=?').run('followup-task');
+        expect(rows(database)).toMatchObject([{task_id:'other-task',input_id:'other-task-input'}]);
+      }
+      expect(rows(db)).toEqual(rows(fixture));expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    } finally {fixture.close();cleanup();}
+  });
+
+  it('upgrades real 0151 atomically, preserves old records, and reopens original phase/result/input across snapshot and run changes',()=>{
+    const root=mkdtempSync(path.join(tmpdir(),'cindy-followup-data-upgrade-'));
+    const staged=path.join(root,'before');mkdirSync(staged);
+    const filename=path.join(root,'fixture.db');let db=createBetterSqliteDatabase(filename);
+    const cleanup=()=>{
+      db.close();const relative=path.relative(tmpdir(),root);
+      if(relative.startsWith('..')||path.isAbsolute(relative))throw Error('Unsafe temporary cleanup');
+      rmSync(root,{recursive:true,force:true});
+    };
+    try {
+      loadSqliteVec(db);
+      for(const m of listMigrations(drizzleDir()).filter(m=>m.seq<=151)) {
+        copyFileSync(m.sqlPath,path.join(staged,m.fileName));
+        if(m.tsScriptPath){mkdirSync(path.join(staged,'scripts'),{recursive:true});copyFileSync(m.tsScriptPath,path.join(staged,'scripts',path.basename(m.tsScriptPath)));}
+      }
+      runMigrationReplay(db,{drizzleDir:staged});seed(db);
+      db.prepare("INSERT INTO messages(id,session_id,client_id,role,content,agent_meta,created_at) VALUES ('old-message','followup-child','old-client','user','{\"text\":\"fixture old message\"}','{\"sdk\":true}',1)").run();
+      const snapshot=()=>['bot_profiles','sessions','bot_delegations','messages'].map(t=>db.prepare(`SELECT * FROM ${t} ORDER BY id`).all());
+      const old=snapshot();
+      // Fail AFTER table creation, at the generated unique-index statement.
+      db.exec('CREATE TABLE followup_index_collision(id TEXT); CREATE INDEX bot_task_followup_requests_input_id_unique ON followup_index_collision(id)');
+      expect(()=>runMigrationReplay(db,{drizzleDir:drizzleDir()})).toThrow(/already exists/);
+      expect(tableExists(db,table)).toBe(false);
+      expect(db.prepare('SELECT seq FROM migration_history WHERE seq=152').get()).toBeUndefined();
+      expect(db.prepare("SELECT value FROM migration_meta WHERE key='schema_version'").pluck().get()).toBe('151');
+      expect(snapshot()).toEqual(old);
+      db.exec('DROP INDEX bot_task_followup_requests_input_id_unique; DROP TABLE followup_index_collision');
+      expect(runMigrationReplay(db,{drizzleDir:drizzleDir()}).applied.map(m=>m.seq)).toEqual([152,153]);
+      expect(snapshot()).toEqual(old);expect(rows(db)).toEqual([]);
+      for(const phase of ['admitted','dispatching','unknown','settled'])insert(db,{key_digest:phase,input_id:phase+'-original-input',phase,
+        native_accepted_at:phase==='dispatching'?1100:null,result_json:phase==='settled'?'{"status":"queued","inputId":"settled-original-input","run":3}':null});
+      const original=rows(db);
+      db.prepare("UPDATE bot_delegations SET permission_snapshot_json='{}',parent_session_id='followup-next',child_session_id=NULL,status='running',run_sequence=4 WHERE id='followup-task'").run();
+      db.prepare("UPDATE bot_profiles SET canonical_session_id='followup-next' WHERE id='followup-bot'").run();
+      expect(rows(db)).toEqual(original);
+      db.close();db=createBetterSqliteDatabase(filename);loadSqliteVec(db);
+      expect(runMigrationReplay(db,{drizzleDir:drizzleDir()}).applied).toEqual([]);expect(rows(db)).toEqual(original);
+      db.prepare("UPDATE bot_task_followup_requests SET native_accepted_at=1200 WHERE phase='settled'").run();
+      expect(db.prepare("SELECT input_id,result_json FROM bot_task_followup_requests WHERE phase='settled'").get()).toEqual({
+        input_id:'settled-original-input',result_json:'{"status":"queued","inputId":"settled-original-input","run":3}',
+      });
+      db.prepare("DELETE FROM sessions WHERE id='followup-child'").run();
+      expect(db.prepare('SELECT DISTINCT child_session_id FROM bot_task_followup_requests').all()).toEqual([{child_session_id:'followup-child'}]);
+      const retained=rows(db);db.close();db=createBetterSqliteDatabase(filename);loadSqliteVec(db);
+      expect(runMigrationReplay(db,{drizzleDir:drizzleDir()}).applied).toEqual([]);expect(rows(db)).toEqual(retained);
+      db.prepare("DELETE FROM bot_delegations WHERE id='followup-task'").run();expect(rows(db)).toEqual([]);
+      expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    } finally {cleanup();}
   });
 });

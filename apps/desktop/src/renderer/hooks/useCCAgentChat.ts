@@ -138,6 +138,7 @@ interface UseCCAgentChatReturn {
       onInputCreated?: (clientId: string) => void;
       onRemoteOptimisticFailure?: (clientId: string, error?: unknown) => void;
       annotationBurnFailure?: 'abort';
+      materialDispatch?: { selector: import('../../shared/materialDispatch').MaterialDispatchSelector; expectedRevision: number };
     },
   ) => Promise<boolean>;
   compactSession: (
@@ -439,6 +440,7 @@ export function useCCAgentChat(
         onInputCreated?: (clientId: string) => void;
         onRemoteOptimisticFailure?: (clientId: string, error?: unknown) => void;
         annotationBurnFailure?: 'abort';
+        materialDispatch?: { selector: import('../../shared/materialDispatch').MaterialDispatchSelector; expectedRevision: number };
       },
     ): Promise<boolean> => {
       if (!sessionId) return Promise.resolve(false);

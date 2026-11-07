@@ -22,8 +22,9 @@ import type {
   WorkspaceKind,
 } from '@cindy/maker-core';
 
-import { getDbClient } from '../localDb/client/current.js';
+import { getDbClient, getCurrentDbClientSnapshot } from '../localDb/client/current.js';
 import { sessions } from '../localDb/schema.js';
+import { persistAuthorizedSession } from '../localDb/authorizedSessionPersistence.js';
 import { normalizeRemoteHostId } from '../localDb/mapper.js';
 import { DESKTOP_VISIBLE_SESSION_SOURCES } from '../../shared/sessionSource.js';
 import { normalizeWorkingDirForStorage } from '../../shared/workingDir.js';
@@ -56,6 +57,7 @@ function rowToMeta(row: SessionRow): SessionMeta {
     model: row.model,
     workspaceKind: row.workspaceKind,
     projectDir: row.projectDir,
+    projectId: row.projectId ?? null,
     effort: row.effort,
     permissionMode: row.permissionMode,
     fastMode: row.fastMode,
@@ -75,12 +77,14 @@ export class DesktopSessionStorage implements SessionStorage {
     const db = getDbClient().drizzle;
     const now = Date.now();
     const workingDir = normalizeWorkingDirForStorage(meta.workDir);
-    await db.insert(sessions).values({
+    const row: typeof sessions.$inferInsert = {
       id: meta.id,
       title: meta.title,
       workingDir,
       workspaceKind: normalizeWorkspaceKind(meta.workspaceKind),
       projectDir: normalizeWorkingDirForStorage(meta.projectDir),
+      // 实体项目归属：null = 不归属（旧行为，走 project_dir 归组）。
+      projectId: meta.projectId ?? null,
       model: meta.model,
       effort: meta.effort ?? 'high',
       permissionMode: meta.permissionMode ?? 'ask',
@@ -99,7 +103,25 @@ export class DesktopSessionStorage implements SessionStorage {
       source: meta.reviewMode === true ? 'review' : 'desktop',
       createdAt: now,
       updatedAt: now,
-    });
+    };
+    // 带项目归属的新建不能在普通 insert 上直接落库：成员资格与“项目未归档”必须和
+    // 这一次写入同一个 IMMEDIATE 事务里判定（与 `local-db:sessions:create` 同一条
+    // 授权链路），并把 project_binding_revision 落成初始 0。被拒时抛错、不写行——
+    // 调用方（如自动化 runner）据此让本轮失败，绝不静默降级成“无项目运行”。
+    if (meta.projectId) {
+      const client = getDbClient();
+      const owner = getCurrentDbClientSnapshot();
+      await persistAuthorizedSession(client, row, {
+        actor: owner?.userId ? { kind: 'account', id: owner.userId } : null,
+        assertCurrent: () => {
+          if (!owner || getCurrentDbClientSnapshot() !== owner) {
+            throw new Error('Active account changed during session creation');
+          }
+        },
+      });
+    } else {
+      await db.insert(sessions).values(row);
+    }
     return { ...meta, workDir: workingDir ?? '', createdAt: now, updatedAt: now };
   }
 

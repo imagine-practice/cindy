@@ -69,7 +69,10 @@ function setupDb(): void {
       id TEXT PRIMARY KEY,
       cleared_at INTEGER,
       status TEXT NOT NULL DEFAULT 'active',
-      list_preview TEXT, list_preview_role TEXT, list_message_count INTEGER
+      list_preview TEXT, list_preview_role TEXT, list_message_count INTEGER,
+      project_id TEXT,
+      assignee_kind TEXT,
+      assignee_id TEXT
     );
     CREATE TABLE messages (
       id TEXT PRIMARY KEY,

@@ -582,6 +582,7 @@ function makeHarness(opts?: {
     operation: 'create' | 'update' | 'fire',
     selection: Pick<Schedule, 'modelAgentKind'>,
   ) => Promise<void>;
+  validateProjectBinding?: (projectId: string, operation: 'create' | 'update') => Promise<void>;
   /** 传入共享 storage / clock 模拟"两个 app 实例共用同一 DB"的双开场景。 */
   storage?: InMemoryStorage;
   clock?: FakeClock;
@@ -615,6 +616,7 @@ function makeHarness(opts?: {
     tickIntervalMs: 60_000_000, // effectively disabled; tests call tick() manually
     isManagedWorkspaceDir: opts?.isManagedWorkspaceDir,
     validateTargetSession: opts?.validateTargetSession,
+    validateProjectBinding: opts?.validateProjectBinding,
     passive: opts?.passive,
     maxConcurrentRuns: opts?.maxConcurrentRuns,
     runStallMs: opts?.runStallMs,
@@ -846,6 +848,39 @@ describe('Scheduler', () => {
     expect(local.fireCalls).toHaveLength(0);
     const follow = await local.scheduler.update(schedule.id, { modelAgentKind: undefined });
     expect(follow.modelAgentKind).toBeUndefined();
+  });
+
+  it('gates the project entity on create and update, and lets an explicit clear pass', async () => {
+    const allowed = new Set(['p-bound']);
+    const calls: Array<[string, string]> = [];
+    const validateProjectBinding = vi.fn(async (projectId: string, operation: 'create' | 'update') => {
+      calls.push([projectId, operation]);
+      if (!allowed.has(projectId)) throw new Error('project binding rejected');
+    });
+    const local = makeHarness({ validateProjectBinding });
+
+    // 被拒时一行都不落库,失败原因原样抛给调用方(GUI / MCP 同一条出口)。
+    await expect(local.scheduler.create({ ...baseInput, projectId: 'p-denied' }))
+      .rejects.toThrow('project binding rejected');
+    expect(local.storage.schedules.size).toBe(0);
+
+    const saved = await local.scheduler.create({ ...baseInput, projectId: 'p-bound' });
+    expect(saved.projectId).toBe('p-bound');
+    expect((await local.storage.get(saved.id))?.projectId).toBe('p-bound');
+
+    // 改绑定要按改后的项目重新判定，被拒则旧绑定保持不动。
+    await expect(local.scheduler.update(saved.id, { projectId: 'p-denied' }))
+      .rejects.toThrow('project binding rejected');
+    expect((await local.storage.get(saved.id))?.projectId).toBe('p-bound');
+
+    // 显式清空只影响后续运行：不触达判定，列被清空。
+    const cleared = await local.scheduler.update(saved.id, { projectId: undefined });
+    expect(cleared.projectId).toBeUndefined();
+    expect(calls).toEqual([
+      ['p-denied', 'create'],
+      ['p-bound', 'create'],
+      ['p-denied', 'update'],
+    ]);
   });
 
   it('rejects persisted Review targets at create, update, automatic fire, and runNow after restart', async () => {

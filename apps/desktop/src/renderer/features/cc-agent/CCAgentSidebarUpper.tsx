@@ -140,6 +140,9 @@ import { searchDevicesFromSwitcher } from '@/lib/conversationSearchFanout';
 import { emitRefresh, onPatch } from '@/lib/sessionsBus';
 
 import { useProjectGroups } from './hooks/useProjectGroups';
+import { EntityProjectsSection } from '@/features/projects/EntityProjectsSection';
+import { NewProjectDialog } from '@/features/projects/NewProjectDialog';
+import { projectsStore } from '@/features/projects/projectsStore';
 import { useProjectAliases } from './hooks/useProjectAliases';
 import { useCollapsedProjects } from './hooks/useCollapsedProjects';
 import { useSessionDisplayRunningState } from './hooks/useSessionDisplayRunningState';
@@ -2070,9 +2073,12 @@ function ExpandedView({
     [visiblePinnedEntries, filter.sortBy, pinnedSortContext],
   );
 
+  // 实体项目走独立的 EntityProjectsSection（项目内核 M1）；这里刻意只留目录分组，
+  // 两段互不吞并。`visibleProjects` 仍是完整集合，实体段从它取。
   const visibleProjectsWithVendor = useMemo(() => {
     const unpinnedProjects = visibleProjects.filter(
       (project) =>
+        !project.entityProjectId &&
         !projectKeyComparisonSetHas(pinnedProjectComparisonKeys, project.projectKey, localPlatform),
     );
     const projects = unpinnedProjects.flatMap((project) => {
@@ -2106,6 +2112,13 @@ function ExpandedView({
     hostProjectSort,
     projectPriorityContext,
   ]);
+
+  // 实体项目（项目内核 M1）单独成段：它们不是目录分组，任务按 project_id 归到项目。
+  // 目录段只保留没有实体绑定的旧分组，两段互不吞并。
+  const entityProjectNodes = useMemo(
+    () => visibleProjects.filter((project) => project.entityProjectId),
+    [visibleProjects],
+  );
 
   // 折叠 rail 没有独立的 Pinned 项目瓷砖，因此项目面板必须保留置顶项目，
   // 否则侧栏折叠后这些项目及其取消置顶入口都会完全不可达。
@@ -3036,6 +3049,12 @@ function ExpandedView({
     collapsedProjectsForMoveRef.current = collapse.collapsed;
   }, [collapse.collapsed]);
   const [newProjectSessionId, setNewProjectSessionId] = useState<string | null>(null);
+  // 实体项目（项目内核 M1）：新建项目对话框与详情页跳转。
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const handleOpenEntityProject = useCallback(
+    (projectId: string) => navigate(`/cc-agent/projects/${encodeURIComponent(projectId)}`),
+    [navigate],
+  );
   const closeNewProjectDialog = useCallback((open: boolean) => {
     if (!open) setNewProjectSessionId(null);
   }, []);
@@ -3916,6 +3935,28 @@ function ExpandedView({
                 />
                 {/* D 期:主列表 = 混排模型(项目行 + 散排对话 / 对话组,ProjectsSection
                   内部按 mainListModel 统一排序)。按日期分组与固定 Dialogue 段已删除。 */}
+                <EntityProjectsSection
+                  projects={entityProjectNodes}
+                  collapsed={collapse.collapsed}
+                  activeSessionId={activeSessionId}
+                  viewedSessionId={viewedSessionId}
+                  runningSessionIds={displayRunningSessionIds}
+                  attachedSessionIds={attachedSessionIds}
+                  notifications={sidebarNotifications}
+                  scheduleSessionIndex={automationGroupingIndex}
+                  selectedSessionIds={selectedSessionIds}
+                  onToggleProject={collapse.toggle}
+                  onOpenProject={handleOpenEntityProject}
+                  onNewProject={() => setNewProjectOpen(true)}
+                  onOpenProjects={() => navigate('/cc-agent/projects')}
+                  onSessionClick={handleSessionClick}
+                  onAction={handleActionClick}
+                  onRename={handleRename}
+                  onTogglePin={handleTogglePin}
+                  onMoveSession={handleMoveSession}
+                  projectOptions={projectPickerOptions}
+                  onScheduleAction={handleScheduleAction}
+                />
                 <ProjectsSection
                   unclassified={visibleUnclassified}
                   projects={visibleProjectsWithVendor}
@@ -3981,6 +4022,14 @@ function ExpandedView({
         contextMenuPos={organizeMenuPos}
         onContextMenuOpenChange={(open) => {
           if (!open) setOrganizeMenuPos(null);
+        }}
+      />
+
+      <NewProjectDialog
+        open={newProjectOpen}
+        onOpenChange={setNewProjectOpen}
+        onCreated={() => {
+          void projectsStore.forceRefresh().catch(() => undefined);
         }}
       />
 

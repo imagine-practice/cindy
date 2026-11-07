@@ -11,7 +11,7 @@
 
 可达组件、样式来源与 Token / 裸颜色 / 裸圆角统计不入库：需要时运行 `pnpm design:inventory:report`，输出到 `tmp/design-inventory-report.md`；要看某次提交时的数字，在该提交上重跑。
 
-登记 surface 数：59。平台包含 Desktop 与 Mobile；静态入口发现不表示已迁移或已实机验证。
+登记 surface 数：62。平台包含 Desktop 与 Mobile；静态入口发现不表示已迁移或已实机验证。
 
 | ID | 平台 | 标题 | 生产入口 |
 | --- | --- | --- | --- |
@@ -38,6 +38,9 @@
 | `desktop.overlay.toast` | desktop | Toast | App 常驻 ToastContainer（用户可见出口，不展开业务逻辑） |
 | `desktop.plugins.app-main` | desktop | 插件主视图 | hash `/apps/:ghostId`（GhostMainViewFeatureLayout） |
 | `desktop.plugins.installed` | desktop | 已装插件 | hash `/plugins`（GhostPluginPage） |
+| `desktop.projects.detail` | desktop | 项目详情与任务进度 | hash `/cc-agent/projects/:projectId` (ProjectDetailPage) |
+| `desktop.projects.index` | desktop | 项目卡片首页 | hash `/cc-agent/projects` (ProjectsIndexRoute -> ProjectsPage) |
+| `desktop.projects.work-item-materials` | desktop | 项目任务材料与快照 | hash `/cc-agent/projects/:projectId/items/:sessionId` (WorkItemMaterialsPage) |
 | `desktop.settings` | desktop | 设置 | hash `/settings`（SettingsView；tab 含 general / personalization / providers / billing / usage / voice-input / im-bot / shortcuts / agent-island / import / remote-control / ghosts / builtin-tools / computer-use / help / about） |
 | `desktop.shell.main-layout` | desktop | 主窗口壳（标题栏 / 左右栏 / 内容区） | main BrowserWindow → renderer/index.tsx → main-entry.tsx → App → MainLayout (`#/` 受保护壳) |
 | `desktop.skillhub.local` | desktop | SkillHub 本地技能 | hash `/skillhub/local` 及统一详情 `/skillhub/detail`（旧详情链接重定向） |
@@ -100,6 +103,9 @@
 | `/cc-agent/files/:sessionId` | WorkdirBrowseRoute | `desktop.chat.files` |
 | `/cc-agent/new` | NewMakerDraftRoute | `desktop.chat.new-draft` |
 | `/cc-agent/orca/:sessionId` | OrcaWorkflowRoute | `desktop.chat.orca-workflow` |
+| `/cc-agent/projects` | ProjectsIndexRoute | `desktop.projects.index` |
+| `/cc-agent/projects/:projectId` | ProjectDetailPage | `desktop.projects.detail` |
+| `/cc-agent/projects/:projectId/items/:sessionId` | WorkItemMaterialsPage | `desktop.projects.work-item-materials` |
 | `/cc-agent/scheduled` | SchedulerPage | `desktop.chat.scheduled` |
 | `/issues` | IssueTrackerFeatureLayout | `desktop.issues.guide` |
 | `/login` | LoginPage | `desktop.auth.login` |
@@ -220,6 +226,9 @@ Mobile 已由 DS-7 纳入同一台账（2026-09-10 静态入口发现），保�
 | `desktop.overlay.toast` | Codex（DS-9 影响核对）/ kirozeng（验收协调） | legacy | — | DS-9 保留现有专属表面；未改全局 Button/主题源，按共享依赖核影响 | 本批未直接改该入口；无真实实例的独立/原生/账号/插件场景保留原合同，未作完整运行验收；kirozeng 安排所需环境，Codex 核对，2026-09-17 或 DS-10 开工前复查 |
 | `desktop.plugins.app-main` | Codex（DS-9 影响核对）/ kirozeng（验收协调） | legacy | — | DS-9 保留现有专属表面；未改全局 Button/主题源，按共享依赖核影响 | 本批未直接改该入口；无真实实例的独立/原生/账号/插件场景保留原合同，未作完整运行验收；kirozeng 安排所需环境，Codex 核对，2026-09-17 或 DS-10 开工前复查 |
 | `desktop.plugins.installed` | Codex（DS-9 影响核对）/ kirozeng（验收协调） | legacy | — | DS-9 保留现有专属表面；未改全局 Button/主题源，按共享依赖核影响 | 本批未直接改该入口；无真实实例的独立/原生/账号/插件场景保留原合同，未作完整运行验收；kirozeng 安排所需环境，Codex 核对，2026-09-17 或 DS-10 开工前复查 |
+| `desktop.projects.detail` | Cindy 项目内核集成任务（协调） | legacy | — | 已复用标准 Button/Select/FormField 与语义样式；整页设计系统迁移尚未验收 | 2026-11-06 登记真实详情、进度与编辑入口；保留既有页面测试证据，真实 Host 与整页 Light/Dark 视觉验收仍待完成；首页未接入 |
+| `desktop.projects.index` | Cindy 项目内核集成任务（协调） | legacy | — | 已复用标准组件与语义样式；整页设计系统迁移尚未验收 | 2026-11-06 接入真实首页路由、全局项目入口与详情返回；DOM/受控bridge及单页模拟证据分开记录，真实Host/DB权限仍待验收；归档不等于完成 |
+| `desktop.projects.work-item-materials` | Cindy 项目内核集成任务（协调） | legacy | — | 已复用标准 Button/Select/ConfirmDialog 与语义样式；整页设计系统迁移尚未验收 | 2026-11-06 登记真实材料列表、快照与预览入口；R3 页面适配及真实 Host 验收待独立接线；不以登记证明材料发送或权限 URL 撤销通过 |
 | `desktop.settings` | kirozeng（DS-6 与用量图表跟进） | pilot | DESIGN.md §10 语义豁免色族消费者；外部主题导入保护 token（资源用量类别色在独立窗）；DESIGN.md §5 登记成员 `usage-heatmap-day` / `usage-token-bar` | DS-4 / DS-4b 已落地；DS-6 两张表单与指定普通确认已随 #4135 合入，用户测试版手动审核通过；DS-8 数值同源 | DS-6 工程与真实测试版审核已交付，G2/公开附件/平台待项按证据复查；focus、ivory/elevated 见治理 §10。旧 alias 与 slot 按作用域生效，禁止仅因同值删除局部配色；DS-6/8/9 按实际消费者分批核对跨 surface alias，confirm-dialog 归 DS-6；用量图表形状与密度已随 #4064 恢复；DS-11 补 36px 任意日期入口，与图表共用 day 筛选（最终视觉验收另记）；09-08 蓝色热力图描边、多色柱图七日强调与微弹裁决见 [组件规范](./usage-history-charts.md)，此前移除的日期入口由 DS-11 用户授权重新补足；图表优化 #4076 已合入；DS-11 等价日期输入已实施，平台与用户验收仍须独立记录，不提前标记 migrated；DS-6 SC/G2/公开附件/平台待项见 [本批证据](../design-evidence/2026-09-08/ds6-forms.md)，不把局部通过当完整设置页 migrated；#6768（2026-10-22）补普通厂商空目录/发现失败时的通用型号手填回退，语音分组说明保持原位置；新增回归与双主题五语言单页证据随 PR 提供 |
 | `desktop.shell.main-layout` | Codex（DS-9 影响核对）/ kirozeng（验收协调） | legacy | DESIGN.md §15 CINDY 皮肤族（侧栏 vibrancy / 选中 pill）；外部主题导入保护 token；DESIGN.md §5 登记成员 `workflow-status-cell`（background-tasks 面板详情） | 保持布局树与主题；聊天区域继承本批共用呈现 | 真实本地主窗口、侧栏与聊天可用；其它皮肤/平台待用户实看；2026-09-17 或 DS-10 开工前复查 |
 | `desktop.skillhub.local` | Codex（DS-9 影响核对）/ kirozeng（验收协调） | legacy | — | SkillhubDiffPanel 继承 DiffView 排版，文件比较和发布逻辑不变 | 同一 DiffView 的真实 Worker/长行/大字号验证；Skill Hub 真实网络长反馈未联调；2026-09-17 或 DS-10 开工前复查 |

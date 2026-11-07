@@ -1,9 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { projectWorkActivities, summarizeTeammateWork, teammateWorkSummaryText } from '../workActivityProjection.js';
 import { botGroupProcessCard, readBotGroupProcessCard, readBotGroupProcessNotes, type BotGroupProcessMessage } from '../botGroupChat.js';
+import { projectBotGroupProcess } from '../botGroupProcess.js';
 const ref = { groupId: 'group', executionId: 'execution', sessionId: 'lane', clientId: 'bot-group:group:execution:bot' };
 const row = (clientId: string, role: string, content: unknown, agentMeta?: BotGroupProcessMessage['agentMeta']): BotGroupProcessMessage => ({ clientId, role, content, agentMeta });
 const progress = (id: string, text: unknown) => row(id, 'assistant', text, { assistantPhase: 'commentary' });
+// ES2022 compatibility: exercise the production projection's no-match/zero/last-match
+// boundaries. Existing Pi/tool tests cover pairing and final suppression, but not these
+// minimal inputs. Unit: no matching work remains empty; only earlier visible prose is a note.
+it.each([
+  { name: 'empty', rows: [], expected: [] },
+  { name: 'nonempty without work', rows: [row('user', 'user', 'request')], expected: [] },
+  { name: 'only match at zero', rows: [row('final', 'assistant', 'answer')], expected: [] },
+  { name: 'last match before non-work tail', rows: [row('note', 'assistant', 'stage'), row('final', 'assistant', 'answer'), row('user', 'user', 'next')], expected: ['stage'] },
+  { name: 'filtered work is not a later match', rows: [row('final', 'assistant', 'answer'), row('private', 'assistant', 'hidden', { botPrivateReply: true })], expected: [] },
+])('keeps stage-note boundaries: $name', ({ rows, expected }) => {
+  expect(projectBotGroupProcess(rows, false).segments.flatMap(segment =>
+    segment.kind === 'content' ? [segment.item.text] : [])).toEqual(expected);
+});
 // Unit regression for the 2026-11-01 report: a failed attempt dominated the
 // collapsed summary even while useful work continued. Existing tests only
 // checked retained error counts, not the text users actually saw.

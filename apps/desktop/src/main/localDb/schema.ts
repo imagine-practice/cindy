@@ -11,6 +11,8 @@ import { fastModeFromStorage, fastModeToStorage, type FastMode } from '@cindy/ma
 import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 import {
   index,
+  foreignKey,
+  check,
   integer,
   primaryKey,
   real,
@@ -128,6 +130,18 @@ export const sessions = sqliteTable(
     workingDir: text('working_dir'),
     /** Explicit project membership; null retains the legacy cwd-based grouping. */
     projectDir: text('project_dir'),
+    /**
+     * Entity project membership (`projects.id`). Null = legacy `project_dir` grouping.
+     * No FK: the renderer may bind tasks before a project row is observable here and
+     * every write path validates existence in the project service instead.
+     */
+    projectId: text('project_id'),
+    /** Changes only when the entity project binding changes, including unbinding. */
+    projectBindingRevision: integer('project_binding_revision').notNull().default(0),
+    /** Work-item assignee namespace; `assignee_id` alone never implies a kind. */
+    assigneeKind: text('assignee_kind', { enum: ['account', 'bot'] }),
+    /** Work-item assignee; null together with `assignee_kind` = explicitly unassigned. */
+    assigneeId: text('assignee_id'),
     /**
      * 产品归属语义, 与 working_dir 解耦:
      * - project: 按 project_dir 归组；旧任务缺省回落 working_dir。
@@ -366,6 +380,7 @@ export const sessions = sqliteTable(
     idxCreatedAtId: index('idx_sessions_created_at').on(t.createdAt, t.id),
     idxWorkspaceKind: index('idx_sessions_workspace_kind').on(t.workspaceKind),
     idxParentSessionId: index('idx_sessions_parent_session_id').on(t.parentSessionId),
+    idxProjectId: index('idx_sessions_project_id').on(t.projectId),
     idxOrcaRole: index('idx_sessions_orca_role').on(t.orcaRole),
     idxWorktreePath: index('idx_sessions_worktree_path').on(t.worktreePath),
     idxFeishuLookup: index('idx_sessions_feishu_lookup').on(
@@ -1474,6 +1489,15 @@ export const schedules = sqliteTable(
     source: text('source').default('user'),
     projectConfigId: text('project_config_id'),
     /**
+     * 自动化归属的**项目实体**(`projects.id`)，与上面的 `project_config_id`（仓库配置分组）
+     * 是两件不同的事：前者决定运行产生的会话落到哪个项目，后者是 schedules.json 的配置 id。
+     *
+     * NULL = 不归属任何项目（旧行为）。刻意不加外键/级联：项目归档由服务层拒绝新运行，
+     * 删项目不该悄悄改写或连带删除用户的自动化配置。清空本列只影响后续运行，
+     * 历史会话的 `sessions.project_id` 保持原归属。
+     */
+    projectId: text('project_id'),
+    /**
      * 是否允许用“任务名 + workspace + 工作目录”认领没有 schedule_runs 的旧会话。
      *
      * 该兜底只服务于引入稳定 scheduleId/runId 之前已经存在的任务。迁移会把升级
@@ -1680,10 +1704,242 @@ export const projectAliases = sqliteTable(
   }),
 );
 
+/**
+ * 项目实体（项目内核 v1 M1）。
+ *
+ * 与 `project_aliases` / `recent_workdirs` 的旧「按目录归组」并存：`sessions.project_id`
+ * 为空的旧任务仍按 `project_dir`（缺省 `working_dir`）归组，不做批量回填。
+ *
+ * `owner_id` 与 `project_members.subject_id` 同一命名空间；负责人的 `subject_kind`
+ * 记在该成员行（`role = 'owner'`），因此这里不再存一份 kind —— 负责人身份只有一个
+ * 真相，服务层保证「owner_id 对应的成员行 role 必为 owner 且唯一」。
+ */
+export const projects = sqliteTable(
+  'projects',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    goal: text('goal'),
+    /** 负责人 subject id（account 或 bot），必须是本项目的成员。 */
+    ownerId: text('owner_id').notNull(),
+    status: text('status', { enum: ['active', 'archived'] }).notNull().default('active'),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (t) => ({
+    idxStatusUpdated: index('idx_projects_status_updated').on(t.status, t.updatedAt),
+  }),
+);
+
+/**
+ * 项目成员。`subject_kind` 显式区分账号与伙伴，避免两者 id 撞车时被当成同一个人。
+ * 去重键为 `(project_id, subject_id)`；kind 与 id 一起表达身份，同一 id 不同 kind
+ * 是两个不同的主体。
+ */
+export const projectMembers = sqliteTable(
+  'project_members',
+  {
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    subjectKind: text('subject_kind', { enum: ['account', 'bot'] }).notNull(),
+    /** account id 或 bot_profiles.id；不建 FK，主体命名空间由 subject_kind 决定。 */
+    subjectId: text('subject_id').notNull(),
+    role: text('role', { enum: ['owner', 'member'] }).notNull().default('member'),
+    addedAt: integer('added_at').notNull(),
+  },
+  (t) => ({
+    // 去重键必须带 subject_kind：account 与 bot 的 id 字符串可能相同，只看
+    // (project_id, subject_id) 会把第二个主体（包括负责人那一行）静默吞掉。
+    uniqSubject: uniqueIndex('uniq_project_members_project_subject_kind').on(
+      t.projectId,
+      t.subjectKind,
+      t.subjectId,
+    ),
+    // 负责人唯一：同一项目最多一行 role='owner'。角色只在服务层事务内切换
+    // （旧负责人先降为 member 再抬新负责人），因此这条索引不会打断转交。
+    uniqOwner: uniqueIndex('uniq_project_members_owner')
+      .on(t.projectId)
+      .where(sql`${t.role} = 'owner'`),
+    idxSubject: index('idx_project_members_subject').on(t.subjectKind, t.subjectId),
+  }),
+);
+
+/** Append-only progress events; B1 scopes idempotency to a project binding generation. */
+export const workItemProgressEvents = sqliteTable(
+  'work_item_progress_events',
+  {
+    eventId: integer('event_id').primaryKey(),
+    projectId: text('project_id').notNull(),
+    sessionId: text('session_id').notNull(),
+    bindingRevision: integer('binding_revision').notNull(),
+    actorKind: text('actor_kind').notNull(),
+    actorId: text('actor_id').notNull(),
+    requestId: text('request_id').notNull(),
+    intentJson: text('intent_json').notNull(),
+    fromStatus: text('from_status'),
+    toStatus: text('to_status').notNull(),
+    reason: text('reason'),
+    unblockCondition: text('unblock_condition'),
+    resolution: text('resolution'),
+    completionNote: text('completion_note'),
+    createdAt: integer('created_at').notNull(),
+    revision: integer('revision').notNull(),
+    beforeJson: text('before_json').notNull(),
+    afterJson: text('after_json').notNull(),
+  },
+  (t) => ({
+    uniqRequest: uniqueIndex('uniq_work_item_progress_events_request').on(
+      t.projectId, t.sessionId, t.bindingRevision, t.actorKind, t.actorId, t.requestId,
+    ),
+  }),
+);
+
+/** A current record is usable only when both project and binding generation match. */
+export const workItemProgress = sqliteTable('work_item_progress', {
+  sessionId: text('session_id').primaryKey(),
+  projectId: text('project_id').notNull(),
+  bindingRevision: integer('binding_revision').notNull(),
+  status: text('status'),
+  revision: integer('revision').notNull(),
+  reason: text('reason'),
+  unblockCondition: text('unblock_condition'),
+  completionEventId: integer('completion_event_id').references(() => workItemProgressEvents.eventId),
+  updatedByKind: text('updated_by_kind').notNull(),
+  updatedById: text('updated_by_id').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
 export const projectAutomationConsents = sqliteTable('project_automation_consents', {
   workingDir: text('working_dir').primaryKey(),
   consentedAt: integer('consented_at').notNull(),
   configHash: text('config_hash').notNull(),
+});
+
+/**
+ * 材料本体（材料与版本 M2-A，契约 `docs/plans/2026-11-05-materials-contract-draft.md`）。
+ *
+ * 「材料」是项目/工作项里的原始材料条目；字节本体不在库里——版本行只持有
+ * `media_ref`（`cindy-media://blobs/<指纹>.<ext>`），字节由媒体总仓唯一写入。
+ *
+ * `work_item_id` 复用 `sessions.id`（已冻结决定），因此**不建 FK**：工作项将来可能
+ * 独立成表，且任务硬删不应连带抹掉旧 `material_contexts` 的追溯依据。
+ * `status = 'removed'` 只表示「当前引用已移除」，版本与字节都保留（同样已冻结）。
+ */
+export const materials = sqliteTable(
+  'materials',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    /** `sessions.id`；null = 项目级材料。 */
+    workItemId: text('work_item_id'),
+    /** 用户原始文件名，只作展示（同名判定也用它，不做大小写折叠）。 */
+    name: text('name').notNull(),
+    status: text('status', { enum: ['active', 'removed'] }).notNull().default('active'),
+    createdByKind: text('created_by_kind', { enum: ['account', 'bot'] }).notNull(),
+    createdById: text('created_by_id').notNull(),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+  },
+  (t) => ({
+    idxProjectStatus: index('idx_materials_project_status').on(t.projectId, t.status),
+    idxWorkItem: index('idx_materials_work_item').on(t.workItemId),
+  }),
+);
+
+/**
+ * 材料版本（不可变）。新内容一律新版本，旧版本行与旧 `material_contexts` 的引用
+ * 永不改写；`(material_id, version)` 唯一保证递增口径不被并发写坏。
+ *
+ * 存储形态按契约 0.1 分两种，仍然只有一个媒体仓：
+ *   - `media`：字节经 `cindy-media` 入仓，`storage_ref` 是受管地址且账本持有引用
+ *     （`media_refs.ref_kind = 'material'`，`ref_id` = 本行 id），因此回收器不会把
+ *     仍被旧版本/旧快照使用的字节当缓存清掉；
+ *   - `file`：非媒体（文本/PDF/Office 等）不复制、不入媒体仓，`storage_ref` 是用户
+ *     原文件绝对路径，`source_mtime` 记添加时的 mtime；可读性由 `sha256` 复核决定，
+ *     因此不承诺跨设备或源文件删除后仍可读。
+ */
+export const materialVersions = sqliteTable(
+  'material_versions',
+  {
+    id: text('id').primaryKey(),
+    materialId: text('material_id')
+      .notNull()
+      .references(() => materials.id, { onDelete: 'cascade' }),
+    /** 从 1 递增。 */
+    version: integer('version').notNull(),
+    /** 内容指纹，由宿主按真实字节计算。 */
+    sha256: text('sha256').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    /** 按字节探测的真实类型；扩展名只作展示。 */
+    mime: text('mime').notNull(),
+    /** `media` = cindy-media 受管字节；`file` = 引用用户原文件、不复制（契约 0.1）。 */
+    storageKind: text('storage_kind', { enum: ['media', 'file'] }).notNull(),
+    /** `media`：受管 media ref；`file`：原文件绝对路径。 */
+    storageRef: text('storage_ref').notNull(),
+    /** 仅 `file` 形态：添加时原文件的 mtime（毫秒）。 */
+    sourceMtime: integer('source_mtime'),
+    readState: text('read_state', { enum: ['pending', 'ready', 'failed'] })
+      .notNull()
+      .default('pending'),
+    failureReason: text('failure_reason'),
+    createdByKind: text('created_by_kind', { enum: ['account', 'bot'] }).notNull(),
+    createdById: text('created_by_id').notNull(),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => ({
+    uniqMaterialVersion: uniqueIndex('uniq_material_versions_material_version').on(
+      t.materialId,
+      t.version,
+    ),
+    // 项目范围内查重用的指纹索引。
+    idxSha256: index('idx_material_versions_sha256').on(t.sha256),
+  }),
+);
+
+/**
+ * 参考快照（不可变）：执行与候选验收只记 `material_context_id`，不记「当前材料」。
+ * `refs_json` = `[{materialId, version, readStateAtPin}]`，因此后补版本不倒改旧依据。
+ */
+/** R1 current references; legacy null task epochs are history only. */
+export const materialReferences = sqliteTable('material_references', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull(),
+  workItemId: text('work_item_id'),
+  bindingRevision: integer('binding_revision'),
+  materialId: text('material_id').notNull(),
+  version: integer('version').notNull(),
+  status: text('status', { enum: ['active', 'removed'] }).notNull(),
+  createdByKind: text('created_by_kind', { enum: ['account', 'bot'] }).notNull(),
+  createdById: text('created_by_id').notNull(),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+}, (t) => ({
+  versionForeignKey: foreignKey({ columns: [t.materialId, t.version],
+    foreignColumns: [materialVersions.materialId, materialVersions.version] }),
+  projectEpoch: check('material_references_project_epoch', sql`${t.workItemId} IS NOT NULL OR ${t.bindingRevision} IS NULL`),
+  validEpoch: check('material_references_valid_epoch', sql`${t.bindingRevision} IS NULL OR (typeof(${t.bindingRevision}) = 'integer' AND ${t.bindingRevision} >= 0)`),
+  projectUnique: uniqueIndex('uniq_material_references_project').on(t.projectId, t.materialId)
+    .where(sql`${t.workItemId} IS NULL`),
+  taskUnique: uniqueIndex('uniq_material_references_task').on(t.projectId, t.workItemId, t.bindingRevision, t.materialId)
+    .where(sql`${t.workItemId} IS NOT NULL AND ${t.bindingRevision} IS NOT NULL`),
+  legacyUnique: uniqueIndex('uniq_material_references_legacy').on(t.projectId, t.workItemId, t.materialId)
+    .where(sql`${t.workItemId} IS NOT NULL AND ${t.bindingRevision} IS NULL`),
+  scopeIndex: index('idx_material_references_scope').on(t.projectId, t.workItemId, t.bindingRevision, t.status),
+}));
+
+export const materialContexts = sqliteTable('material_contexts', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id'),
+  bindingRevision: integer('binding_revision'),
+  workItemId: text('work_item_id').notNull(),
+  purpose: text('purpose', { enum: ['reference', 'redecompose', 'recheck'] }).notNull(),
+  refsJson: text('refs_json').notNull(),
+  createdByKind: text('created_by_kind', { enum: ['account', 'bot'] }).notNull(),
+  createdById: text('created_by_id').notNull(),
+  createdAt: integer('created_at').notNull(),
 });
 
 /**
@@ -2501,3 +2757,117 @@ export const githubObservations = sqliteTable('github_observations', {
   state: text('state').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
+
+/** Local project/group locators only. Remote group permissions remain a main concern. */
+export const projectGroupLinks = sqliteTable('project_group_links', {
+  id: text('id').primaryKey(),
+  resourceAccountId: text('resource_account_id').notNull(),
+  resourceDeviceId: text('resource_device_id').notNull(),
+  projectId: text('project_id').notNull().references(() => projects.id),
+  groupEndpoint: text('group_endpoint').notNull(),
+  groupRoomId: text('group_room_id').notNull(),
+  status: text('status', { enum: ['active', 'removed'] }).notNull(),
+  revision: integer('revision').notNull(),
+  createdByKind: text('created_by_kind', { enum: ['account', 'bot'] }).notNull(),
+  createdById: text('created_by_id').notNull(),
+  updatedByKind: text('updated_by_kind', { enum: ['account', 'bot'] }).notNull(),
+  updatedById: text('updated_by_id').notNull(),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+}, t => ({
+  scope: uniqueIndex('project_group_links_scope').on(t.resourceAccountId,t.resourceDeviceId,t.projectId,t.groupEndpoint,t.groupRoomId),
+  byGroup: index('project_group_links_group').on(t.resourceAccountId,t.resourceDeviceId,t.groupEndpoint,t.groupRoomId,t.status,t.id),
+  byProject: index('project_group_links_project').on(t.projectId,t.status),
+  validStatus: check('project_group_links_status', sql`${t.status} IN ('active','removed')`),
+  validRevision: check('project_group_links_revision', sql`typeof(${t.revision})='integer' AND ${t.revision} BETWEEN 1 AND 9007199254740991`),
+  validKinds: check('project_group_links_kinds', sql`${t.createdByKind} IN ('account','bot') AND ${t.updatedByKind} IN ('account','bot')`),
+}));
+
+/** Successful local mutation receipts; replay never confers continuing authority. */
+export const projectGroupLinkRequests = sqliteTable('project_group_link_requests', {
+  actorKind: text('actor_kind', { enum: ['account', 'bot'] }).notNull(),
+  actorId: text('actor_id').notNull(),
+  requestId: text('request_id').notNull(),
+  canonicalIntent: text('canonical_intent').notNull(),
+  relationId: text('relation_id').notNull().references(() => projectGroupLinks.id),
+  commitRevision: integer('commit_revision').notNull(),
+  statusAtCommit: text('status_at_commit', { enum: ['active', 'removed'] }).notNull(),
+  change: text('change', { enum: ['linked', 'unlinked', 'unchanged'] }).notNull(),
+  createdAt: integer('created_at').notNull(),
+}, t => ({
+  pk: primaryKey({ columns:[t.actorKind,t.actorId,t.requestId] }),
+  byRelation: index('project_group_link_requests_relation').on(t.relationId,t.commitRevision),
+  validActor: check('project_group_link_requests_actor', sql`${t.actorKind} IN ('account','bot')`),
+  validRevision: check('project_group_link_requests_revision', sql`typeof(${t.commitRevision})='integer' AND ${t.commitRevision} BETWEEN 1 AND 9007199254740991`),
+  validStatus: check('project_group_link_requests_status', sql`${t.statusAtCommit} IN ('active','removed')`),
+  validChange: check('project_group_link_requests_change', sql`${t.change} IN ('linked','unlinked','unchanged')`),
+}));
+
+/** Material dispatch metadata, independent of provider-owned messages.agent_meta.
+ * No FK to messages/sessions: deletion must not rewrite already observed consumption facts.
+ * Account isolation is the enclosing owner DB, not a caller supplied account column. */
+export const materialDispatchMessages = sqliteTable('material_dispatch_messages', {
+  sessionId: text('session_id').notNull(), clientId: text('client_id').notNull(),
+  currentRevision: integer('current_revision').notNull(), messageId: text('message_id'),
+  createdAt: integer('created_at').notNull(), updatedAt: integer('updated_at').notNull(),
+}, t => ({ pk: primaryKey({ columns: [t.sessionId,t.clientId] }),
+  validRevision: check('material_dispatch_messages_revision', sql`typeof(${t.currentRevision})='integer' AND ${t.currentRevision} >= 0`) }));
+
+/** One immutable intent/preparation per revision; only its lifecycle state advances. */
+export const materialDispatchRevisions = sqliteTable('material_dispatch_revisions', {
+  sessionId: text('session_id').notNull(), clientId: text('client_id').notNull(), revision: integer('revision').notNull(),
+  projectId: text('project_id').notNull(), selectorJson: text('selector_json').notNull(),
+  contentSha256: text('content_sha256').notNull(),
+  state: text('state', { enum: ['queued','attached','superseded','cancelled'] }).notNull(),
+  preparationJson: text('preparation_json'), createdAt: integer('created_at').notNull(),
+}, t => ({ pk: primaryKey({ columns: [t.sessionId,t.clientId,t.revision] }),
+  messageKey: foreignKey({ columns:[t.sessionId,t.clientId],foreignColumns:[materialDispatchMessages.sessionId,materialDispatchMessages.clientId] }),
+  byProject: index('material_dispatch_revisions_project').on(t.projectId,t.sessionId,t.clientId),
+  validRevision: check('material_dispatch_revisions_revision', sql`typeof(${t.revision})='integer' AND ${t.revision} BETWEEN 1 AND 9007199254740991`),
+  validState: check('material_dispatch_revisions_state', sql`${t.state} IN ('queued','attached','superseded','cancelled')`) }));
+
+/** Pending acknowledgement is persisted before external work. Unknown never means unsent. */
+export const materialDispatchAttempts = sqliteTable('material_dispatch_attempts', {
+  sessionId: text('session_id').notNull(), clientId: text('client_id').notNull(), revision: integer('revision').notNull(),
+  attemptId: text('attempt_id').notNull(), turnGeneration: integer('turn_generation').notNull(),
+  consumer: text('consumer', { enum: ['vision','provider'] }).notNull(), preparationKey: text('preparation_key').notNull(),
+  referenceIdsJson: text('reference_ids_json').notNull(), payloadSha256: text('payload_sha256').notNull(),
+  actorKind: text('actor_kind', { enum:['account','bot'] }).notNull(), actorId: text('actor_id').notNull(),
+  outcome: text('outcome', { enum:['pending','confirmed','not-consumed','unknown'] }).notNull(),
+  evidenceJson: text('evidence_json'), createdAt: integer('created_at').notNull(), updatedAt: integer('updated_at').notNull(),
+}, t => ({ pk: primaryKey({ columns:[t.sessionId,t.clientId,t.revision,t.attemptId,t.consumer] }),
+  intent: foreignKey({ columns:[t.sessionId,t.clientId,t.revision],foreignColumns:[materialDispatchRevisions.sessionId,materialDispatchRevisions.clientId,materialDispatchRevisions.revision] }),
+  recovery: index('material_dispatch_attempts_recovery').on(t.sessionId,t.clientId,t.outcome),
+  validTurn: check('material_dispatch_attempts_turn', sql`typeof(${t.turnGeneration})='integer' AND ${t.turnGeneration} BETWEEN 1 AND 9007199254740991`),
+  validActor: check('material_dispatch_attempts_actor', sql`${t.actorKind} IN ('account','bot')`),
+  validConsumer: check('material_dispatch_attempts_consumer', sql`${t.consumer} IN ('vision','provider')`),
+  validOutcome: check('material_dispatch_attempts_outcome', sql`${t.outcome} IN ('pending','confirmed','not-consumed','unknown')`) }));
+
+/** Append-only observations retain unknown evidence when later reconciliation resolves it. */
+export const materialDispatchObservations = sqliteTable('material_dispatch_observations', {
+  sessionId: text('session_id').notNull(), clientId: text('client_id').notNull(), revision: integer('revision').notNull(),
+  attemptId: text('attempt_id').notNull(), consumer: text('consumer').notNull(),
+  receiptSha256: text('receipt_sha256').notNull(), evidenceJson: text('evidence_json').notNull(), createdAt: integer('created_at').notNull(),
+}, t => ({ pk: primaryKey({ columns:[t.sessionId,t.clientId,t.revision,t.attemptId,t.consumer,t.receiptSha256] }),
+  attempt: foreignKey({ columns:[t.sessionId,t.clientId,t.revision,t.attemptId,t.consumer],foreignColumns:[materialDispatchAttempts.sessionId,materialDispatchAttempts.clientId,materialDispatchAttempts.revision,materialDispatchAttempts.attemptId,materialDispatchAttempts.consumer] }) }));
+
+/** Owner-DB-scoped follow-up requests. Exact frozen 5a target; snapshots and current
+ * delegation runs may change without losing the original input/result identity. */
+export const botTaskFollowupRequests = sqliteTable('bot_task_followup_requests', {
+  taskId: text('task_id').notNull().references(() => botDelegations.id, { onDelete: 'cascade' }),
+  requesterBotId: text('requester_bot_id').notNull(),
+  keyDigest: text('key_digest').notNull(),
+  bodyDigest: text('body_digest').notNull(),
+  inputId: text('input_id').notNull().unique(),
+  admittedRunSequence: integer('admitted_run_sequence').notNull(),
+  childSessionId: text('child_session_id').notNull(),
+  phase: text('phase', { enum: ['admitted', 'dispatching', 'unknown', 'settled'] }).notNull(),
+  nativeAcceptedAt: integer('native_accepted_at'),
+  resultJson: text('result_json'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+}, t => ({
+  identity: primaryKey({ columns: [t.taskId, t.requesterBotId, t.keyDigest] }),
+  positiveRun: check('bot_task_followup_requests_run', sql`${t.admittedRunSequence} >= 1`),
+  validPhase: check('bot_task_followup_requests_phase', sql`${t.phase} IN ('admitted', 'dispatching', 'unknown', 'settled')`),
+}));

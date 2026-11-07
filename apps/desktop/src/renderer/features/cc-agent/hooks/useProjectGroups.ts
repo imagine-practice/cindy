@@ -6,7 +6,7 @@
  * Row-only patches reuse membership and ordering, keeping unrelated nodes stable.
  */
 
-import { useMemo, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { useStableTranslation } from '@/hooks/useStableTranslation';
 import { createProjectGroupsSelector } from '../lib/projectGroupsSelector';
 import { useProvisionalDraftProjectTaskId } from './useProvisionalDraftProjectTaskId';
@@ -16,6 +16,7 @@ import { useRemoteSshHosts } from '@/hooks/useRemoteSshHosts';
 import { buildBotSessionOwners } from '@/features/bots/botSessionOwners';
 import { useBotProfiles } from '@/features/bots/botStore';
 import { remoteProjectAliases } from '@/features/device-link/remoteProjectAliases';
+import { projectsStore } from '@/features/projects/projectsStore';
 import {
   type PersistentLocalProject,
   type ProjectGroupsResult,
@@ -43,6 +44,16 @@ export function useProjectGroups(
   const selectGroups = useMemo(() => createProjectGroupsSelector(), []);
   const provisionalDraftTaskId = useProvisionalDraftProjectTaskId();
   /*
+    实体项目（项目内核 M1）。未加载时视为空 —— 绑定任务会先按目录分组回退，
+    **不会消失**；加载完成后归到实体项目节点。
+  */
+  const entityProjects = useSyncExternalStore(projectsStore.subscribe, projectsStore.getIndex);
+  useEffect(() => {
+    void projectsStore.ensure().catch(() => {
+      /* 静默：下一次广播或用户操作会重试 */
+    });
+  }, []);
+  /*
     伙伴归属表。会话行本身不带 botId,归属只有伙伴档案知道 —— 档案还没加载完的
     那一瞬间这张表是空的,伙伴任务就走原来的分组落到别处,**不会消失**。
   */
@@ -58,6 +69,7 @@ export function useProjectGroups(
       includePinnedInProjects,
       botOwnerBySessionId,
       persistentLocalProjects,
+      entityProjects,
       localPlatform,
       provisionalDraftTaskId,
     });
@@ -70,6 +82,7 @@ export function useProjectGroups(
     projectAliasMembers,
     includePinnedInProjects,
     persistentLocalProjects,
+    entityProjects,
     localPlatform,
     botOwnerBySessionId,
     provisionalDraftTaskId,

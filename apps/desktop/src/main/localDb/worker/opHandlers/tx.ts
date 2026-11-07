@@ -1,8 +1,18 @@
+import { runProjectWorkItemExecutionTransaction } from './projectWorkItemExecutionTx.js';
+import { runBotFollowupRequest } from './botFollowupRequestTx.js';
+import { runMaterialDispatchTransaction } from './materialDispatchTx.js';
+import { runProjectGroupLinksTransaction } from './projectGroupLinksTx.js';
+import { readProjectGroupLinksByProjectTransaction } from './projectGroupLinksProjectReadTx.js';
+import { readProjectProgressTransaction } from './projectProgressReadTx.js';
+import { runAuthorizedSessionCreateTransaction } from './authorizedSessionCreateTx.js';
+import { runWorkItemProgressTransaction } from './workItemProgressTx.js';
 import { fastModeFromStorage, fastModeToStorage } from '@cindy/maker-shared';
 import { extractToolResultDiagnostics } from '@cindy/maker-shared/tool-result-compaction';
 import { runPluginUsageTransaction } from './pluginUsageTx.js';
 import { runSessionImportTransaction } from './sessionImportTx.js';
 import { runTaskTagsTransaction } from './taskTagsTx.js';
+import { runProjectsTransaction } from './projectsTx.js';
+import { runMaterialsTransaction } from './materialsTx.js';
 import { recordMediaSpend } from './mediaSpendTx.js';
 import { batchAutoReviewProjection, readAutoReviewProjectionTransaction } from '../../autoReviewProjection.js';
 import { CLOSE_SHARED_TASKS_FOR_SESSION_SQL } from '../../sharedTaskClosureSql.js';
@@ -123,6 +133,26 @@ function dispatchTransaction(db: Database.Database, args: unknown): unknown {
     case 'sessionImport.execute': return runSessionImportTransaction(db, txArgs);
     case 'taskTags.execute':
       return runTaskTagsTransaction(db, txArgs);
+    case 'materialDispatch.execute': return runMaterialDispatchTransaction(db, txArgs);
+    case 'projectGroupLinks.execute': return runProjectGroupLinksTransaction(db, txArgs);
+    case 'projectGroupLinks.listProject': {
+      const read = asRecord(txArgs, 'projectGroupLinks.listProject args');
+      return readProjectGroupLinksByProjectTransaction(db, read.request, read.context as Parameters<typeof readProjectGroupLinksByProjectTransaction>[2]);
+    }
+    case 'projects.execute':
+      return runProjectsTransaction(db, txArgs);
+    case 'projectProgress.read': {
+      const read = asRecord(txArgs, 'projectProgress.read args');
+      return readProjectProgressTransaction(db, read.request, read.context as Parameters<typeof readProjectProgressTransaction>[2]);
+    }
+    case 'sessions.createAuthorized':
+      return runAuthorizedSessionCreateTransaction(db, txArgs);
+    case 'workItemProgress.execute': {
+      const progress = asRecord(txArgs, 'workItemProgress.execute args');
+      return runWorkItemProgressTransaction(db, progress.intent, progress.context as Parameters<typeof runWorkItemProgressTransaction>[2]);
+    }
+    case 'materials.execute':
+      return runMaterialsTransaction(db, txArgs);
     case 'projectAliases.replaceIdentity':
       return projectAliasesReplaceIdentity(db, txArgs);
     case 'toolResults.compactSession':
@@ -169,6 +199,10 @@ function dispatchTransaction(db: Database.Database, args: unknown): unknown {
       return botsCreateDelegation(db, txArgs);
     case 'bots.reopenDelegation':
       return botsReopenDelegation(db, txArgs);
+    case 'bots.followupRequest':
+      return runBotFollowupRequest(db, txArgs, args => botsReopenDelegation(db, args));
+    case 'bots.adoptProjectWorkItem':
+      return runProjectWorkItemExecutionTransaction(db, txArgs as import('../../../../shared/projectWorkItemExecution.js').ProjectWorkItemExecutionRequest);
     case 'bots.pauseLifecycle':
       return botsPauseLifecycle(db, txArgs);
     case 'bots.resumeLifecycle':
@@ -1133,6 +1167,8 @@ function botsReopenDelegation(
   args: unknown,
 ): { reopened: boolean; previousParentSessionId: string | null } {
   const p = asRecord(args, 'bots.reopenDelegation args');
+  const expectedRunSequence = expectNumber(p.expectedRunSequence, 'expectedRunSequence');
+  if (!Number.isSafeInteger(expectedRunSequence) || expectedRunSequence < 1) throw new Error('Invalid expectedRunSequence');
   const delegationId = expectString(p.delegationId, 'delegationId');
   const requestingBotId = expectString(p.requestingBotId, 'requestingBotId');
   const expectedStatus = expectString(p.expectedStatus, 'expectedStatus');
@@ -1149,7 +1185,7 @@ function botsReopenDelegation(
   return db.transaction(() => {
     const current = db.prepare(`SELECT requesting_bot_id AS requestingBotId,
       target_bot_id AS targetBotId, target_profile_version AS targetProfileVersion,
-      parent_session_id AS parentSessionId, child_session_id AS childSessionId, status
+      parent_session_id AS parentSessionId, child_session_id AS childSessionId, status, run_sequence AS runSequence
       FROM bot_delegations WHERE id = ?`).get(delegationId) as
       | {
           requestingBotId: string;
@@ -1158,6 +1194,7 @@ function botsReopenDelegation(
           parentSessionId: string | null;
           childSessionId: string | null;
           status: string;
+          runSequence: number;
         }
       | undefined;
     if (
@@ -1166,6 +1203,7 @@ function botsReopenDelegation(
       || current.targetBotId !== targetBotId
       || current.targetProfileVersion !== targetProfileVersion
       || current.status !== expectedStatus
+      || current.runSequence !== expectedRunSequence
     ) {
       return { reopened: false, previousParentSessionId: current?.parentSessionId ?? null };
     }
@@ -1790,6 +1828,11 @@ function messageInsert(db: Database.Database, args: unknown): { changes: number 
       : expectNumber(payload.expectedClearBoundaryMs, 'expectedClearBoundaryMs');
   const transaction = db.transaction(() => {
     let changes = 0;
+    const material = payload.materialDispatch === undefined ? undefined : asRecord(payload.materialDispatch, 'materialDispatch');
+    if (material && (Object.keys(material).some(k => k !== 'revision' && k !== 'host')
+      || role !== 'user' || (payload.publication && payload.publication !== 'stage' && payload.publication !== 'publish'))) {
+      throw Object.assign(new Error('Invalid main material message envelope'), { code: 'INVALID_ARGS' });
+    }
     // The preflight read in Main can race with a user send. Keep the opening
     // admission in this transaction, including a script fallback's next insert.
     if (payload.requireNoUserMessage === true
@@ -1846,6 +1889,9 @@ function messageInsert(db: Database.Database, args: unknown): { changes: number 
           sessionId,
           expected,
         ).changes;
+    } else if (material) {
+      changes = db.prepare('INSERT INTO messages (id,client_id,session_id,role,content,tool_use_id,agent_meta,agent_kind,created_at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(session_id,client_id) DO NOTHING')
+        .run(id,clientId,sessionId,role,content,toolUseId,agentMeta,agentKind,createdAt).changes;
     } else {
       changes = db
         .prepare(
@@ -1865,6 +1911,23 @@ function messageInsert(db: Database.Database, args: unknown): { changes: number 
       } else {
         db.prepare('UPDATE sessions SET list_message_count = NULL WHERE id = ?').run(sessionId);
       }
+    }
+    if (material && (!payload.publication || payload.publication === 'publish')) {
+      // A conflicting stable key can skip INSERT; still enforce this request's clear CAS.
+      if (guarded) {
+        const boundary = db.prepare('SELECT cleared_at FROM sessions WHERE id=?').get(sessionId) as { cleared_at: number | null } | undefined;
+        if (!boundary || (boundary.cleared_at ?? null) !== expected) {
+          throw Object.assign(new Error('REMOTE_OPTIMISTIC_INPUT_CLEARED: Material message clear boundary changed'), { code: 'REMOTE_OPTIMISTIC_INPUT_CLEARED' });
+        }
+      }
+      // This nested SAVEPOINT uses the same SQLite connection/outer writer transaction.
+      // Compare attempted bytes too: an old existing row must not turn an edited retry into success.
+      const stored = db.prepare('SELECT id,role,content,rewind_at FROM messages WHERE session_id=? AND client_id=?').get(sessionId,clientId) as { id: string; role: string; content: string; rewind_at: number | null } | undefined;
+      if (!stored || stored.role !== 'user' || stored.content !== content || stored.rewind_at !== null) {
+        throw new Error('[MESSAGE_MISMATCH] Material message attachment rejected');
+      }
+      runMaterialDispatchTransaction(db, { action: 'attachMessage', key: { sessionId,clientId },
+        revision: material.revision, host: material.host, messageId: stored.id });
     }
     return { changes };
   });

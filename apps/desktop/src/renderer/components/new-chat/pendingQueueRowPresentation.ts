@@ -97,9 +97,11 @@ export function getPendingQueueRowPresentation(entry: QueuedMessage): PendingQue
         : entry.chatMessage.quotesEncoded === true
           ? stripChatQuoteMarkerLines(entry.text)
           : entry.text,
-    canEdit: !isPendingEnqueue && !isMachineGenerated && !isSyntheticTrigger,
+    // 材料意图与首次正文的内容 SHA 绑定，编辑会让 attach/begin 对不上，故带材料的行不开放编辑。
+    canEdit: !isPendingEnqueue && !isMachineGenerated && !isSyntheticTrigger && !entry.materialDispatch,
     // 协同消息可以转为插话:插话不改正文与来源,主进程在接受后结清协同回报。
-    canSteer: !isPendingEnqueue && (isOrca || !isMachineGenerated) && !isSyntheticTrigger,
+    // 插话只覆盖 provider send，材料不参与插话；带材料的行只能移除后重新发送。
+    canSteer: !isPendingEnqueue && (isOrca || !isMachineGenerated) && !isSyntheticTrigger && !entry.materialDispatch,
     isSyntheticTrigger,
     syntheticKind: isSyntheticTrigger ? (isContinueTrigger ? 'continue' : 'generic') : null,
   };

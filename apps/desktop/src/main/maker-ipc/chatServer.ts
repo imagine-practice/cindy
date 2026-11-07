@@ -12,7 +12,8 @@ import { getClientEndpoint } from '../clientEndpointsService.js';
 import { signalBotAutonomyBotsChanged, subscribeBotProfilesChanged } from '../bot-autonomy/botsChangedSignal.js';
 import { t } from '../i18n.js';
 import { readFile as readMedia } from '../cindy-media/blobStore.js';
-import { getAccessToken, refresh } from '../authManager.js';
+import { getAccessToken, getCurrentUserId, getActiveAuthRealm, refresh } from '../authManager.js';
+import { createChatGroupAuthority, selectChatManagementActor } from './chatGroupAuthority.js';
 import { retryAfterDeadline } from '@cindy/auth-client';
 import { parseChatInvitationShareId, parseChatInvitationToken } from '@cindy/device-link';
 import { CURRENT_CINDY_REGION } from '../../shared/brandRegion.js';
@@ -334,19 +335,22 @@ export function withChatServer(local: BotGroupChatService, deps: BotGroupChatSer
     return getClientEndpoint('chatApiBaseUrl');
   };
   let baseUrl = endpoint();
+  let wrapperDisposed = false;
+  const isEndpointCurrent = (captured: string) => !wrapperDisposed && endpoint() === captured;
   let activeScope = deps.captureOwnerScope?.();
-  let active = createChatServer(local, deps, { baseUrl });
+  let active = createChatServer(local, deps, { baseUrl, isEndpointCurrent });
   const service = () => {
     if (baseUrl !== endpoint() || (activeScope && deps.isOwnerScopeCurrent && !deps.isOwnerScopeCurrent(activeScope))) {
       active.dispose();
       baseUrl = endpoint();
       activeScope = deps.captureOwnerScope?.();
-      active = createChatServer(local, deps, { baseUrl });
+      active = createChatServer(local, deps, { baseUrl, isEndpointCurrent });
     }
     return active;
   };
   return {
     get chatServer() { return service().chatServer; },
+    get groupAuthority() { return service().groupAuthority; },
     listGroups: (...args) => service().listGroups(...args),
     getGroup: (...args) => service().getGroup(...args),
     createGroup: (...args) => service().createGroup(...args),
@@ -364,11 +368,11 @@ export function withChatServer(local: BotGroupChatService, deps: BotGroupChatSer
     settleLaneTurn: (...args) => service().settleLaneTurn(...args),
     refreshPendingInteraction: local.refreshPendingInteraction,
     postCompanionTaskMessage: (...args) => service().postCompanionTaskMessage(...args),
-    dispose: () => { active.dispose(); local.dispose(); },
+    dispose: () => { wrapperDisposed = true; active.dispose(); local.dispose(); },
   };
 }
 
-function createChatServer(local: BotGroupChatService, deps: BotGroupChatServiceDeps, config: { baseUrl: string }): BotGroupChatService {
+function createChatServer(local: BotGroupChatService, deps: BotGroupChatServiceDeps, config: { baseUrl: string; isEndpointCurrent: (endpoint: string) => boolean }): BotGroupChatService {
   const scope = deps.captureOwnerScope?.();
   let disposed = false;
   // Demotion persisted for this owner applies before the server has answered.
@@ -1432,8 +1436,7 @@ function createChatServer(local: BotGroupChatService, deps: BotGroupChatServiceD
     return room;
   }
   function managementActor(s: Snapshot) {
-    const eligible = s.members.filter(m => m.ownerActorId === selfId && m.state === 'joined' && ['owner', 'admin'].includes(m.role));
-    return (eligible.find(m => m.role === 'owner') ?? eligible.find(m => m.id === selfId) ?? eligible[0])?.id;
+    return selectChatManagementActor(s.members, selfId)?.id;
   }
   function localBot(actorId: string) {
     const actor = actors.find(a => a.id === actorId && a.kind === 'bot');
@@ -3698,8 +3701,33 @@ function createChatServer(local: BotGroupChatService, deps: BotGroupChatServiceD
   // A lost controller ACK must not consume the phone upload or submit the same message twice.
   const pendingSends = new Map<string, ReturnType<BotGroupChatService['sendMessage']>>();
   const sendReceipts = new Map<string, Awaited<ReturnType<BotGroupChatService['sendMessage']>>>();
+  const groupAuthority = createChatGroupAuthority({ captureBoundary: () => {
+    // Unlike legacy display paths, missing owner hooks must fail closed here.
+    const ownerScope = deps.captureOwnerScope?.();
+    const ownerId = ownerScope?.ownerStamp?.dataOwnerId;
+    if (!scope?.ownerScopeKey || !ownerScope?.ownerScopeKey || !ownerId || !deps.isOwnerScopeCurrent)
+      throw new Error('HOST_NOT_READY');
+    const token = getAccessToken();
+    const realm = getActiveAuthRealm();
+    const client = getDbClient();
+    const assertCurrent = () => {
+      if (!current() || !deps.isOwnerScopeCurrent!(ownerScope) || !config.isEndpointCurrent(config.baseUrl)
+        || getDbClient() !== client || getCurrentUserId() !== ownerId || getActiveAuthRealm() !== realm
+        || !token || getAccessToken() !== token) throw new Error('OWNER_SCOPE_CHANGED');
+    };
+    assertCurrent();
+    return { endpoint: config.baseUrl.replace(/\/+$/, ''), ownerId, assertCurrent,
+      // Reuse only completed native alias resolution/receipts. Never initiate a
+      // legacy upgrade here: resolveGroup's registration/migration can write.
+      resolveRoom: (groupId, selfActorId) => resolvedGroups.get(groupId) ?? upgradedGroups.get(groupId)
+        ?? chatMigrationReceipts(config.baseUrl, selfActorId, current).read(groupId)?.roomId ?? groupId,
+      // Suppress auth refresh on this read: a rejected credential invalidates capture;
+      // normal chat retains its existing token recovery and registration behavior.
+      read: (route, actorId) => api(route, 'GET', undefined, actorId, true, undefined, assertCurrent) };
+  } });
   return {
     chatServer,
+    groupAuthority,
     refreshPendingInteraction: local.refreshPendingInteraction,
     listGroups: () => safe(async () => {
       await ensureRegistered(); await syncPersonalList(); beginUpgrade();

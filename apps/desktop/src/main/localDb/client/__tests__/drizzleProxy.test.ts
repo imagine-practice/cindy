@@ -68,6 +68,9 @@ const DRIZZLE_PROXY_SCHEMA = [
       list_preview TEXT,
       list_preview_role TEXT,
       list_message_count INTEGER,
+      project_id TEXT,
+      assignee_kind TEXT,
+      assignee_id TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )

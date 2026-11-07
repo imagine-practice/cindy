@@ -87,6 +87,8 @@ export const CAPABILITIES: readonly CapabilityEntry[] = [
     oneLiner:
       '用户本人能对自己的任务、定时任务、项目、伙伴做的操作，Agent 有哪些对应工具、哪些能管到另一台电脑。',
     detail: [
+      '【已有项目任务执行】execute_project_work_item 在宿主安装回调后可用；当前本机伙伴明确执行原任务，不创建新child。先读真实绑定代次；pending/unknown保存requestToken，recover仅查询原请求不再发送。原生accepted不等于模型消费。群需独立原生来源跟进通道。',
+      '【实体写操作】mutate_project_entity 仅在宿主单独提供 entityProjectMutation 回调时注册，支持本机创建、更新、成员增删、负责人转交、绑定任务与设置处理人；不会派发任务或调用模型。缺少回调的宿主保持原只读能力；读写注册分别见 entityProjects.registered / mutationRegistered。写结果不明时先查状态，不自动重试。【目录与实体项目】list_projects / create_project 管理已有目录，project_path 仍是目录归属；不是实体 projectId。实体项目只读查询使用独立的 list_project_entities / get_project_entity / get_project_progress，须由宿主提供 entityProjects 回调后才注册；未接线的宿主不能调用，也不代表生产 Host 或跨端已启用。查看本次返回的 entityProjects 注册说明及 list_tools({category:"control"})，不要按产品说明猜可用工具。实体工具不创建目录、工作项或执行。',
       '【任务链接】已知任务 id 时调用 history/get_task_digest，返回的 sessionUrl 可直接写成 [任务标题](sessionUrl)。list_sessions、search_chat_history、get_chat_history 的任务元数据也附带 sessionUrl，含所属电脑，支持桌面与手机打开。',
       '【机器】cindy_helper 的顶层工具 list_machines（不经 list_tools）：看账号下所有电脑的实时 CPU、可用内存、磁盘、空闲时长和在跑任务，以及这台电脑配置的 SSH 主机；只报事实，放哪台由你决定。',
       '【原则】用户本人能做的操作(含跨电脑)，Agent 也应有对应工具；是否执行由权限档与自动审核决定。数据保存在各自的电脑上：下结论「没有 / 没人在跟」之前，先确认查的是不是只有本机。',

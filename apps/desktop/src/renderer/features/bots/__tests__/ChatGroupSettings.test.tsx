@@ -296,6 +296,16 @@ it('offers ownership transfer only to human members', async () => {
   fireEvent.click(await screen.findByRole('menuitem', { name: key('transfer') }));
   await waitFor(() => expect(mocks.manage).toHaveBeenCalledWith({ groupId: 'room', action: { type: 'transfer', actorId: 'peer' } }));
 });
+it('offers the 关联项目 entry in group settings and opens it as its own page', async () => {
+  const view = renderAt(group());
+  fireEvent.click(row('projectGroupLinks.title'));
+  await waitFor(() => expect(screen.getByTestId('location').textContent)
+    .toBe('/bots/groups/room?groupSettings=1&groupSettingsPage=projects'));
+  // 这个群在本用例里没有聊天服务器房间定位，页面要说明原因而不是假装没有关联。
+  expect(screen.getByText('projectGroupLinks.unavailable')).toBeTruthy();
+  expect(screen.getByText('projectGroupLinks.unavailableHint')).toBeTruthy();
+  view.unmount();
+});
 it('labels reply and speaking modes with the same words as the local group settings', () => {
   renderAt({ ...group(true), replyMode: 'all', speakingMode: 'auto' }, 'manage');
   expect(screen.getByRole('combobox', { name: 'bots.groupChat.settings.replyMode' }).textContent).toContain('bots.groupChat.settings.replyModeAll');

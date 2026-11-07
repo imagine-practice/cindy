@@ -1,9 +1,12 @@
+import { configureProjectGroupLinksHost } from '../localDb/ipc/projectGroupLinks';
 import { registerRuntimeSettingsSection } from '../app-settings/runtime.js';
 import { z as settingsSchema } from 'zod';
 import { registerPreferenceControlIpc } from '../app-settings/preferences.js';
 import { configureModelSettingsActions } from '../app-settings/models.js';
 import { createTaskCompletionDeliveryHost, type TaskCompletionDeliveryHost } from './taskCompletionDeliveryHost.js';
 import { setRoutineResultDispatch } from '../routines/deliveryDispatch.js';
+import { setOwnerTurnDispatch } from './ownerTurnDispatch.js';
+import { registerProjectWorkItemExecutionIpc } from '../project-execution/entry.js';
 import { McpSetupBridge } from './mcpSetupBridge.js';
 import type { McpSetupProposal, McpSetupRequest } from '../../shared/mcpSetup.js';
 import { outboundFetch } from '../maker-host/outbound-fetch.js';
@@ -485,7 +488,7 @@ import {
   updateMessageContent,
 } from '../localDb/ipc/messages.js';
 import { invalidateWorkersByLeadSingleFlight } from '../localDb/ipc/orcaWorkerListSingleFlight.js';
-import { messageToCamel, setSessionRuntimeProjector } from '../localDb/mapper.js';
+import { messageToCamel, safeStringify, setSessionRuntimeProjector } from '../localDb/mapper.js';
 import { visibleMessageText, visibleMessageTextForConversationSearch } from '../localDb/conversationSearch.pure.js';
 import { buildReviewPrompt } from '../reviewer/reviewPrompt.js';
 import { resolveReviewScope, withSessionReviewWorkspace } from '../git-review/scopeResolver.js';
@@ -726,6 +729,8 @@ import { configureBotCanonicalReplacementCoordinator } from './botCanonicalRepla
 import { configureBotModelSelectionCoordinator, createBotModelSelectionCoordinator } from './botModelSelectionCoordinator.js';
 import { botSessionInputBlockReason, isShadowedCompanionSession, SHADOWED_COMPANION_INPUT_MESSAGE } from './botSessionInputGuard.js';
 import { configureBotRuntimeEpochRefreshRequest } from './botRuntimeEpochRefreshSignal.js';
+import { createMaterialInputAdmission, parseQueuedMaterialIntent } from './materialInputAdmission.js';
+import { createMaterialConsumptionConnector } from './materialConsumption.js';
 import { createGitSnapshotCoordinator } from '../maker-host/git-snapshot-host.js';
 import {
   cancelCodexAuthModeChange,
@@ -5076,6 +5081,11 @@ export function getTaskActionInputState(sessionId: string) {
 /** Runtime-only account boundary for personal author tools; never grants external-write permission. */
 export function isActiveInputAccountScoped(sessionId: string): boolean {
   return agentInputCoordinatorHolder?.isActiveInputAccountScoped(sessionId) ?? false;
+}
+
+/** Current coordinator pause state; absence means Host is not ready. */
+export function isTaskExecutionPaused(sessionId: string): boolean | undefined {
+  return agentInputCoordinatorHolder?.isExecutionPaused(sessionId);
 }
 
 /** Live permission authority for Host task actions; never reconstructed from DB defaults. */
@@ -13582,6 +13592,84 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
   setBotInvitationWelcomeDispatch(dispatchBotSessionMessage);
   setVoiceTaskDispatch(dispatchBotSessionMessage);
   setRoutineResultDispatch(dispatchBotSessionMessage);
+  // 项目工作项「请该伙伴执行」：入口只投递一个 owner→伙伴回合，不新造执行授权。
+  // 执行后续（继续 / 批准 / 排队 / 换模型）复用同一窄面，另外接三个已有能力：
+  // 输入协调器的实时队列边界、既有 owner 确认解析器、既有 SET_MODEL 语义。
+  setOwnerTurnDispatch(
+    Object.assign(dispatchBotSessionMessage, {
+      readSessionBusy: (sessionId: string) =>
+        inputCoordinator.getProjection(sessionId).turnInProgress,
+      readQueuedPosition: (sessionId: string, clientId: string) => {
+        const index = inputCoordinator
+          .getProjection(sessionId)
+          .pendingQueue.findIndex((item) => item.clientId === clientId);
+        return index < 0 ? null : index + 1;
+      },
+      approveInteraction: ({
+        sessionId,
+        requestId,
+        kind,
+      }: {
+        sessionId: string;
+        requestId: string;
+        kind: 'permission' | 'plan_review';
+      }) => {
+        // 只承认这条会话真实挂起的、同种类的确认；别处的 requestId 一律不碰。
+        const entry = pendingInteractionResolvers.get(requestId);
+        if (!entry || entry.sessionId !== sessionId || entry.kind !== kind)
+          return { accepted: false };
+        return {
+          accepted: resolvePendingInteraction(
+            requestId,
+            kind === 'permission'
+              ? { kind: 'permission', behavior: 'allow' }
+              : { kind: 'plan_review', behavior: 'allow' },
+          ),
+        };
+      },
+      setSessionModel: async ({
+        sessionId,
+        model,
+        providerId,
+      }: {
+        sessionId: string;
+        model: string;
+        providerId?: string | null;
+      }) => {
+        try {
+          // 只选模型、不改深度/快速档：selection 留空，沿用当前值。
+          const result = await handleSetModel(
+            sessionId,
+            model,
+            providerId ?? undefined,
+            undefined,
+            undefined,
+            { source: 'user' },
+          );
+          if (result.superseded)
+            return { ok: false as const, message: 'The model selection was superseded; nothing was changed' };
+          if (runtimeSelectionRequiresModelWindowConfirmation(result))
+            return {
+              ok: false as const,
+              message: 'This model needs a smaller context window confirmation; the model was not changed',
+            };
+          return {
+            ok: true as const,
+            status: result.deferred ? ('deferred' as const) : ('applied' as const),
+            model: result.effectiveModelId ?? model,
+            providerId: result.effectiveProviderId ?? providerId ?? null,
+          };
+        } catch (error) {
+          // 真实原因原样返回：不静默回退默认模型，也不重试到别的账号。
+          return {
+            ok: false as const,
+            message: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    }),
+  );
+  registerProjectWorkItemExecutionIpc();
   setVoiceCallMemoryReader(async botId =>
     (await maker.makerMemory?.getStore(buildBotMemoryScopeKey(botId)))?.getIndex() ?? '');
 
@@ -13914,6 +14002,7 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
     log,
   };
   botGroupChatServiceHolder = withChatServer(createBotGroupChatService(botGroupChatDeps), botGroupChatDeps);
+  configureProjectGroupLinksHost({ groupService: () => botGroupChatServiceHolder, currentDeviceId: getSelfDeviceId });
   unsubscribeCompanionCloudBroadcast?.();
   unsubscribeCompanionCloudBroadcast = companionHomes.onChange((snapshot) => {
     const scope = captureDataOwnerBroadcastScope();
@@ -18552,6 +18641,10 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
     },
   };
 
+  // The provider-send material consumer adapter is the only wiring that declares a connected
+  // consumer; without it material input still fails closed (NOT_READY) in admission.
+  const materialConsumption = createMaterialConsumptionConnector();
+  const materialInputAdmission = createMaterialInputAdmission({ consumerConnected: true });
   const createUserMessageDurably: typeof createDbMessage = async (sessionId, message, opts) => {
     // 真实用户消息(renderer 发送事务)→ 给两个自动续跑守卫充值额度。
     //
@@ -18614,8 +18707,10 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
             : message;
         // session-agent-switch:user 行逐行 stamp 当前引擎(见 messages.agent_kind 注释)。
         const agentKind = getSessionDbAgentKind(sessionId);
+        const materialDispatch = await materialInputAdmission.messageAuthority(sessionId, message.clientId, safeStringify(message.content));
         const scopedOpts = {
           ...(opts ?? {}),
+          ...(materialDispatch ? { materialDispatch } : {}),
           // Keep a committed user row durable across an owner switch, while
           // preventing createMessage from relabelling its broadcast to the
           // next owner after the media-ref await.
@@ -20724,6 +20819,11 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
     // auto-resume bookkeeping as direct maker sends.  Keeping one writer also
     // preserves message ordering when a clear-race rewind follows the insert.
     createUserMessage: createUserMessageDurably,
+    prepareMaterialInput: (sessionId, item) => materialConsumption.prepare(sessionId, item),
+    assertInputDispatchable: (sessionId, item, prepared) => materialInputAdmission.assertConsumerConnected(sessionId, item.clientId, {
+      hasSelector: item.materialDispatch !== undefined || item.materialDispatchRevision !== undefined,
+      prepared: prepared !== undefined,
+    }),
     rewindPersistedUserMessageAfterClear: (sessionId, clientId, options) =>
       enqueueDurableWrite(`user-rewind:${sessionId}:${clientId}`, () =>
         rewindPersistedUserMessageAfterClear(sessionId, clientId, options),
@@ -21090,7 +21190,7 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
       // Rehydrate durable task holds before any entry point can drain restored/new input.
       await botDelegationServiceHolder?.restorePauseForSession(sessionId);
       await restoreSavedUsageLimitWait(sessionId);
-      return loadAgentInputQueueSnapshot(sessionId);
+      return materialInputAdmission.restore(sessionId, await loadAgentInputQueueSnapshot(sessionId));
     },
     getPersistedClientIds: getPersistedInputClientIds,
   });
@@ -21594,6 +21694,11 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
       throwIpcError('INVALID_PARAMS', 'queued.createOpts.agentKind invalid');
     }
     const normalized: AgentInputQueuedMessage = { ...msg };
+    delete normalized.materialDispatchRevision;
+    if (normalized.materialDispatch !== undefined) {
+      if (isDeviceLinkInvoke()) throwIpcError('PRECONDITION_FAILED', 'Remote material input is not available');
+      normalized.materialDispatch = parseQueuedMaterialIntent(normalized.materialDispatch);
+    }
     delete normalized.sharedTaskAuthor;
     delete normalized.autoReviewUserText;
     delete normalized.botTaskCoordination;
@@ -21964,6 +22069,16 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
       await withSessionPermissionChange(sid, async () => undefined);
       if (!inputOwner || inputOwner !== getCurrentDbClientSnapshot()) throwIpcError('PRECONDITION_FAILED', 'Account changed before input');
       const parsed = await prepareSharedTaskInput(sid, requireQueuedMessage(item));
+      const assertMaterialInputCurrent = () => {
+        if (!parsed.materialDispatch) return;
+        assertTrustedAppRendererEvent(event);
+        if (inputOwner !== getCurrentDbClientSnapshot()) throwIpcError('PRECONDITION_FAILED', 'Account changed before input response');
+      };
+      await materialInputAdmission.admit(sid, parsed, () => {
+        if (deviceLinkInvoke) throwIpcError('PERMISSION_DENIED', 'Material input requires the local application');
+        assertTrustedAppRendererEvent(event);
+        if (inputOwner !== getCurrentDbClientSnapshot()) throwIpcError('PRECONDITION_FAILED', 'Account changed before input');
+      });
       // debug 日志：远程发送在被控端各阶段的耗时，不影响任何判定。
       const sendTrace = deviceLinkInvoke ? beginRemoteSendTrace(sid, parsed.clientId) : undefined;
       if (parsed.durableDelivery) await awaitAgentInputQueueSnapshotPersistence(sid);
@@ -22006,7 +22121,7 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
           inputCoordinator.observeClearBoundary(sid, inputSessionRow.clearedAt);
           assertExpectedRemoteInputClearBoundary(sid, clearBoundaryPrecondition, inputSessionRow);
           sendTrace?.finish('already-persisted');
-          return inputCoordinator.getProjection(sid);
+          assertMaterialInputCurrent(); return inputCoordinator.getProjection(sid);
         }
       } else {
         await restoreQueue.catch(() => undefined);
@@ -22019,7 +22134,7 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
       if (inputCoordinator.hasKnownClientId(sid, parsed.clientId)) {
         if (parsed.durableDelivery) await awaitAgentInputQueueSnapshotPersistence(sid);
         sendTrace?.finish('known');
-        return inputCoordinator.getProjection(sid);
+        assertMaterialInputCurrent(); return inputCoordinator.getProjection(sid);
       }
       const materialized = await materializeQueuedOssAttachmentsDeferred(sid, parsed);
       const attachmentOwnerId = registerQueuedAttachmentOwnership(
@@ -22084,7 +22199,7 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
             if (attachmentOwnerId) await discardSpecificQueuedAttachmentOwnership(sid, parsed.clientId, attachmentOwnerId);
             await awaitAgentInputQueueSnapshotPersistence(sid);
             sendTrace?.finish(persisted ? 'already-persisted' : 'cancelled');
-            return inputCoordinator.getProjection(sid);
+            assertMaterialInputCurrent(); return inputCoordinator.getProjection(sid);
           }
           sendTrace?.stage('dedupe');
         }
@@ -22175,7 +22290,7 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
           }
           if (parsed.durableDelivery) await awaitAgentInputQueueSnapshotPersistence(sid);
           sendTrace?.finish('duplicate');
-          return projection;
+          assertMaterialInputCurrent(); return projection;
         }
         acceptedByCoordinator = true;
         sendTrace?.stage('coordinator');
@@ -22188,7 +22303,7 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
         if (parsed.durableDelivery) await awaitAgentInputQueueSnapshotPersistence(sid);
         sendTrace?.stage('snapshot');
         sendTrace?.finish('accepted');
-        return projection;
+        assertMaterialInputCurrent(); return projection;
       } catch (err) {
         if (!acceptedByCoordinator) {
           await materialized.cleanupBeforeAcceptance?.();
@@ -22232,6 +22347,7 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
       await assertReviewExternalInputAllowed(sid);
       const deviceLinkInvoke = isDeviceLinkInvoke();
       if (!deviceLinkInvoke) assertTrustedAppRendererEvent(event);
+      const materialInputOwner = getCurrentDbClientSnapshot();
       const steerOpts =
         opts && typeof opts === 'object'
           ? (opts as {
@@ -22245,6 +22361,16 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
         // the main-owned row; all other IPC paths remain fail-closed here.
         allowMissingTrustedContexts: deviceLinkInvoke && steerOpts?.removeFromQueue === true,
       }));
+      const assertMaterialInputCurrent = () => {
+        if (!parsed.materialDispatch) return;
+        assertTrustedAppRendererEvent(event);
+        if (materialInputOwner !== getCurrentDbClientSnapshot()) throwIpcError('PRECONDITION_FAILED', 'Account changed before input response');
+      };
+      await materialInputAdmission.admit(sid, parsed, () => {
+        if (deviceLinkInvoke) throwIpcError('PERMISSION_DENIED', 'Material input requires the local application');
+        assertTrustedAppRendererEvent(event);
+        if (materialInputOwner !== getCurrentDbClientSnapshot()) throwIpcError('PRECONDITION_FAILED', 'Account changed before input');
+      });
       assertRemoteInputClearNotInFlight(sid, deviceLinkInvoke);
       const clearBoundaryPrecondition = readRemoteInputClearBoundaryPrecondition(opts);
       if (!deviceLinkInvoke) await observeLocalInputClearBoundary(sid);
@@ -22293,7 +22419,7 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
         // Only a still-present main-owned queue row may pass through the
         // remove-from-queue path. An in-flight promotion or any other known
         // clientId is a resend and must stop before attachment materialisation.
-        return true;
+        assertMaterialInputCurrent(); return true;
       }
       if (deviceLinkInvoke && (await remoteInputClientIdWasPersisted(sid, parsed.clientId))) {
         // In-memory markers and the accepted-clientId window do not survive a
@@ -22304,12 +22430,15 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
         assertCurrentInputGeneration();
         assertRemoteInputClearNotInFlight(sid, true);
         assertExpectedRemoteInputClearBoundary(sid, clearBoundaryPrecondition, inputSessionRow);
-        return true;
+        assertMaterialInputCurrent(); return true;
       }
       // The durable lookup above is an await boundary. Recheck coordinator
       // ownership before materialising so a concurrent first delivery cannot
       // make this retry create an unnecessary second local copy.
-      if (isKnownSteerDuplicate()) return true;
+      if (isKnownSteerDuplicate()) {
+        assertMaterialInputCurrent();
+        return true;
+      }
       const steeringStoredQueueItem =
         steerOpts?.removeFromQueue === true &&
         inputCoordinator.hasPendingQueueItem(sid, parsed.clientId);
@@ -22400,7 +22529,7 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
           if (attachmentOwnerId) {
             await discardSpecificQueuedAttachmentOwnership(sid, parsed.clientId, attachmentOwnerId);
           }
-          return true;
+          assertMaterialInputCurrent(); return true;
         }
         // steer 与 enqueue 不同:它会因同会话已有在飞 steer / Stop 边界 / 输入锁而
         // 返回 false。必须等它落定、受理了才改名 —— 被拒的文本改掉默认名 / 合成占位 /
@@ -22443,7 +22572,7 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
             }
           }
         }
-        return accepted;
+        assertMaterialInputCurrent(); return accepted;
       } catch (err) {
         if (acceptedByCoordinator || coordinatorRetainsClientId(parsed.clientId)) {
           markQueuedAttachmentDurableAfterSnapshot(sid, parsed.clientId, attachmentOwnerId);

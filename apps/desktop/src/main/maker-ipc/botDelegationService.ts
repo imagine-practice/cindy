@@ -1,3 +1,6 @@
+import type { WorkItemExecutionHost } from './projectWorkItemExecutionService.js';
+import type { ProjectWorkItemStartInput, ProjectWorkItemStartResult } from '../../shared/projectWorkItemExecution.js';
+import type { BotFollowupScope, BotFollowupReceipt, BotFollowupRequestRecord, BotsReopenDelegationArgs } from '../localDb/client/tx/types.js';
 import { signalBotAutonomyBotsChanged } from '../bot-autonomy/botsChangedSignal.js';
 import { formatForwardedRequest, captureAgentRequest, type CapturedAgentRequest } from './forwardedRequest.js';
 import { readForwardedRequestSource, type AgentRequestReceipt, type ForwardedRequestSource } from '../../shared/forwardedRequest.js';
@@ -387,6 +390,7 @@ function parsePendingInteraction(
 
 /** Per-run input is separate from the immutable objective; never store a rendered prompt here. */
 interface SessionTaskInputSnapshot {
+  inputId?: string;
   runSequence: number;
   originalObjective: string | null;
   followUp: string | null;
@@ -542,6 +546,18 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
     });
   };
 
+  type FollowupAdmission = BotFollowupScope & { bodyDigest: string; inputId: string; expectedRunSequence: number; ownsAdmission?: boolean };
+  const followupReplay = (request: BotFollowupRequestRecord): BotFollowupReceipt => request.result ?? {
+    ok: false, errorCode: request.phase === 'admitted' ? 'FOLLOWUP_PENDING' : 'FOLLOWUP_OUTCOME_UNKNOWN',
+    message: 'The original follow-up is pending or its dispatch acknowledgement is unknown; no new input was sent',
+  };
+  const isFollowupInput = (id: string) => id.startsWith('bot-delegation-interject:') && id.includes(':request-');
+  const readFollowupInput = async (taskId: string, inputId: string) => {
+    if (!isFollowupInput(inputId)) return null;
+    const found = await getDbClient().tx('bots.followupRequest', { action: 'input', taskId, inputId });
+    return found.kind === 'request' ? found.request : null;
+  };
+
   // Store only a native turn actually accepted for this delegation run. A later
   // direct Session turn must never replace this receipt merely by becoming live.
   const executionSnapshot = (row: DelegationRow, clientId?: string,
@@ -591,16 +607,34 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
     let replayed = false;
     let acceptedThisAttempt = false;
     await groupAuthority?.refresh();
-    const result = await deps.dispatch({ ...input, clientId, targetSessionId: row.childSessionId!,
+    const followup = await readFollowupInput(row.id, input.clientId);
+    if (followup) {
+      const claim = await getDbClient().tx('bots.followupRequest', { action: 'claim', taskId: row.id, inputId: input.clientId, now: now() });
+      await groupAuthority?.refresh();
+      if (claim.kind !== 'claimed') return { clientId: input.clientId, row, result: {
+        ok: false, errorCode: 'FOLLOWUP_OUTCOME_UNKNOWN', message: 'The original follow-up already owns dispatch',
+      } };
+    }
+    let result: DispatchResult;
+    try { result = await deps.dispatch({ ...input, clientId: followup ? input.clientId : clientId, targetSessionId: row.childSessionId!,
       onAccepted: async persisted => {
         // Admission checked the exact source input; delayed acceptance uses the
         // existing delivery guard so a normally ended source turn is not revocation.
         await (groupAuthority?.refreshDelivery?.() ?? groupAuthority?.refresh());
         if (persisted) { replayed = true; return; }
         await acceptExecution(row, clientId, input.clientId);
+        if (followup) await getDbClient().tx('bots.followupRequest', { action: 'accepted', taskId: row.id, inputId: input.clientId, now: now() });
         acceptedThisAttempt = true;
       },
     });
+    } catch (error) {
+      if (followup) await getDbClient().tx('bots.followupRequest', { action: 'unknown', taskId: row.id, inputId: input.clientId, now: now() });
+      throw error;
+    }
+    if (followup && replayed) {
+      await getDbClient().tx('bots.followupRequest', { action: 'unknown', taskId: row.id, inputId: input.clientId, now: now() });
+      return { clientId: input.clientId, row, result: { ok: false, errorCode: 'FOLLOWUP_OUTCOME_UNKNOWN', message: 'Persisted input alone does not prove native consumption' } };
+    }
     if (!result.ok && acceptedThisAttempt) {
       // Native acceptance may still be cancelled before vendor dispatch. Only
       // undo this input's receipt; never replace a later run or another input.
@@ -2003,6 +2037,7 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
     attempt = 0,
     isCreationPermissionCurrent?: () => boolean,
     resumingPause = false,
+    beforeNativeAcceptance?: () => Promise<void>,
   ): Promise<{
     ok: boolean;
     status: 'queued' | 'running' | 'failed';
@@ -2017,6 +2052,7 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
     if (!row || !row.childSessionId || row.status !== 'queued') {
       return { ok: true, status: row?.status === 'running' ? 'running' : 'queued' };
     }
+    if (parseRecord(row.permissionSnapshotJson).projectWorkItemExecution && !beforeNativeAcceptance) return { ok: false,status: 'queued',error: { ok: false,errorCode: 'PROJECT_EXECUTION_GUARD_REQUIRED',message: 'A live project execution guard is required' } };
     if ((readTaskPause(row) || parseRecord(row.permissionSnapshotJson).taskCancelRequested === true) && !resumingPause) return { ok: true, status: 'queued' };
     const deadlineAt = readDeadline(row.permissionSnapshotJson);
     if (!resumingPause && deadlineAt !== null && deadlineAt <= now()) {
@@ -2039,11 +2075,26 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
     }
     const retryReceipt = parseRecord(row.permissionSnapshotJson).taskDispatchRetry as
       { runSequence: number; clientId: string } | undefined;
-    const startClientId = `bot-delegation-start:${row.id}${row.runSequence > 1 ? `:${row.runSequence}` : ''}`;
-    const clientId = retryReceipt?.runSequence === row.runSequence ? retryReceipt.clientId : startClientId;
+    // A restored/old permission snapshot may have lost the execution pointer.
+    // The independent ledger is authoritative: never fall back to a new start ID.
+    if (!readSessionTaskInput(row)?.inputId) {
+      const admitted = await getDbClient().tx('bots.followupRequest', { action: 'run', taskId: row.id, runSequence: row.runSequence });
+      if (admitted.kind === 'request') return { ok: false, status: 'queued', error: {
+        ok: false, errorCode: 'FOLLOWUP_OUTCOME_UNKNOWN', message: 'The admitted follow-up requires its original input identity',
+      } };
+    }
+    const startClientId = readSessionTaskInput(row)?.inputId ?? `bot-delegation-start:${row.id}${row.runSequence > 1 ? `:${row.runSequence}` : ''}`;
+    const followup = await readFollowupInput(row.id, startClientId);
+    if (isFollowupInput(startClientId)) {
+      if (!followup || followup.admittedRunSequence !== row.runSequence) return { ok: false, status: 'queued' };
+      const claim = await getDbClient().tx('bots.followupRequest', { action: 'claim', taskId: row.id, inputId: startClientId, now: now() });
+      if (claim.kind !== 'claimed') return { ok: false, status: 'queued', error: { ok: false, errorCode: 'FOLLOWUP_OUTCOME_UNKNOWN', message: 'The original follow-up already owns dispatch' } };
+    }
+    const clientId = !followup && retryReceipt?.runSequence === row.runSequence ? retryReceipt.clientId : startClientId;
     let persistedReplay = false;
     const groupOriginSessionId = parseRecord(row.permissionSnapshotJson).groupOriginSessionId;
-    const dispatched = await deps.dispatch({
+    let dispatched: DispatchResult;
+    try { dispatched = await deps.dispatch({
       targetSessionId: row.childSessionId,
       message: buildDelegationPrompt(row),
       persistedContent: formatForwardedRequest(readForwardedRequestSource(readSessionTaskInput(row)?.requestSource) ?? { userText: null }, readSessionTaskInput(row)?.followUp ?? row.objective),
@@ -2052,6 +2103,7 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
       // 子任务首条消息标出发起委派的父任务，接收方据此渲染可跳转的来源标签。
       ...(row.parentSessionId ? { dispatcherSessionId: typeof groupOriginSessionId === 'string' ? groupOriginSessionId : row.parentSessionId } : {}),
       onAccepted: async replayed => {
+        if (beforeNativeAcceptance) await beforeNativeAcceptance();
         if (replayed) { persistedReplay = true; return; }
         const acceptedAt = now();
         const [accepted] = await db
@@ -2065,6 +2117,7 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
             childSessionId: botDelegations.childSessionId,
             status: botDelegations.status,
           });
+        if (followup) await getDbClient().tx('bots.followupRequest', { action: 'accepted', taskId: row.id, inputId: clientId, now: now() });
         if (accepted) {
           clearRetryTimer(accepted.id);
           emitChanged({
@@ -2074,8 +2127,19 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
             status: accepted.status as DelegationStatus,
           });
         }
+        // Receipt persistence above yields. This is the final project snapshot
+        // before native acceptance returns to the controlled consumption boundary.
+        if (beforeNativeAcceptance) await beforeNativeAcceptance();
       },
     });
+    } catch (error) {
+      if (followup) await getDbClient().tx('bots.followupRequest', { action: 'unknown', taskId: row.id, inputId: clientId, now: now() });
+      throw error;
+    }
+    if (followup && (persistedReplay || !dispatched.ok)) {
+      await getDbClient().tx('bots.followupRequest', { action: 'unknown', taskId: row.id, inputId: clientId, now: now() });
+      return { ok: false, status: 'queued', error: { ok: false, errorCode: 'FOLLOWUP_OUTCOME_UNKNOWN', message: 'The fixed follow-up input has an unconfirmed dispatch outcome' } };
+    }
     if (dispatched.ok && persistedReplay) {
       // A user row can survive a crash before native acceptance. Keep confirmed
       // runs idempotent, but give an unaccepted start a durable retry identity.
@@ -2156,6 +2220,9 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
     // turn 真正被接受后才切回 running。旧 resolver 随进程消失，子任务会从历史继续
     // 并在仍需决定时重新发出一条新的 interaction request。
     if (!row || readTaskPause(row) || parseRecord(row.permissionSnapshotJson).taskCancelRequested === true || (row.status !== 'running' && row.status !== 'waiting')) return;
+    const followupRun = await getDbClient().tx('bots.followupRequest', { action: 'run', taskId: row.id, runSequence: row.runSequence });
+    // Do not synthesize a new resume input for an admitted keyed request.
+    if (followupRun.kind === 'request') return;
     let effectiveSnapshot = row.permissionSnapshotJson;
     if (row.status === 'waiting') {
       effectiveSnapshot = extendDeadlineSnapshot(
@@ -2664,6 +2731,111 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
   /**
    * 创建一条普通 desktop Session，在发起伙伴的工作目录与执行配置下独立运行。
    */
+  /** Trusted main-only adoption. Atomicity is supplied by the dedicated worker core,
+   * never by this lock or a preflight lookup. The target Session is never rewritten. */
+  const adoptProjectWorkItem = async (input: ProjectWorkItemStartInput, host: WorkItemExecutionHost): Promise<ProjectWorkItemStartResult> => {
+    const deny = (errorCode: string): ProjectWorkItemStartResult => ({ ok: false,errorCode,
+      message: errorCode === 'FOLLOWUP_PENDING' ? 'The original work-item admission is recorded; dispatch is pending'
+        : errorCode === 'FOLLOWUP_OUTCOME_UNKNOWN' ? 'The original work-item execution outcome is unconfirmed; retry only with the same requestId'
+        : 'Existing work-item execution was not admitted' });
+    if (!deps.withSessionLock || !deps.taskControl || !deps.readCallerPermission) return deny('UNSUPPORTED_CAPABILITY');
+    const objective = input.objective.trim();
+    if (!objective || objective.length > MAX_OBJECTIVE_CHARS) return deny('INVALID_ARGS');
+    const caller = await resolveCaller(input.callerSessionId);
+    await host.refresh();
+    if (!caller || caller.botId !== input.targetBotId) return deny('EXECUTOR_MISMATCH');
+    let result: ProjectWorkItemStartResult = deny('EXECUTION_NOT_ADMITTED');
+    let dispatchOwned: (() => Promise<void>) | undefined;
+    await deps.withSessionLock(input.sessionId,async () => {
+      await caller.groupAuthority?.refresh(); await host.refresh();
+      const inspected = await host.transact({ ...host.scope,action: 'inspect' });
+      if (!inspected.ok) { result = inspected; return; }
+      const view = inspected.view;
+      if (view.receipt) { result = view.receipt; return; }
+      if (view.phase) { result = deny(view.phase === 'admitted' ? 'FOLLOWUP_PENDING' : 'FOLLOWUP_OUTCOME_UNKNOWN'); return; }
+      if (view.existing) {
+        // Respect the normal task-operation -> native-lock order. Never wait for
+        // getSessionTask's operation fence while holding the native session lock.
+        dispatchOwned = async () => {
+        // Query only: do not reopen, resume or inject another input into old work.
+        const current = await getSessionTask(input.callerSessionId,view.delegationId,undefined,async () => { const access = await host.transact({ ...host.scope,action: 'inspect' }); if (!access.ok) throw new Error(access.errorCode); });
+        await host.refresh();
+        if (!current.ok) { result = current; return; }
+        const receipt: ProjectWorkItemStartResult = { ok: true,delegationId: view.delegationId,childSessionId: input.sessionId,
+          existing: true,status: current.task.status,resumed: false,queued: false,delivery: 'accepted' };
+        const recorded = await host.transact({ ...host.scope,action: 'admit',maxActiveChildren,fingerprint: view.fingerprint,now: host.now(),
+          permissionSnapshotJson: '{}',existingResult: receipt });
+        result = recorded.ok ? recorded.view.receipt ?? receipt : recorded;
+        }; return;
+      }
+      if (host.isExecutionPaused(input.sessionId)) { result = deny('TASK_PAUSED'); return; }
+      if (deps.taskControl!.isActive(input.sessionId)) { result = deny('SESSION_RUNNING'); return; }
+      const [target] = await getDbClient().drizzle.select().from(sessions).where(eq(sessions.id,input.sessionId)).limit(1);
+      await host.refresh();
+      if (!target || !['cc','codex','pi'].includes(target.agentKind)) { result = deny('UNSUPPORTED_CAPABILITY'); return; }
+      const mode = permissionModeOrAsk(target.permissionMode);
+      // Do not rewrite either permission mode. Existing formal caller/native grant
+      // must support the target's exact configuration; changing it is a separate action.
+      const permission = deps.readCallerPermission ? deps.readCallerPermission(input.callerSessionId) : caller.permissionMode;
+      const callerMode = typeof permission === 'string' ? permission : permission?.mode;
+      if (permission === null || typeof permission === 'string') { result = deny('UNSUPPORTED_PERMISSION_SNAPSHOT'); return; }
+      if (callerMode !== mode) { result = deny('PERMISSION_CONFIG_CONFLICT'); return; }
+      const permissionCurrent = () => {
+        if (!deps.readCallerPermission) return true;
+        const current = deps.readCallerPermission(input.callerSessionId);
+        return typeof permission === 'string' ? current === permission : current !== null && typeof current !== 'string'
+          && current.mode === permission?.mode && current.generation === permission?.generation;
+      };
+      if (!target.workingDir || !path.isAbsolute(target.workingDir) || !existsSync(target.workingDir) || !statSync(target.workingDir).isDirectory()) { result = deny('INVALID_WORKING_DIR'); return; }
+      const request = await captureRequest(input.callerSessionId,objective);
+      const createdAt = host.now(), deadlineAt = createdAt + DEFAULT_TIMEOUT_MS;
+      const plan: BotDelegationPlanSnapshot = { version: 1,createdAt,targetBotId: null,access: { contextRefs: [] },
+        completionTarget: { parentSessionId: input.callerSessionId },
+        limits: { maxDepth: DEFAULT_MAX_DEPTH,timeoutMs: DEFAULT_TIMEOUT_MS,deadlineAt },
+        permission: { mode,requesterMode: mode,targetConfigured: 'ask' } };
+      const snapshot = JSON.stringify({ ...plan,
+        projectWorkItemExecution: { version: 1,projectId: input.projectId,sessionId: input.sessionId,bindingRevision: input.expectedBindingRevision,actor: host.scope.actor,targetBotId: input.targetBotId },
+        ...(approvedTaskDelegation(input.callerSessionId) ? { taskActionAuthority: approvedTaskDelegation(input.callerSessionId) } : {}),
+        ...(caller.role === 'group' ? { groupOriginRoute: caller.routeKey,groupOriginSessionId: input.callerSessionId } : {}),
+        ...(caller.role === 'thread' ? { threadOriginRoute: caller.routeKey } : {}),
+        taskInput: { runSequence: 1,originalObjective: objective,followUp: null,inputId: view.inputId,requestSource: request.autoReviewUserText.request } });
+      await caller.groupAuthority?.refresh(); await host.refresh(); host.assertCurrent();
+      if (!permissionCurrent()) { result = deny('CALLER_PERMISSION_UNAVAILABLE'); return; }
+      const admitted = await host.transact({ ...host.scope,action: 'admit',maxActiveChildren,fingerprint: view.fingerprint,now: createdAt,permissionSnapshotJson: snapshot });
+      if (!admitted.ok) { result = admitted; return; }
+      if (admitted.view.existing) { result = admitted.view.receipt ?? deny('FOLLOWUP_PENDING'); return; }
+      const validate = async () => {
+        await caller.groupAuthority?.refresh(); await host.refresh();
+        if (host.isExecutionPaused(input.sessionId)) throw new Error('TASK_PAUSED');
+        const checked = await host.transact({ ...host.scope,action: 'verify',fingerprint: view.fingerprint });
+        if (!checked.ok) throw new Error(checked.errorCode);
+        host.assertCurrent(); caller.groupAuthority?.assertCurrent();
+        if (!permissionCurrent()) throw new Error('CALLER_PERMISSION_UNAVAILABLE');
+      };
+      // The existing dispatch path owns its native send lock. Release the admission
+      // lock before entering it to avoid recursively acquiring the same lock.
+      dispatchOwned = async () => { try {
+        const mirrorRow = { id: view.delegationId,requestingBotId: caller.botId,targetBotId: null,
+          parentSessionId: input.callerSessionId,childSessionId: input.sessionId,objective,permissionSnapshotJson: snapshot,createdAt,runSequence: 1 };
+        await projectParentRequest(mirrorRow);
+        scheduleTimeout(view.delegationId,deadlineAt);
+        const home = caller.role === 'group' ? groupHomeOf(snapshot) : null;
+        if (home) void postGroupTaskStart(home,mirrorRow);
+        // The acceptance hook repeats the authoritative project/binding/config read.
+        const dispatched = await withTaskOperation(view.delegationId,async () => {
+          await host.refresh();
+          return attemptDispatch(view.delegationId,0,() => { try { host.assertCurrent(); caller.groupAuthority?.assertCurrent(); return true; } catch { return false; } },false,validate);
+        });
+        if (!dispatched.ok) { result = deny('FOLLOWUP_OUTCOME_UNKNOWN'); return; }
+        result = { ok: true,delegationId: view.delegationId,childSessionId: input.sessionId,existing: false,status: dispatched.status,
+          resumed: false,queued: dispatched.status === 'queued',queuedMessageId: view.inputId,delivery: dispatched.status === 'queued' ? 'queued' : 'accepted' };
+        await host.finish(view.inputId,view.delegationId,result);
+      } catch { result = deny('FOLLOWUP_OUTCOME_UNKNOWN'); } };
+    });
+    if (dispatchOwned) await dispatchOwned();
+    return result;
+  };
+
   const startSessionTask = async (
     input: SessionTaskInput,
   ): Promise<BotDelegationResult<{
@@ -3114,6 +3286,7 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
     text: string,
     idempotencyToken?: string,
     inheritedAuthority?: TaskMutationAuthority | null,
+    followup?: FollowupAdmission,
   ): Promise<BotDelegationInterjectResult & { queuedMessageId?: string }> => {
     const trimmed = text.trim();
     if (!trimmed) {
@@ -3161,6 +3334,7 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
         message: '后台任务还在启动，请稍后再补充',
       };
     }
+    if (followup && row.runSequence !== followup.expectedRunSequence) return { ok: false, errorCode: 'SESSION_TASK_STATE_CHANGED', message: 'Task run changed after admission' };
     if (!row.childSessionId) {
       return {
         ok: false,
@@ -3177,7 +3351,7 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
       // `[消息来源]` 说明给子任务里的 AI;正文不再手写来源前缀。
       message: trimmed,
       persistedContent: trimmed,
-      clientId: BOT_DELEGATION_CLIENT_ID.interjection(delegationId, row.runSequence > 1 ? `${row.runSequence}:${token}` : token),
+      clientId: followup?.inputId ?? BOT_DELEGATION_CLIENT_ID.interjection(delegationId, row.runSequence > 1 ? `${row.runSequence}:${token}` : token),
     }, false, caller.groupAuthority);
     const dispatched = recovered.result;
     if (!dispatched?.ok) {
@@ -3285,11 +3459,13 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
     row: DelegationRow,
     text: string,
     groupAuthority?: TaskMutationAuthority | null,
+    followup?: FollowupAdmission,
   ): Promise<BotDelegationResult<{
     delegationId: string;
-    childSessionId: string;
-    resumed: true;
-    queued: boolean;
+    childSessionId: string | null;
+    resumed: boolean;
+    queued?: boolean;
+    queuedMessageId?: string;
   }>> => {
     const trimmed = text.trim();
     if (!trimmed) {
@@ -3379,7 +3555,7 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
       originalObjective = initial?.content && initial.content.length <= MAX_OBJECTIVE_CHARS ? initial.content : null;
     }
     const request = await captureRequest(callerSessionId, trimmed);
-    const taskInput: SessionTaskInputSnapshot = { runSequence: row.runSequence + 1, originalObjective, followUp: trimmed, requestSource: request.autoReviewUserText.request };
+    const taskInput: SessionTaskInputSnapshot = { runSequence: row.runSequence + 1, originalObjective, followUp: trimmed, requestSource: request.autoReviewUserText.request, ...(followup ? { inputId: followup.inputId } : {}) };
     // Preserve unrecoverable legacy data, but never send its wrappers as a new goal.
     const continuationObjective = originalObjective ?? row.objective;
     const nextState: Record<string, unknown> = { ...nextPlan, taskInput, taskAcceptedInputIds: [] };
@@ -3396,7 +3572,8 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
     try {
       clearCompletionRetryTimer(row.id);
       await completionInFlight.get(row.id)?.catch(() => undefined);
-      const commitReopen = () => getDbClient().tx('bots.reopenDelegation', {
+      const reopenArgs: BotsReopenDelegationArgs = {
+        expectedRunSequence: followup?.expectedRunSequence ?? row.runSequence,
         maxActiveChildren,
         delegationId: row.id,
         requestingBotId: callerBotId,
@@ -3428,9 +3605,19 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
         },
         reopenedAt,
         worktreePath,
-      });
+      };
       await groupAuthority?.refresh();
-      const reopened = await commitReopen();
+      let reopened: { reopened: boolean; previousParentSessionId: string | null };
+      if (followup) {
+        const admitted = await getDbClient().tx('bots.followupRequest', {
+          ...followup, action: 'admit', childSessionId, now: reopenedAt, reopen: reopenArgs,
+        });
+        await groupAuthority?.refresh();
+        if (admitted.kind === 'request') return followupReplay(admitted.request);
+        if (admitted.kind !== 'admitted') return { ok: false, errorCode: admitted.kind === 'conflict' ? 'IDEMPOTENCY_CONFLICT' : 'SESSION_TASK_STATE_CHANGED', message: 'Follow-up admission changed or conflicts with its original body' };
+        followup.ownsAdmission = true;
+        reopened = { reopened: true, previousParentSessionId: row.parentSessionId };
+      } else reopened = await getDbClient().tx('bots.reopenDelegation', reopenArgs);
       if (!reopened.reopened) {
         await deliverCompletion({
           ...row,
@@ -3484,14 +3671,20 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
       const groupHome = groupHomeOf(nextSnapshot);
       if (groupHome) void postGroupTaskStart(groupHome, { ...reopenedRow, runSequence: row.runSequence + 1 });
       const dispatched = await attemptDispatch(row.id);
+      if (followup && !dispatched.ok) return { ok: false, errorCode: 'FOLLOWUP_OUTCOME_UNKNOWN', message: 'The fixed follow-up input has an unconfirmed dispatch outcome' };
       return {
         ok: true,
         delegationId: row.id,
         childSessionId,
         resumed: true,
         queued: dispatched.status === 'queued',
+        ...(followup ? { queuedMessageId: followup.inputId } : {}),
       };
     } catch (error) {
+      if (followup) {
+        if (followup.ownsAdmission) await getDbClient().tx('bots.followupRequest', { action: 'unknown', taskId: row.id, inputId: followup.inputId, now: now() });
+        throw error;
+      }
       await deliverCompletion({
         ...row,
         status: row.status as Extract<
@@ -3516,6 +3709,7 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
     delegationId: string,
     input: SessionTaskMessage,
     inheritedAuthority?: TaskMutationAuthority | null,
+    followup?: FollowupAdmission,
   ): Promise<BotDelegationResult<{
     delegationId: string;
     childSessionId: string | null;
@@ -3607,7 +3801,7 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
     if (!isActiveDelegation(row.status as DelegationStatus)) {
       // Reopened group work keeps its group home; the lane that reopens it becomes the parent.
       await caller.groupAuthority?.refresh();
-      return reopenTerminalDelegation(callerSessionId, caller.botId, row, input.text, caller.groupAuthority);
+      return reopenTerminalDelegation(callerSessionId, caller.botId, row, input.text, caller.groupAuthority, followup);
     }
     const result = await interjectDelegation(
       callerSessionId,
@@ -3615,6 +3809,7 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
       input.text,
       input.idempotencyKey,
       caller.groupAuthority,
+      followup,
     );
     if (!result.ok) return result;
     return {
@@ -3653,9 +3848,13 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
       : { ok: false as const, errorCode: 'NOT_FOUND', message: '后台任务不存在' };
   };
 
-  const getSessionTask = (callerSessionId: string, taskId: string, queuedMessageId?: string) => withTaskOperation(taskId, async () => {
+  const getSessionTask = (callerSessionId: string, taskId: string, queuedMessageId?: string, projectGuard?: () => Promise<void>) => withTaskOperation(taskId, async () => {
     const found = await findOwnedSessionTask(callerSessionId, taskId);
     if (!found.ok) return found;
+    if (parseRecord(found.row.permissionSnapshotJson).projectWorkItemExecution) {
+      if (!projectGuard) return { ok: false as const,errorCode: 'PROJECT_EXECUTION_GUARD_REQUIRED',message: 'Use the trusted project read path' };
+      await projectGuard();
+    }
     let row = found.row;
     if (isActiveDelegation(row.status as DelegationStatus) && parseRecord(row.permissionSnapshotJson).taskCancelRequested === true
       && row.childSessionId && deps.taskControl && !deps.taskControl.isActive(row.childSessionId)) {
@@ -3699,6 +3898,8 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
       messageReceipt = { queued_message_id: queuedMessageId, state };
     }
     await found.groupAuthority?.refresh();
+    // Project ACL/binding/source may change during child or queue reads.
+    if (projectGuard) await projectGuard();
     return {
       ok: true as const,
       task: {
@@ -3733,6 +3934,7 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
     withTaskOperation(taskId, async () => {
       const found = await findOwnedSessionTask(callerSessionId, taskId);
       if (!found.ok) return found;
+      if (parseRecord(found.row.permissionSnapshotJson).projectWorkItemExecution) return { ok: false as const, errorCode: 'PROJECT_EXECUTION_GUARD_REQUIRED', message: 'Use a trusted project model-control path' };
       if (!found.row.childSessionId || !deps.taskRoute) {
         return { ok: false as const, errorCode: 'UNSUPPORTED_CAPABILITY', message: 'Task model control is unavailable' };
       }
@@ -3761,6 +3963,7 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
     withTaskOperation(taskId, async () => {
       const found = await findOwnedSessionTask(callerSessionId, taskId);
       if (!found.ok) return found;
+      if (parseRecord(found.row.permissionSnapshotJson).projectWorkItemExecution) return { ok: false as const, errorCode: 'PROJECT_EXECUTION_GUARD_REQUIRED', message: 'Use a trusted project model-control path' };
       const row = found.row;
       if (!row.childSessionId || !deps.taskRoute) {
         return { ok: false as const, errorCode: 'UNSUPPORTED_CAPABILITY', message: 'Task model control is unavailable' };
@@ -3997,6 +4200,7 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
       const found = await findOwnedSessionTask(callerSessionId, taskId);
       if (!found.ok) return found;
       const row = found.row;
+      if (parseRecord(row.permissionSnapshotJson).projectWorkItemExecution) return { ok: false as const,errorCode: 'PROJECT_EXECUTION_GUARD_REQUIRED',message: 'Use a trusted project mutation path' };
       if (parseRecord(row.permissionSnapshotJson).taskCancelRequested === true && isActiveDelegation(row.status as DelegationStatus) && input.kind !== 'withdraw') {
         return { ok: false as const, errorCode: 'STOP_UNCONFIRMED', message: 'Cancellation is still awaiting runtime confirmation' };
       }
@@ -4046,9 +4250,48 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
         return result.ok ? { ok: true as const, childSessionId: row.childSessionId,
           resumed: false, queued: false, delivery: 'same-turn', queuedMessageId: result.queuedMessageId } : result;
       }
-      const result = await reply(callerSessionId, taskId, input, found.groupAuthority);
-      return result.ok ? { ...result,
-        delivery: input.kind !== 'message' ? 'interaction' : result.queued ? 'queued' : 'accepted' } : result;
+      let followup: FollowupAdmission | undefined;
+      const recheckAccess = async () => {
+        const current = await findOwnedSessionTask(callerSessionId, taskId);
+        if (!current.ok) return current;
+        await current.groupAuthority?.refresh();
+        return current.row.requestingBotId === row.requestingBotId ? null
+          : { ok: false as const, errorCode: 'NOT_FOUND', message: 'Task ownership changed' };
+      };
+      if (input.kind === 'message' && input.idempotencyKey !== undefined) {
+        const trimmed = input.text.trim();
+        if (!trimmed || trimmed.length > MAX_INTERJECTION_CHARS) return { ok: false as const, errorCode: 'INVALID_ARGS', message: 'Message is empty or too long' };
+        followup = { taskId, requesterBotId: row.requestingBotId,
+          keyDigest: createHash('sha256').update(input.idempotencyKey).digest('hex'),
+          bodyDigest: createHash('sha256').update(trimmed).digest('hex'), expectedRunSequence: row.runSequence,
+          inputId: BOT_DELEGATION_CLIENT_ID.interjection(taskId, `request-${createHash('sha256').update(JSON.stringify([taskId, row.requestingBotId, input.idempotencyKey])).digest('hex')}`) };
+        const prior = await getDbClient().tx('bots.followupRequest', { action: 'lookup', ...followup });
+        const denied = await recheckAccess(); if (denied) return denied;
+        if (prior.kind === 'request') return prior.request.bodyDigest === followup.bodyDigest
+          ? followupReplay(prior.request) : { ok: false as const, errorCode: 'IDEMPOTENCY_CONFLICT', message: 'The same key was used for a different message' };
+        if (isActiveDelegation(row.status as DelegationStatus)) {
+          const admission = await getDbClient().tx('bots.followupRequest', { ...followup, action: 'admit', childSessionId: row.childSessionId!, now: now() });
+          const denied = await recheckAccess(); if (denied) return denied;
+          if (admission.kind === 'request') return followupReplay(admission.request);
+          if (admission.kind !== 'admitted') return { ok: false as const, errorCode: admission.kind === 'conflict' ? 'IDEMPOTENCY_CONFLICT' : 'SESSION_TASK_STATE_CHANGED', message: 'Follow-up admission changed' };
+          followup.ownsAdmission = true;
+        }
+      }
+      let result: BotFollowupReceipt;
+      try {
+        const response = await reply(callerSessionId, taskId, input, found.groupAuthority, followup);
+        result = response.ok ? { ...response,
+          delivery: input.kind !== 'message' ? 'interaction' : response.queued ? 'queued' : 'accepted' } : response;
+      } catch (error) {
+        if (followup?.ownsAdmission) await getDbClient().tx('bots.followupRequest', { action: 'unknown', taskId, inputId: followup.inputId, now: now() });
+        throw error;
+      }
+      if (followup?.ownsAdmission) {
+        if (!result.ok && ['FOLLOWUP_PENDING', 'FOLLOWUP_OUTCOME_UNKNOWN'].includes(result.errorCode)) return result;
+        await getDbClient().tx('bots.followupRequest', { action: 'finish', taskId, inputId: followup.inputId, now: now(), result });
+        const denied = await recheckAccess(); if (denied) return denied;
+      }
+      return result;
     });
 
   const stopSessionTask = (callerSessionId: string, taskId: string,
@@ -4674,6 +4917,7 @@ export function createBotDelegationService(deps: BotDelegationServiceDeps) {
   };
   return {
     startSessionTask: expose(startSessionTask),
+    adoptProjectWorkItem: expose(adoptProjectWorkItem),
     ensureCanonicalSession,
     listDelegations,
     getSessionTask: expose(getSessionTask),

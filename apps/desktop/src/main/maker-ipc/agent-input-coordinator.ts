@@ -330,7 +330,47 @@ export type AgentInputSendResult =
       context: string;
     };
 
+export interface AgentInputMaterialInput {
+  /** Wire-only blocks; never persisted as the user's own content. */
+  readonly blocks: ReadonlyArray<{ type: string; [k: string]: unknown }>;
+  consume(turnGeneration: number): Promise<void>;
+}
+
+/** Appends material blocks after the user's own blocks. The persisted user content is not
+ * touched: the message row must keep matching the queued content SHA used by attach/begin. */
+function withMaterialWireBlocks(
+  message: AgentInputMakerMessage,
+  blocks: ReadonlyArray<{ type: string; [k: string]: unknown }>,
+): AgentInputMakerMessage {
+  if (blocks.length === 0) return message;
+  const existing: Array<{ type: string; [k: string]: unknown }> =
+    typeof message === 'string'
+      ? message.length > 0
+        ? [{ type: 'text', text: message }]
+        : []
+      : typeof message.content === 'string'
+        ? message.content.length > 0
+          ? [{ type: 'text', text: message.content }]
+          : []
+        : [...message.content];
+  return { type: 'user', content: [...existing, ...blocks] };
+}
+
 export interface AgentInputCoordinatorDeps {
+  /** Main-owned admission check; also runs after snapshot recovery and before same-turn steer.
+   * `prepared` is a live Main-only handle from the material consumer adapter; material input
+   * without one stays NOT_READY (no silent text-only fallback). */
+  assertInputDispatchable?: (
+    sessionId: string,
+    item: AgentInputQueuedMessage,
+    prepared?: AgentInputMaterialInput,
+  ) => Promise<void>;
+  /** Main-only material consumer adapter. Prepares pinned context bytes and declares the
+   * provider consumption boundary used to record a pending attempt before dispatch. */
+  prepareMaterialInput?: (
+    sessionId: string,
+    item: AgentInputQueuedMessage,
+  ) => Promise<AgentInputMaterialInput | null>;
   sendToAgent: (
     sessionId: string,
     message: AgentInputMakerMessage,
@@ -2640,6 +2680,7 @@ export class AgentInputCoordinator {
     };
     try {
       const referenceContexts = await this.resolveReferenceContexts(item);
+      if (this.deps.assertInputDispatchable) await this.deps.assertInputDispatchable(sessionId, item);
       await assertSteerAuthority();
       // A pause/Stop can arrive while references are being prepared. Recheck
       // before crossing the provider boundary, including direct UI/IM callers.
@@ -5195,7 +5236,22 @@ export class AgentInputCoordinator {
         head.persistedContent,
         referenceContexts,
       );
-      const makerUserMessage = buildMakerUserMessage(head, referenceContexts);
+      // Material input is prepared from the pinned context snapshot before any dispatch
+      // decision. A rejection keeps the queue head and persists nothing (no half message).
+      const materialInput = this.deps.prepareMaterialInput
+        ? await this.deps.prepareMaterialInput(sessionId, head)
+        : null;
+      if (!this.isActiveTurnCurrent(sessionId, active)) return;
+      if (this.deps.assertInputDispatchable) {
+        await this.deps.assertInputDispatchable(sessionId, head, materialInput ?? undefined);
+      }
+      if (!this.isActiveTurnCurrent(sessionId, active)) return;
+      const makerUserMessage = materialInput
+        ? withMaterialWireBlocks(
+            buildMakerUserMessage(head, referenceContexts),
+            materialInput.blocks,
+          )
+        : buildMakerUserMessage(head, referenceContexts);
       active.sendStarted = true;
       active.dispatchLifecycle = 'sending';
       // Freeze side-effect timestamps before entering vendor code. A dispatch
@@ -5223,6 +5279,19 @@ export class AgentInputCoordinator {
             throw error;
           }
         } } : {}),
+        ...(materialInput ? {
+          // Material bytes are provider input that was already prepared from the pinned
+          // context. Record the durable pending attempt at the real consumption boundary,
+          // after persistence (attach) and before any provider side effect. Never a receipt.
+          beforeInputConsumption: async (stage: 'vision' | 'provider') => {
+            if (stage !== 'provider') return;
+            const generation = active.vendorTurnGeneration;
+            if (typeof generation !== 'number' || !Number.isSafeInteger(generation) || generation < 1) {
+              throw new Error('[PRECONDITION_FAILED] Material consumption has no reserved turn generation');
+            }
+            await materialInput.consume(generation);
+          },
+        } : {}),
         ...(head.supersedesUserClientId ? { retryUserClientId: head.supersedesUserClientId } : {}),
         [AUTO_REVIEW_SOURCE_CONTENT]: queuedAutoReviewText(head),
         ...(verifiedOwnerRequestText(head.autoReviewUserText) !== undefined

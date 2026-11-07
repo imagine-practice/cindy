@@ -183,6 +183,11 @@ export interface CreateSessionOptions extends StartSessionOptions {
   /** 可选：父会话 id，用于 fork / orchestration 等会话关系。 */
   parentSessionId?: string;
   /**
+   * 可选：新建任务归属的项目实体（`projects.id`）。仅“本次真的新建行”时生效；
+   * 行已按 id 存在（复用 / heartbeat）时忽略，避免自动化改写用户既有任务的归属。
+   */
+  projectId?: string;
+  /**
    * 可选：Agent 在同账号的另一台电脑上运行(那台电脑的设备 id)。任务、项目文件与命令留在本机，
    * Agent 用那台电脑的程序、登录、供应商与网络。由 MakerDeps.startDeviceAgentSession 启动；
    * 持久化到 SessionMeta.agentDeviceId，恢复时据此找回那台电脑。与 remoteHostId 互斥。
@@ -1044,6 +1049,7 @@ export class Maker {
           ...(typeof opts.planMode === 'boolean' ? { planMode: opts.planMode } : {}),
           reviewMode: opts.reviewMode,
           parentSessionId: opts.parentSessionId,
+          ...(opts.projectId ? { projectId: opts.projectId } : {}),
           // remoteHostId: 远端 session 把目标机器持久化, 之后 resume / list 都能识别。
           // 本地 session 留 undefined (sqlite 落空), 跟历史行为兼容。
           remoteHostId: opts.remoteHostId,

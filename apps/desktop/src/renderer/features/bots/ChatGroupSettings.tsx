@@ -6,7 +6,7 @@
  * 原来的标签上。群身份与伙伴授权以服务端为准，项目文件夹和自动交接只存在这台电脑上。
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowUpRight, Camera, ChevronDown, Folder, Reply, SlidersHorizontal } from 'lucide-react';
+import { ArrowUpRight, Camera, ChevronDown, Folder, FolderKanban, Reply, SlidersHorizontal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -19,6 +19,7 @@ import { Select } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useConfirmDialog } from '@/components/ui/confirm-dialog-provider';
 import { ProfileEditDialog } from '@/components/settings/ProfileEditDialog';
+import { GroupLinkedProjects } from '@/features/projects/GroupLinkedProjects';
 import { getDataOwnerGeneration, isDataOwnerGenerationCurrent } from '@/contexts/dataOwnerGeneration';
 import { cn } from '@/lib/utils';
 import type { BotGroupMemberView, BotGroupSummary, ChatGroupAction } from '../../../shared/botGroupChat';
@@ -46,7 +47,7 @@ const api = () => window.electronAPI.maker.chatServer;
 const COMPANION_PAGE = 'companion:';
 
 export type ChatGroupSettingsPage =
-  | { kind: 'manage' | 'edit' | 'profile' }
+  | { kind: 'manage' | 'edit' | 'profile' | 'projects' }
   | { kind: 'companion'; member: BotGroupMemberView };
 
 /**
@@ -57,6 +58,8 @@ export function resolveChatGroupSettingsPage(group: BotGroupSummary, value: stri
   if (!value || !group.serverBacked || group.dissolvedAt) return null;
   const { self, manager } = chatGroupMembership(group);
   if (value === 'manage' || value === 'edit') return manager ? { kind: value } : null;
+  // 关联项目对群成员只读可见；能不能提交关联由后端权限决定并在页面上说明。
+  if (value === 'projects') return { kind: 'projects' };
   if (value === 'profile') return self?.actorId ? { kind: 'profile' } : null;
   if (!value.startsWith(COMPANION_PAGE)) return null;
   const actorId = value.slice(COMPANION_PAGE.length);
@@ -66,6 +69,7 @@ export function resolveChatGroupSettingsPage(group: BotGroupSummary, value: stri
 
 export function chatGroupSettingsPageTitle(page: ChatGroupSettingsPage, t: TFunction): string {
   if (page.kind === 'companion') return t(key('companionTitle'), { name: page.member.name });
+  if (page.kind === 'projects') return t('projectGroupLinks.title');
   return t(key(page.kind === 'manage' ? 'manage' : page.kind === 'edit' ? 'editTitle' : 'myProfile'));
 }
 
@@ -323,6 +327,8 @@ export function ChatGroupSettings({ group }: { group: BotGroupSummary }) {
       </form>
     </>;
     footer = <Button variant="cta" size="md" type="submit" form="chat-group-profile" disabled={busy}>{t(key('save'))}</Button>;
+  } else if (page?.kind === 'projects') {
+    body = <GroupLinkedProjects group={group} canManage={manager} />;
   } else if (page?.kind === 'companion') {
     const member = page.member;
     body = <>
@@ -368,6 +374,13 @@ export function ChatGroupSettings({ group }: { group: BotGroupSummary }) {
                   onClick={() => { if (scroller.current) homeScroll.current = scroller.current.scrollTop; openMask(); }} />}
                 {group.supportsNotificationSettings && group.notificationMode && <ChatGroupNotificationSettings key={group.id}
                   groupId={group.id} mode={group.notificationMode} disabled={busy || !!group.archived} />}
+              </SettingsCard>
+            </SettingsSection>}
+            {!dissolved && <SettingsSection>
+              <SettingsCard>
+                <SettingsRow media lead={<SettingsRowIcon><FolderKanban size={16} aria-hidden /></SettingsRowIcon>}
+                  title={t('projectGroupLinks.title')} hint={t('projectGroupLinks.hint')} chevron
+                  onClick={() => go('projects')} />
               </SettingsCard>
             </SettingsSection>}
             {!dissolved && !group.archived && ownBots.length > 0 && <SettingsSection title={t(key('myTeammates'))} caption={t(key('myTeammatesCaption'))}>

@@ -253,6 +253,17 @@ import type { Session } from '@/lib/ccAgent.types';
 import { isSecondaryWindow } from '@/lib/secondaryWindow';
 import { toast } from '@/lib/toast';
 import {
+  MaterialDispatchChip,
+  materialDispatchRejectionKey,
+} from '@/features/materials/MaterialDispatchChip';
+import {
+  clearMaterialDispatchMount,
+  getMaterialDispatchMount,
+  materialDispatchSendIntent,
+  subscribeMaterialDispatchMount,
+  validateMaterialDispatchMount,
+} from '@/features/materials/materialDispatchMount';
+import {
   buildCreateOptsForCurrentSession,
   remoteErrorMessageForBanner,
   makerChatStore,
@@ -4005,6 +4016,12 @@ function CCAgentSessionContent({
     );
   }, [cindyMakeInputLocked, readOnly, session, sessionId]);
 
+  const materialMount = useSyncExternalStore(
+    subscribeMaterialDispatchMount,
+    () => (sessionId ? getMaterialDispatchMount(sessionId) : null),
+    () => null,
+  );
+
   const handleSend = useCallback(
     async (
       message: string,
@@ -4321,6 +4338,12 @@ function CCAgentSessionContent({
           : {}),
       };
       if (deliveryMode === 'steer') {
+        // 材料只在真正的新一轮发送上生效: steer 并入在飞 turn，Main 的消费边界
+        // 只覆盖 provider send，所以这里先拦下并说明，不静默丢弃挂载。
+        if (sessionId && getMaterialDispatchMount(sessionId)) {
+          toast.warning(t('ccAgent.materials.dispatch.steerBlocked'));
+          return false;
+        }
         const followStartGeneration = readSendFollowCancelGeneration(sessionId);
         if (sessionId) requestFollowLatest(sessionId, followStartGeneration);
         const accepted = await steerMessage(
@@ -4345,6 +4368,25 @@ function CCAgentSessionContent({
         }
         return accepted;
       }
+      // 材料随发送:发送前用真实读取校验挂载的代次/引用/版本，不把过期选择器交给 Main。
+      const pendingMaterial = sessionId ? getMaterialDispatchMount(sessionId) : null;
+      let materialDispatch: { selector: NonNullable<typeof pendingMaterial>['selector']; expectedRevision: number } | undefined;
+      if (pendingMaterial && sessionId) {
+        // 被控电脑(device-link)的输入由目标端准入, 而那边明确拒绝材料选择器;
+        // 这里先说明, 不把一次注定失败的发送交出去。(SSH 远端仍在本地数据库准备,
+        // 材料作为普通附件块随消息过去, 因此不拦。)
+        if (remoteDeviceId) {
+          toast.warning(t('ccAgent.materials.dispatch.remoteBlocked'));
+          return false;
+        }
+        const validation = await validateMaterialDispatchMount(pendingMaterial);
+        if (!validation.ok) {
+          clearMaterialDispatchMount(sessionId);
+          toast.error(t(materialDispatchRejectionKey(validation.reason)));
+          return false;
+        }
+        materialDispatch = materialDispatchSendIntent(pendingMaterial);
+      }
       const followStartGeneration = readSendFollowCancelGeneration(sessionId);
       if (sessionId) requestFollowLatest(sessionId, followStartGeneration);
       const accepted = await sendMessage(
@@ -4355,8 +4397,11 @@ function CCAgentSessionContent({
         session.workingDir,
         files,
         mentions,
-        sendOptions,
+        materialDispatch ? { ...sendOptions, materialDispatch } : sendOptions,
       );
+      if (accepted && sessionId && materialDispatch) {
+        clearMaterialDispatchMount(sessionId);
+      }
       if (accepted && sessionId && replyQuote) clearSentBotReplyQuote(sessionId, replyQuote);
       if (accepted && sessionId) {
         if (isDataOwnerGenerationCurrent(sendOwner) && currentSessionIdRef.current === sessionId) {
@@ -6132,16 +6177,30 @@ function CCAgentSessionContent({
                   aria-hidden={voiceModeOpen && voiceSurfaceAvailable ? true : undefined}
                 >
                 <ChatInput
-                  topSlot={cindyMakeRecoveryId && session ? (
-                    <CindyMakeEditingActions
-                      key={`${session.id}:${cindyMakeRecoveryId}`}
-                      sessionId={session.id}
-                      messageId={cindyMakeRecoveryId}
-                    />
-                  ) : pendingReplyQuote && sessionId ? (
-                    <BotChatQuoteComposerPreview sessionId={sessionId} quote={pendingReplyQuote}
-                      getMessage={getQuoteMessage} names={botQuoteNames} />
-                  ) : remoteMakeCards.handlesSession ? <SessionResourceCards state={remoteMakeCards} /> : undefined}
+                  topSlot={materialMount || (cindyMakeRecoveryId && session) || (pendingReplyQuote && sessionId) || remoteMakeCards.handlesSession ? (
+                    <>
+                      {materialMount && (
+                        <MaterialDispatchChip
+                          mount={materialMount}
+                          onRemove={() => {
+                            if (sessionId) clearMaterialDispatchMount(sessionId);
+                          }}
+                        />
+                      )}
+                      {cindyMakeRecoveryId && session ? (
+                        <CindyMakeEditingActions
+                          key={`${session.id}:${cindyMakeRecoveryId}`}
+                          sessionId={session.id}
+                          messageId={cindyMakeRecoveryId}
+                        />
+                      ) : pendingReplyQuote && sessionId ? (
+                        <BotChatQuoteComposerPreview sessionId={sessionId} quote={pendingReplyQuote}
+                          getMessage={getQuoteMessage} names={botQuoteNames} />
+                      ) : remoteMakeCards.handlesSession ? (
+                        <SessionResourceCards state={remoteMakeCards} />
+                      ) : null}
+                    </>
+                  ) : undefined}
                   // Picking 「回复」 brings the caret here, ready to type the reply.
                   focusRequest={pendingReplyQuote}
                   onSend={handleSend}

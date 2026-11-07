@@ -1,3 +1,13 @@
+import { createProjectWorkItemExecution } from '../../../mcp-integrations/projectWorkItemExecution';
+import { createXdtHelperMcpServer } from '@cindy/mcps';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { createProjectWorkItemHost } from '../../../maker-ipc/projectWorkItemHost';
+import { createProjectWorkItemExecutionService } from '../../../maker-ipc/projectWorkItemExecutionService';
+import { runProjectWorkItemExecutionTransaction } from '../../worker/opHandlers/projectWorkItemExecutionTx';
+import { runProjectsTransaction } from '../../worker/opHandlers/projectsTx';
+import { createJointFollowupDb, openJointFollowupDb } from './jointFollowupMigration.fixture';
+import type { BotFollowupRequestArgs } from '../../client/tx/types';
 import { createTaskCompletionDeliveryHost } from '../../../maker-ipc/taskCompletionDeliveryHost';
 import { emitSessionCreated } from '../sessionCreatedBroadcast.js';
 import { captureAgentRequest } from '../../../maker-ipc/forwardedRequest';
@@ -155,16 +165,18 @@ vi.mock('electron', () => ({
 }));
 vi.mock('../../client/current', () => ({
   getCurrentDbClientSnapshot: (() => {
-    let current: { key: string; client: {
+    let current: { key: string; userId: string; clientEpoch: number; client: {
       tx: (name: string, args: unknown) => Promise<unknown>;
       query: (sql: string, params: unknown[]) => Promise<unknown[]>;
+      queryOne: (sql: string, params: unknown[]) => Promise<unknown>;
     } } | null = null;
     return () => {
       if (!current || current.key !== h.ownerScopeKey) current = {
-        key: h.ownerScopeKey,
+        key: h.ownerScopeKey, userId: h.ownerScopeKey.split(':')[0]!, clientEpoch: Number(h.ownerScopeKey.split(':')[1]),
         client: {
           tx: (name, args) => h.tx!(name, args),
           query: async (sql, params) => h.sqlite!.prepare(sql).all(...params),
+          queryOne: async (sql, params) => h.sqlite!.prepare(sql).get(...params),
         },
       };
       return current;
@@ -240,6 +252,7 @@ vi.mock('../../../appSessionState.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../appSessionState.js')>();
   return {
     ...actual,
+    getActiveAppSession: () => ({ mode: 'authenticated',dataOwnerId: h.ownerScopeKey.split(':')[0],generation: Number(h.ownerScopeKey.split(':')[1]) }),
     activeOwnerScopeKey: () => h.ownerScopeKey,
     isAppSessionBoundaryPending: () => h.ownerBoundaryPending,
     ownerScopedUserDataPath: () => join(h.userDataDir, createHash('sha256').update(h.ownerScopeKey).digest('hex')),
@@ -297,212 +310,13 @@ function testSha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
+// Joint-only initialization: all existing service cases consume the real migrated schema.
 function createDb(filename = ':memory:'): void {
-  const sqlite = new Database(filename);
+  attachDb(createJointFollowupDb(h.userDataDir, filename));
+}
+
+function attachDb(sqlite: Database.Database): void {
   sqlite.pragma('foreign_keys = ON');
-  if (filename !== ':memory:') sqlite.pragma('journal_mode = WAL');
-  sqlite.exec(`
-    CREATE TABLE sessions (
-      id TEXT PRIMARY KEY NOT NULL,
-      title TEXT NOT NULL DEFAULT 'New Maker',
-      working_dir TEXT,
-      project_dir TEXT,
-      workspace_kind TEXT NOT NULL DEFAULT 'project',
-      model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6',
-      scheduled_model_baseline TEXT,
-      effort TEXT NOT NULL DEFAULT 'high',
-      permission_mode TEXT NOT NULL DEFAULT 'ask',
-      status TEXT NOT NULL DEFAULT 'active',
-      sdk_session_id TEXT,
-      total_token_usage INTEGER NOT NULL DEFAULT 0,
-      total_cost_usd REAL NOT NULL DEFAULT 0,
-      total_cost_amount REAL NOT NULL DEFAULT 0,
-      total_cost_currency TEXT,
-      total_cost_is_approximate INTEGER NOT NULL DEFAULT 0,
-      context_tokens INTEGER NOT NULL DEFAULT 0,
-      context_window INTEGER NOT NULL DEFAULT 0,
-      context_window_runtime INTEGER,
-      fast_mode INTEGER NOT NULL DEFAULT 0,
-      plan_mode_enabled INTEGER NOT NULL DEFAULT 0,
-      cleared_at INTEGER,
-      pinned_at INTEGER,
-      hidden_at INTEGER,
-      notifications_muted INTEGER NOT NULL DEFAULT 0,
-      summary TEXT,
-      provider_id TEXT,
-      user_send_at INTEGER,
-      last_activity_at INTEGER,
-      agent_kind TEXT NOT NULL DEFAULT 'cc',
-      orca_role TEXT,
-      parent_session_id TEXT,
-      forked_at_message_id TEXT,
-      worktree_path TEXT,
-      extra_dirs TEXT NOT NULL DEFAULT '[]',
-      writable_dirs TEXT NOT NULL DEFAULT '[]',
-      remote_host_id TEXT,
-      agent_device_id TEXT,
-      orca_remote_lead TEXT,
-      source TEXT NOT NULL DEFAULT 'desktop',
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      feishu_open_id TEXT,
-      feishu_bot_app_id TEXT,
-      used_project_context INTEGER NOT NULL DEFAULT 0,
-      one_m INTEGER NOT NULL DEFAULT 0,
-      codex_history_has_product_prompt INTEGER,
-      codex_plan_json TEXT,
-      im_bot_context_id TEXT,
-      im_user_id TEXT,
-      im_default_route TEXT,
-      active_turn_started_at INTEGER,
-      active_turn_pid INTEGER,
-      last_turn_ended_at INTEGER,
-      list_preview TEXT,
-      list_preview_role TEXT,
-      list_message_count INTEGER
-    );
-    CREATE TABLE messages (
-      id TEXT PRIMARY KEY NOT NULL,
-      client_id TEXT NOT NULL,
-      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-      role TEXT NOT NULL,
-      content TEXT NOT NULL,
-      tool_use_id TEXT,
-      agent_meta TEXT,
-      agent_kind TEXT,
-      created_at INTEGER NOT NULL,
-      rewind_at INTEGER
-    );
-    CREATE TABLE agent_input_queue_snapshots (
-      session_id TEXT PRIMARY KEY NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-      payload TEXT NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
-    CREATE UNIQUE INDEX uniq_messages_session_client ON messages(session_id, client_id);
-    CREATE INDEX idx_messages_session_created ON messages(session_id, created_at);
-    CREATE TABLE bot_profiles (
-      id TEXT PRIMARY KEY NOT NULL,
-      display_name TEXT NOT NULL,
-      description TEXT DEFAULT '' NOT NULL,
-      avatar TEXT DEFAULT '🤖' NOT NULL,
-      avatar_color TEXT DEFAULT 'violet' NOT NULL,
-      status TEXT DEFAULT 'active' NOT NULL,
-      hidden_at INTEGER,
-      pinned_at INTEGER,
-      attention_reason TEXT,
-      attention_at INTEGER,
-      current_version INTEGER DEFAULT 1 NOT NULL,
-      canonical_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    );
-    CREATE TABLE bot_profile_versions (
-      id TEXT PRIMARY KEY NOT NULL,
-      bot_id TEXT NOT NULL REFERENCES bot_profiles(id) ON DELETE CASCADE,
-      version INTEGER NOT NULL,
-      identity_source TEXT DEFAULT '' NOT NULL,
-      capabilities_json TEXT DEFAULT '{}' NOT NULL,
-      created_at INTEGER NOT NULL
-    );
-    CREATE UNIQUE INDEX uniq_bot_profile_versions_bot_version
-      ON bot_profile_versions(bot_id, version);
-    CREATE TABLE bot_session_links (
-      id TEXT PRIMARY KEY NOT NULL,
-      bot_id TEXT NOT NULL REFERENCES bot_profiles(id) ON DELETE CASCADE,
-      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-      profile_version INTEGER DEFAULT 1 NOT NULL,
-      role TEXT NOT NULL,
-      route_key TEXT,
-      created_at INTEGER NOT NULL,
-      archived_at INTEGER
-    );
-    CREATE UNIQUE INDEX uniq_bot_session_links_session ON bot_session_links(session_id);
-    CREATE UNIQUE INDEX uniq_bot_session_links_canonical_per_bot
-      ON bot_session_links(bot_id) WHERE role = 'canonical';
-    CREATE TABLE bot_runtime_snapshots (
-      id TEXT PRIMARY KEY NOT NULL,
-      bot_id TEXT NOT NULL REFERENCES bot_profiles(id) ON DELETE CASCADE,
-      session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-      profile_version INTEGER NOT NULL,
-      agent_kind TEXT NOT NULL,
-      working_dir TEXT NOT NULL,
-      memory_scope_key TEXT,
-      configured_json TEXT DEFAULT '{}' NOT NULL,
-      resolved_json TEXT DEFAULT '{}' NOT NULL,
-      status TEXT NOT NULL,
-      prepared_at INTEGER DEFAULT 0 NOT NULL,
-      applied_at INTEGER,
-      failed_at INTEGER,
-      failure_json TEXT
-    );
-    CREATE TABLE bot_lifecycle_events (
-      id TEXT PRIMARY KEY NOT NULL,
-      bot_id TEXT NOT NULL REFERENCES bot_profiles(id) ON DELETE CASCADE,
-      session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
-      event_type TEXT NOT NULL,
-      payload_json TEXT DEFAULT '{}' NOT NULL,
-      created_at INTEGER NOT NULL
-    );
-    CREATE TABLE bot_direct_message_threads (
-      id TEXT PRIMARY KEY,
-      bot_a_id TEXT NOT NULL,
-      bot_b_id TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'active',
-      close_reason TEXT,
-      message_count INTEGER NOT NULL DEFAULT 0,
-      max_messages INTEGER NOT NULL,
-      expires_at INTEGER NOT NULL,
-      blocked_until INTEGER,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      closed_at INTEGER
-    );
-    CREATE TABLE bot_direct_messages (
-      id TEXT PRIMARY KEY,
-      thread_id TEXT NOT NULL,
-      sequence INTEGER NOT NULL,
-      sender_bot_id TEXT NOT NULL,
-      recipient_bot_id TEXT NOT NULL,
-      sender_session_id TEXT,
-      recipient_session_id TEXT,
-      delivery_status TEXT NOT NULL DEFAULT 'pending',
-      sender_name TEXT,
-      recipient_name TEXT,
-      bridge_session_id TEXT,
-      content TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      UNIQUE(thread_id, sequence)
-    );
-    CREATE TABLE bot_delegations (
-      id TEXT PRIMARY KEY NOT NULL,
-      requesting_bot_id TEXT NOT NULL REFERENCES bot_profiles(id) ON DELETE CASCADE,
-      target_bot_id TEXT REFERENCES bot_profiles(id) ON DELETE CASCADE,
-      parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
-      child_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
-      objective TEXT NOT NULL,
-      context_refs_json TEXT DEFAULT '[]' NOT NULL,
-      artifact_refs_json TEXT DEFAULT '[]' NOT NULL,
-      permission_snapshot_json TEXT DEFAULT '{}' NOT NULL,
-      group_task_posts_json TEXT DEFAULT '{}' NOT NULL,
-      lineage_json TEXT DEFAULT '[]' NOT NULL,
-      target_profile_version INTEGER,
-      depth INTEGER DEFAULT 1 NOT NULL,
-      budget_tokens INTEGER,
-      tokens_used INTEGER DEFAULT 0 NOT NULL,
-      status TEXT DEFAULT 'queued' NOT NULL,
-      result_summary TEXT,
-      output_artifacts_json TEXT DEFAULT '[]' NOT NULL,
-      pending_interaction_json TEXT,
-      last_error TEXT,
-      run_sequence INTEGER DEFAULT 1 NOT NULL,
-      created_at INTEGER NOT NULL,
-      accepted_at INTEGER,
-      completed_at INTEGER,
-      completion_delivered_at INTEGER,
-      updated_at INTEGER NOT NULL
-    );
-  `);
-  sqlite.exec(readFileSync(resolve(__dirname, '../../../../../drizzle/0070_woozy_harpoon.sql'), 'utf8'));
   h.sqlite = sqlite;
   const rawDb = drizzle(sqlite, {
     schema: {
@@ -7409,7 +7223,9 @@ describe('Bot Session task end-to-end runtime', () => {
     } finally { after.dispose(); }
   });
 
-  it('retries a rejected supplement without replacing its previous execution receipt', async () => {
+  // The persistent-key contract replays the actual failure; the legacy implicit
+  // retry used another internal ID. Keep that behavior only for no-key input below.
+  it('retains a rejected keyed supplement receipt without replacing its previous execution receipt', async () => {
     await seedPair();
     let execution = { instanceId: 'native', generation: 1 };
     let reject = false;
@@ -7421,11 +7237,13 @@ describe('Bot Session task end-to-end runtime', () => {
       const input = { kind: 'message' as const, text: 'Add a conclusion.', idempotencyKey: 'rejected-supplement' };
       execution = { instanceId: 'native', generation: 2 };
       reject = true;
-      expect(await runtime.delegation.messageSessionTask('session-1', task.delegationId, input)).toMatchObject({ ok: false });
+      const failure = await runtime.delegation.messageSessionTask('session-1', task.delegationId, input);
+      expect(failure).toMatchObject({ ok: false });
       const saved = JSON.parse(h.sqlite!.prepare('SELECT permission_snapshot_json FROM bot_delegations WHERE id = ?').pluck().get(task.delegationId) as string);
       expect(saved.taskExecution).toMatchObject({ instanceId: 'native', generation: 1 });
       reject = false;
-      expect(await runtime.delegation.messageSessionTask('session-1', task.delegationId, input)).toMatchObject({ ok: true });
+      expect(await runtime.delegation.messageSessionTask('session-1', task.delegationId, input)).toEqual(failure);
+      expect(await runtime.delegation.messageSessionTask('session-1', task.delegationId, { ...input, idempotencyKey: 'explicit-new-intent' })).toMatchObject({ ok: true });
       expect(runtime.started.filter(turn => turn.sessionId === task.childSessionId)).toHaveLength(2);
       // A later accepted supplement cannot erase the first one's idempotency receipt.
       execution = { instanceId: 'native', generation: 3 };
@@ -7509,6 +7327,743 @@ describe('Bot Session task end-to-end runtime', () => {
       expect(nextId).not.toBe(firstId);
       expect(collectArtifacts).toHaveBeenLastCalledWith(task.childSessionId, [nextId]);
     } finally { runtime.dispose(); }
+  });
+
+  // DB regression: the terminal continuation branch must retain the message key
+  // across runs/restarts. Existing supplement coverage starts on an active run.
+  // A completed task + K + replay K is the minimal duplicate-dispatch input.
+  // DB/G0 G04-G11: the old start route allocates a second session. These cases
+  // keep actual 0152 migration + formal service, varying admission/acceptance timing.
+  // Host source/permission/provider are controlled; no real model or account.
+  describe('project work-item execution adoption', () => {
+    function executionRuntime(options: Parameters<typeof createDelegationRuntime>[0] = {}) {
+      return createDelegationRuntime({ readCallerPermission: () => ({ mode: 'bypassPermissions',generation: 1 }),...options });
+    }
+    async function seedWorkItem(id = 'work-item') {
+      await seedPair();
+      const actor = { kind: 'account' as const,id: 'owner-a' };
+      runProjectsTransaction(h.sqlite!,{ action: 'create',actor,newId: 'project',now: 1,input: { name: 'Project',owner: actor,members: [{ kind: 'bot',id: 'bot-a' }] } });
+      h.sqlite!.prepare(`INSERT INTO sessions (id,title,source,status,working_dir,model,agent_kind,provider_id,permission_mode,parent_session_id,created_at,updated_at)
+        SELECT ?, 'Existing work item','desktop','active',?,model,agent_kind,provider_id,permission_mode,NULL,1,1 FROM sessions WHERE id='session-1'`).run(id,h.userDataDir);
+      runProjectsTransaction(h.sqlite!,{ action: 'bindSession',actor,sessionId: id,projectId: 'project' });
+      return { intent: 'start' as const,callerSessionId: 'session-1',targetBotId: 'bot-a',projectId: 'project',sessionId: id,
+        expectedBindingRevision: 1,requestId: 'event-1',objective: 'Begin this existing work item.' };
+    }
+    function adoption(runtime: ReturnType<typeof createDelegationRuntime>, hook?: (p: import('../../../../shared/projectWorkItemExecution').ProjectWorkItemExecutionRequest) => void | (() => void), db = h.sqlite!, caller = 'session-1', boundary = () => 'fixture-native-boundary') {
+      const capturedDb = db;
+      const live = { instanceId: 'adoption-fixture-native',getCurrentTurnOrigin: () => null };
+      return createProjectWorkItemExecutionService({ delegation: runtime.delegation,now: () => 10000,
+        runtime: { callerSessionId: () => caller,isExecutionPaused: id => runtime.coordinator?.isExecutionPaused(id) ?? runtime.heldInputs.has(id),input: () => ({ key: 'accepted-owner-input',boundary: boundary(),ownerInput: true }),getSession: () => live },
+        ...(hook || db !== h.sqlite ? { transact: async (_capturedClient: import('../../client/DbClient').DbClient,p: import('../../../../shared/projectWorkItemExecution').ProjectWorkItemExecutionRequest) => { const after=hook?.(p);const result=runProjectWorkItemExecutionTransaction(capturedDb,p);if(typeof after==='function')after();return result; } } : {}),
+      });
+    }
+    it('rechecks project read authority before returning task contents after awaited reads', async () => {
+      const input = await seedWorkItem(); const runtime = executionRuntime({ taskControl: true, withSessionLock: withSendToSessionLock });
+      try {
+        const started = await adoption(runtime).start(input);
+        if (!started.ok) throw new Error('Expected actual existing-work-item admission');
+        let checks = 0;
+        await expect(runtime.delegation.getSessionTask(input.callerSessionId, started.delegationId, undefined, async () => {
+          const member = h.sqlite!.prepare("SELECT 1 FROM project_members WHERE project_id='project' AND subject_kind='account' AND subject_id='owner-a'").get();
+          if (!member) throw new Error('PROJECT_READ_REVOKED');
+          checks += 1;
+          if (checks === 1) h.sqlite!.prepare("DELETE FROM project_members WHERE project_id='project' AND subject_kind='account' AND subject_id='owner-a'").run();
+        })).rejects.toThrow('PROJECT_READ_REVOKED');
+        expect(checks).toBe(1);
+        expect(h.sqlite!.prepare('SELECT child_session_id FROM bot_delegations WHERE id=?').get(started.delegationId)).toEqual({ child_session_id: input.sessionId });
+      } finally { runtime.dispose(); }
+    });
+    it('reads an adopted original ID through the host factory and rejects revoked membership or stale binding', async () => {
+      const input = await seedWorkItem(); const runtime = executionRuntime({ taskControl: true, withSessionLock: withSendToSessionLock });
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(10000);
+      const live = { instanceId: 'factory-live', getCurrentTurnOrigin: () => null };
+      const host = createProjectWorkItemHost({ callerSessionId: input.callerSessionId, delegation: runtime.delegation,
+        runtime: { input: () => ({ key: 'owner-input', boundary: 'live-boundary', ownerInput: true }), getSession: () => live } });
+      const provider = readFileSync(join(__dirname, '../../../mcp-integrations/mcp-providers.ts'), 'utf8').replace(/\r\n/g, '\n');
+      const section = provider.indexOf('sessionTasks: {');
+      const begin = provider.indexOf('getSessionTask: async ', section) + 'getSessionTask: '.length;
+      const end = provider.indexOf('\n        stopSessionTask:', begin);
+      const arrow = provider.slice(begin, end).trim().replace(/,$/, '');
+      const compiled = transpileModule(`return (${arrow});`, { compilerOptions: { target: ScriptTarget.ES2022 } }).outputText;
+      const read = new Function('tryGetBotDelegationService', 'createProjectWorkItemHost', 'getTaskActionInputState', 'getTaskActionSession', compiled)(
+        () => runtime.delegation, createProjectWorkItemHost,
+        () => ({ key: 'owner-input', boundary: 'live-boundary', ownerInput: true }), () => live,
+      ) as (p: { callerSessionId: string; taskId: string }) => Promise<unknown>;
+      try {
+        const started = await host.start({ intent: input.intent, targetBotId: input.targetBotId, projectId: input.projectId,
+          sessionId: input.sessionId, expectedBindingRevision: input.expectedBindingRevision, requestId: input.requestId, objective: input.objective }, () => false);
+        if (!started.ok) throw new Error(started.errorCode);
+        expect(await read({ callerSessionId: input.callerSessionId, taskId: started.delegationId })).toMatchObject({ ok: true, task: { session_id: input.sessionId } });
+        expect(await runtime.delegation.inspectSessionTaskRoute(input.callerSessionId, started.delegationId)).toMatchObject({ ok: false, errorCode: 'PROJECT_EXECUTION_GUARD_REQUIRED' });
+        expect(await runtime.delegation.advanceSessionTaskRoute(input.callerSessionId, started.delegationId, 1, 'untrusted-token')).toMatchObject({ ok: false, errorCode: 'PROJECT_EXECUTION_GUARD_REQUIRED' });
+        h.sqlite!.prepare("UPDATE sessions SET project_binding_revision=3 WHERE id=?").run(input.sessionId);
+        expect(await read({ callerSessionId: input.callerSessionId, taskId: started.delegationId })).toMatchObject({ ok: false, errorCode: 'BINDING_CONFLICT' });
+        h.sqlite!.prepare("UPDATE sessions SET project_binding_revision=1 WHERE id=?").run(input.sessionId);
+        h.sqlite!.prepare("DELETE FROM project_members WHERE project_id='project' AND subject_kind='account' AND subject_id='owner-a'").run();
+        expect(await read({ callerSessionId: input.callerSessionId, taskId: started.delegationId })).toMatchObject({ ok: false, errorCode: 'NOT_PROJECT_MEMBER' });
+        expect(h.sqlite!.prepare('SELECT COUNT(*) n FROM bot_delegations').get()).toEqual({ n: 1 });
+      } finally { runtime.dispose(); clock.mockRestore(); }
+    });
+    it.each(['accepted', 'lost-admit-ack'] as const)('public MCP executes the original work item and reconciles without a new request (%s)', async mode => {
+      const input = await seedWorkItem(); const runtime = executionRuntime({ taskControl: true, withSessionLock: withSendToSessionLock });
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(10000);
+      const live = { instanceId: 'public-execution-live', getCurrentTurnOrigin: () => null };
+      let sourceKey = 'public-owner-input'; let paused = true;
+      const provider = readFileSync(join(__dirname, '../../../mcp-integrations/mcp-providers.ts'), 'utf8').replace(/\r\n/g, '\n');
+      const begin = provider.indexOf('projectWorkItemExecution: ') + 'projectWorkItemExecution: '.length;
+      const end = provider.indexOf('\n      entityProjectMutation:', begin);
+      const expression = provider.slice(begin, end).trim().replace(/,$/, '');
+      const compiled = transpileModule(`return (${expression});`, { compilerOptions: { target: ScriptTarget.ES2022 } }).outputText;
+      const execute = new Function('createProjectWorkItemExecution', 'getTaskActionInputState', 'getTaskActionSession', 'tryGetBotDelegationService', 'isTaskExecutionPaused', compiled)(
+        createProjectWorkItemExecution, () => ({ key: sourceKey, boundary: 'live', ownerInput: true }), () => live, () => runtime.delegation, () => paused,
+      ) as ReturnType<typeof createProjectWorkItemExecution>;
+      const server = createXdtHelperMcpServer({ projectWorkItemExecution: execute }, { agentKind: 'pi', workingDir: '/fixture',
+        getSessionContext: () => ({ agentKind: 'pi', workingDir: '/fixture', sessionId: input.callerSessionId }) });
+      const mcp = new Client({ name: 'original-project-execution', version: '1' });
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      const originalTx = h.tx!;
+      const intent = { action: 'start' as const, projectId: input.projectId, sessionId: input.sessionId, expectedBindingRevision: input.expectedBindingRevision, objective: input.objective };
+      const call = async (raw: object) => {
+        const response = await mcp.callTool({ name: 'call_tool', arguments: { name: 'execute_project_work_item', args: { intent: raw } } });
+        if (!Array.isArray(response.content) || response.content[0]?.type !== 'text') throw new Error('Expected public tool text');
+        return JSON.parse(response.content[0].text) as { ok: boolean; errorCode?: string; requestToken?: string; delegationId?: string; childSessionId?: string; data?: { requestToken?: string | null; state?: string } };
+      };
+      try {
+        await Promise.all([mcp.connect(clientTransport), server.connect(serverTransport)]);
+        expect(await call({ ...intent, actor: { kind: 'account', id: 'owner-a' } })).toMatchObject({ ok: false });
+        expect(await call({ ...intent, expectedBindingRevision: input.expectedBindingRevision - 1 })).toMatchObject({ ok: false, errorCode: 'BINDING_CONFLICT' });
+        expect(runtime.dispatch).not.toHaveBeenCalled();
+        expect(await call(intent)).toMatchObject({ ok: false, errorCode: 'TASK_PAUSED' });
+        expect(h.sqlite!.prepare('SELECT COUNT(*) n FROM bot_task_followup_requests').get()).toEqual({ n: 0 });
+        paused = false;
+        if (mode === 'lost-admit-ack') h.tx = async (name, raw) => {
+          const result = await originalTx(name, raw);
+          if (name === 'bots.adoptProjectWorkItem' && raw && typeof raw === 'object' && 'action' in raw && raw.action === 'admit') throw new Error('controlled lost ACK');
+          return result;
+        };
+        const result = await call(intent); h.tx = originalTx;
+        const token = result.requestToken ?? result.data?.requestToken;
+        expect(token).toMatch(/^project-workitem-execution:[a-f0-9]{64}$/);
+        expect(result).toMatchObject(mode === 'accepted' ? { ok: true, childSessionId: input.sessionId } : { ok: false, data: { state: 'unknown' } });
+        const before = h.sqlite!.prepare('SELECT * FROM bot_task_followup_requests').all();
+        const dispatched = runtime.dispatch.mock.calls.length;
+        sourceKey = 'new-current-owner-input';
+        const recovered = await call({ ...intent, action: 'recover', requestToken: token });
+        expect(recovered).toMatchObject(mode === 'accepted' ? { ok: true, childSessionId: input.sessionId } : { ok: false, errorCode: 'FOLLOWUP_PENDING' });
+        if (mode === 'lost-admit-ack') {
+          expect(await call(intent)).toMatchObject({ ok: false, errorCode: 'FOLLOWUP_OUTCOME_UNKNOWN', data: { requestToken: null } });
+        }
+        const read = createProjectWorkItemHost({ callerSessionId: input.callerSessionId, delegation: runtime.delegation,
+          runtime: { input: () => ({ key: sourceKey, boundary: 'live', ownerInput: true }), getSession: () => live } });
+        expect(await read.get(input.sessionId)).toMatchObject({ ok: true, task: { session_id: input.sessionId } });
+        expect(runtime.dispatch.mock.calls).toHaveLength(dispatched);
+        expect(h.sqlite!.prepare('SELECT * FROM bot_task_followup_requests').all()).toEqual(before);
+        expect(h.sqlite!.prepare('SELECT COUNT(*) n FROM sessions').get()).toEqual({ n: 2 });
+        h.sqlite!.prepare("DELETE FROM project_members WHERE project_id='project' AND subject_kind='account' AND subject_id='owner-a'").run();
+        const denied = await call({ ...intent, action: 'recover', requestToken: token });
+        expect(denied).toMatchObject({ ok: false, errorCode: 'NOT_PROJECT_MEMBER', data: { state: 'unknown', requestToken: token } });
+        expect(denied.delegationId).toBeUndefined();
+        expect(denied.childSessionId).toBeUndefined();
+        expect(denied.data).not.toHaveProperty('delegationId');
+        expect(denied.data).not.toHaveProperty('objective');
+        expect(h.sqlite!.prepare('SELECT * FROM bot_task_followup_requests').all()).toEqual(before);
+        expect(runtime.dispatch.mock.calls).toHaveLength(dispatched);
+      } finally { h.tx = originalTx; await mcp.close(); await server.close(); runtime.dispose(); clock.mockRestore(); }
+    });
+    // Regression: real admit commits before transport/owner/source postchecks fail.
+    // Existing coverage asserted only !ok, hiding committed writes behind 'not admitted'.
+    // DB tier: actual 0152 worker + lifecycle, controlled host/ACK; no provider calls.
+    it.each([false,true].flatMap(existing=>['owner','source','ack'].map(fault=>({existing,fault}))))('reports commit uncertainty without retrying admission ($existing/$fault)',async ({existing,fault})=>{
+      const input=await seedWorkItem();let runtime=executionRuntime({taskControl:true,withSessionLock:withSendToSessionLock});
+      try{
+        if(existing)expect(await adoption(runtime).start(input)).toMatchObject({ok:true});
+        {
+          const request={...input,requestId:`uncertain-${existing}-${fault}`};let boundary='original';
+          const baseline=runtime.dispatch.mock.calls.length;
+          const service=adoption(runtime,p=>p.action==='admit'?()=>{
+            // Inject only AFTER the real SQLite transaction returned, never fake success.
+            expect(h.sqlite!.prepare('SELECT COUNT(*) FROM bot_task_followup_requests').pluck().get()).toBeGreaterThan(0);
+            if(fault==='owner')h.ownerScopeKey='owner-a:2';
+            if(fault==='source')boundary='revoked';
+            if(fault==='ack')throw new Error('PRIVATE_ACK_FAILURE');
+          }:undefined,h.sqlite!,'session-1',()=>boundary);
+          const result=await service.start(request);
+          const ledger=h.sqlite!.prepare('SELECT * FROM bot_task_followup_requests ORDER BY created_at,input_id').all();
+          const rows=h.sqlite!.prepare('SELECT id,child_session_id,run_sequence FROM bot_delegations').all();
+          const counts=()=>({sessions:h.sqlite!.prepare('SELECT COUNT(*) FROM sessions').pluck().get(),messages:h.sqlite!.prepare('SELECT COUNT(*) FROM messages').pluck().get(),events:h.sqlite!.prepare('SELECT COUNT(*) FROM bot_lifecycle_events').pluck().get(),groupMessages:h.sqlite!.prepare('SELECT COUNT(*) FROM bot_group_messages').pluck().get()});
+          const before=counts();
+          expect(result).toEqual({ok:false,errorCode:'FOLLOWUP_OUTCOME_UNKNOWN',message:'Project work-item admission may have committed; retry only with the same requestId'});
+          expect(runtime.dispatch.mock.calls).toHaveLength(baseline);
+          runtime.dispose();runtime=executionRuntime({taskControl:true,withSessionLock:withSendToSessionLock});
+          const replay=await adoption(runtime).start(request);
+          if(existing)expect(replay).toMatchObject({ok:true,existing:true,childSessionId:input.sessionId});
+          else expect(replay).toMatchObject({ok:false,errorCode:'FOLLOWUP_PENDING',message:'The original work-item admission is recorded; dispatch is pending'});
+          expect(runtime.dispatch).not.toHaveBeenCalled();expect(counts()).toEqual(before);
+          expect(h.sqlite!.prepare('SELECT * FROM bot_task_followup_requests ORDER BY created_at,input_id').all()).toEqual(ledger);
+          expect(h.sqlite!.prepare('SELECT id,child_session_id,run_sequence FROM bot_delegations').all()).toEqual(rows);
+        }
+      }finally{runtime.dispose();}
+    });
+    it.each(['inspect-owner','admit-rejected'])('preserves definite precommit refusal ($mode: %s)',async mode=>{
+      const input=await seedWorkItem();const runtime=executionRuntime({taskControl:true,withSessionLock:withSendToSessionLock});
+      try{
+        const result=await adoption(runtime,p=>{
+          if(mode==='inspect-owner'&&p.action==='inspect')return ()=>{h.ownerScopeKey='owner-a:2';};
+          if(mode==='admit-rejected'&&p.action==='admit')h.sqlite!.prepare("DELETE FROM project_members WHERE project_id='project' AND subject_kind='bot' AND subject_id='bot-a'").run();
+        }).start(input);
+        expect(result).toMatchObject({ok:false,errorCode:mode==='inspect-owner'?'OWNER_SCOPE_CHANGED':'FORBIDDEN'});
+        expect(h.sqlite!.prepare('SELECT COUNT(*) FROM bot_delegations').pluck().get()).toBe(0);
+        expect(h.sqlite!.prepare('SELECT COUNT(*) FROM bot_task_followup_requests').pluck().get()).toBe(0);
+        expect(runtime.dispatch).not.toHaveBeenCalled();
+      }finally{runtime.dispose();}
+    });
+    it('starts execution on the requested work-item ID without allocating another Session', async () => {
+      const input = await seedWorkItem();
+      const runtime = executionRuntime({ taskControl: true,withSessionLock: withSendToSessionLock });
+      try {
+        const count = h.sqlite!.prepare('SELECT COUNT(*) FROM sessions').pluck().get();
+        h.sqlite!.prepare("INSERT INTO messages(id,client_id,session_id,role,content,created_at) VALUES('old-work-item-history','old-work-item-history',?,'user','Preserve existing history.',1)").run(input.sessionId);
+        const original = h.sqlite!.prepare('SELECT title,source,status,model,permission_mode,parent_session_id,project_id,project_binding_revision,assignee_kind,assignee_id,working_dir FROM sessions WHERE id=?').get(input.sessionId);
+        const result = await adoption(runtime).start(input);
+        expect(result).toMatchObject({ ok: true,childSessionId: input.sessionId });
+        expect(h.sqlite!.prepare('SELECT COUNT(*) FROM sessions').pluck().get()).toBe(count);
+        expect(h.sqlite!.prepare('SELECT title,source,status,model,permission_mode,parent_session_id,project_id,project_binding_revision,assignee_kind,assignee_id,working_dir FROM sessions WHERE id=?').get(input.sessionId)).toEqual(original);
+        expect(h.sqlite!.prepare("SELECT content,rewind_at FROM messages WHERE id='old-work-item-history'").get()).toEqual({content:'Preserve existing history.',rewind_at:null});
+        expect(runtime.dispatch.mock.calls.filter(([p]) => p.targetSessionId === input.sessionId)).toHaveLength(1);
+        if (!result.ok) throw new Error(result.message);
+        await runtime.settleChild(input.sessionId,'Original work-item result.');
+        expect(runtime.dispatch.mock.calls.filter(([p]) => p.clientId?.startsWith(`bot-delegation-completion:${result.delegationId}`))).toHaveLength(1);
+      } finally { runtime.dispose(); }
+    });
+    it('replays across file reopen, conflicts on changed intent, and queries existing execution for a new request', async () => {
+      const input = await seedWorkItem();
+      let runtime = executionRuntime({ taskControl: true,withSessionLock: withSendToSessionLock });
+      try {
+        const first = await adoption(runtime).start(input); expect(first).toMatchObject({ ok: true });
+        expect(await adoption(runtime).start(input)).toEqual(first);
+        const file = join(h.userDataDir,'adoption-reopen.sqlite'); await h.sqlite!.backup(file);
+        runtime.dispose(); h.sqlite!.close(); attachDb(openJointFollowupDb(file)); h.ownerScopeKey='owner-a:2';
+        runtime = executionRuntime({ taskControl: true,withSessionLock: withSendToSessionLock });
+        await runtime.delegation.restore();
+        expect(await adoption(runtime).start(input)).toEqual(first);
+        expect(await adoption(runtime).start({ ...input,objective: 'Different intent.' })).toMatchObject({ ok: false,errorCode: 'IDEMPOTENCY_CONFLICT' });
+        const next = await adoption(runtime).start({ ...input,requestId: 'event-2' });
+        expect(next).toMatchObject({ ok: true,existing: true,childSessionId: input.sessionId });
+        expect(runtime.dispatch).not.toHaveBeenCalled();
+        expect(h.sqlite!.prepare('SELECT COUNT(*) FROM bot_delegations').pluck().get()).toBe(1);
+        expect(h.sqlite!.prepare('SELECT run_sequence FROM bot_delegations').pluck().get()).toBe(1);
+      } finally { runtime.dispose(); }
+    });
+    it('does not relabel an old execution as current after a fresh binding ABA',async()=>{
+      const input=await seedWorkItem();const runtime=executionRuntime({taskControl:true,withSessionLock:withSendToSessionLock});
+      try{
+        expect(await adoption(runtime).start(input)).toMatchObject({ok:true});const calls=runtime.dispatch.mock.calls.length;
+        const actor={kind:'account' as const,id:'owner-a'};
+        runProjectsTransaction(h.sqlite!,{action:'bindSession',actor,sessionId:input.sessionId,projectId:null});
+        runProjectsTransaction(h.sqlite!,{action:'bindSession',actor,sessionId:input.sessionId,projectId:'project'});
+        expect(await adoption(runtime).start({...input,requestId:'fresh-binding-event',expectedBindingRevision:3})).toMatchObject({ok:false,errorCode:'BINDING_CONFLICT'});
+        expect(runtime.dispatch.mock.calls).toHaveLength(calls);expect(h.sqlite!.prepare('SELECT COUNT(*) FROM bot_delegations').pluck().get()).toBe(1);
+      }finally{runtime.dispose();}
+    });
+    it('admits only one execution for two competing request IDs on one work item', async () => {
+      const input = await seedWorkItem();
+      const a = executionRuntime({ taskControl: true,withSessionLock: withSendToSessionLock });
+      const b = executionRuntime({ taskControl: true,withSessionLock: withSendToSessionLock });
+      try {
+        const results = await Promise.all([adoption(a).start(input),adoption(b).start({ ...input,requestId: 'event-2' })]);
+        expect(results.every(r => r.ok)).toBe(true);
+        expect([...a.dispatch.mock.calls,...b.dispatch.mock.calls].filter(([p]) => p.targetSessionId===input.sessionId)).toHaveLength(1);
+        expect(h.sqlite!.prepare('SELECT COUNT(*) FROM bot_delegations').pluck().get()).toBe(1);
+      } finally { a.dispose(); b.dispose(); }
+    });
+    it('does not rely on a shared in-memory lock when two connections race to adopt',async()=>{
+      const input=await seedWorkItem(); const file=join(h.userDataDir,'adoption-race.sqlite'); await h.sqlite!.backup(file);
+      h.sqlite!.close();attachDb(openJointFollowupDb(file));h.ownerScopeKey='owner-a:2';const second=openJointFollowupDb(file);
+      const independentLock=async(_id:string,operation:()=>Promise<void>)=>operation();
+      const a=executionRuntime({taskControl:true,withSessionLock:independentLock}),b=executionRuntime({taskControl:true,withSessionLock:independentLock});
+      try{
+        const results=await Promise.all([adoption(a).start(input),adoption(b,undefined,second).start({...input,requestId:'racing-event'})]);
+        expect(results.some(r=>r.ok)).toBe(true);
+        expect([...a.dispatch.mock.calls,...b.dispatch.mock.calls].filter(([p])=>p.targetSessionId===input.sessionId)).toHaveLength(1);
+        expect(h.sqlite!.prepare('SELECT COUNT(*) FROM bot_delegations').pluck().get()).toBe(1);
+      }finally{a.dispose();b.dispose();second.close();}
+    });
+    it('rejects a revoked actual group owner-action lease at native acceptance',async()=>{
+      const input=await seedWorkItem();seedGroupLane('adoption-group','group:fixture:access:owner:2');let revoked=false,consumed=0;
+      const release=registerGroupToolAuthority('adoption-group',{botId:'bot-a',mode:'owner',isCurrent:()=>true,
+        validate:async()=>{if(revoked)throw new GroupToolAuthorizationError();}});
+      const runtime=executionRuntime({taskControl:true,withSessionLock:withSendToSessionLock,
+        postGroupTaskMessage:async p=>({ok:true,messageId:p.clientId}),beforeNativeAcceptance:id=>{if(id===input.sessionId)revoked=true;},
+        decorateDispatch:dispatch=>async p=>{const r=await dispatch(p);if(r.ok&&p.targetSessionId===input.sessionId)consumed++;return r;}});
+      try{
+        expect(await adoption(runtime,undefined,h.sqlite!,'adoption-group').start({...input,callerSessionId:'adoption-group'})).toMatchObject({ok:false});
+        expect(consumed).toBe(0);
+      }finally{release();runtime.dispose();}
+    });
+    it('does not retain a stale caller permission generation through native preparation',async()=>{
+      const input=await seedWorkItem();let permission:{mode:'bypassPermissions';generation:number}|null={mode:'bypassPermissions',generation:1},consumed=0;
+      const runtime=executionRuntime({taskControl:true,withSessionLock:withSendToSessionLock,readCallerPermission:()=>permission,
+        beforeNativeAcceptance:id=>{if(id===input.sessionId)permission=null;},
+        decorateDispatch:dispatch=>async p=>{const r=await dispatch(p);if(r.ok&&p.targetSessionId===input.sessionId)consumed++;return r;}});
+      try{expect(await adoption(runtime).start(input)).toMatchObject({ok:false});expect(consumed).toBe(0);}finally{runtime.dispose();}
+    });
+    it.each([false,true])('allows different work items only with non-conflicting directories (shared: %s)', async shared => {
+      const input = await seedWorkItem();
+      const otherDir = shared ? h.userDataDir : join(h.userDataDir,'independent-work'); mkdirSync(otherDir,{recursive:true});
+      h.sqlite!.prepare(`INSERT INTO sessions(id,title,source,status,working_dir,model,agent_kind,provider_id,permission_mode,created_at,updated_at)
+        SELECT 'second-work','Second','desktop','active',?,model,agent_kind,provider_id,permission_mode,1,1 FROM sessions WHERE id=?`).run(otherDir,input.sessionId);
+      runProjectsTransaction(h.sqlite!,{ action:'bindSession',actor:{kind:'account',id:'owner-a'},sessionId:'second-work',projectId:'project' });
+      const runtime = executionRuntime({ taskControl:true,withSessionLock:withSendToSessionLock });
+      try {
+        expect(await adoption(runtime).start(input)).toMatchObject({ok:true});
+        const second = await adoption(runtime).start({...input,sessionId:'second-work',requestId:'second-event'});
+        expect(second).toMatchObject(shared ? {ok:false,errorCode:'WORKING_DIR_BUSY'} : {ok:true,childSessionId:'second-work',status:'running'});
+        expect(h.sqlite!.prepare('SELECT COUNT(*) FROM bot_delegations').pluck().get()).toBe(shared?1:2);
+      } finally { runtime.dispose(); }
+    });
+    it.each(['member-admit','member-native','binding-admit','binding-native','owner-native'] as const)('blocks execution after %s changes', async boundary => {
+      const input = await seedWorkItem(); let consumed=0;
+      const change = () => {
+        if (boundary.startsWith('member')) h.sqlite!.prepare("DELETE FROM project_members WHERE project_id='project' AND subject_kind='bot' AND subject_id='bot-a'").run();
+        else if (boundary.startsWith('binding')) {
+          const actor={kind:'account' as const,id:'owner-a'};
+          runProjectsTransaction(h.sqlite!,{action:'bindSession',actor,sessionId:input.sessionId,projectId:null});
+          runProjectsTransaction(h.sqlite!,{action:'bindSession',actor,sessionId:input.sessionId,projectId:'project'});
+        } else h.ownerScopeKey='owner-a:2';
+      };
+      const runtime = executionRuntime({ taskControl:true,withSessionLock:withSendToSessionLock,
+        beforeNativeAcceptance: id => { if(id===input.sessionId && boundary.endsWith('native')) change(); },
+        decorateDispatch: dispatch => async p => { const result=await dispatch(p);if(result.ok && p.targetSessionId===input.sessionId) consumed++;return result; },
+      });
+      try {
+        const result=await adoption(runtime,p=>{if(p.action==='admit' && boundary.endsWith('admit')) change();}).start(input);
+        expect(result).toMatchObject({ok:false}); expect(consumed).toBe(0);
+        if(boundary.endsWith('admit')) expect(h.sqlite!.prepare('SELECT COUNT(*) FROM bot_delegations').pluck().get()).toBe(0);
+        expect(h.sqlite!.prepare('SELECT COUNT(*) FROM sessions').pluck().get()).toBe(2);
+      } finally { runtime.dispose(); }
+    });
+    it('rechecks one final ACL snapshot after native receipt persistence yields',async()=>{
+      const input=await seedWorkItem();let consumed=0;const base=h.tx!;
+      const runtime=executionRuntime({taskControl:true,withSessionLock:withSendToSessionLock,
+        decorateDispatch:dispatch=>async p=>{const r=await dispatch(p);if(r.ok&&p.targetSessionId===input.sessionId)consumed++;return r;}});
+      h.tx=async(name,args)=>{const r=await base(name,args);
+        if(name==='bots.followupRequest' && (args as {action?:string}).action==='accepted')h.sqlite!.prepare("DELETE FROM project_members WHERE project_id='project' AND subject_kind='bot' AND subject_id='bot-a'").run();
+        return r;};
+      try{expect(await adoption(runtime).start(input)).toMatchObject({ok:false});expect(consumed).toBe(0);}finally{h.tx=base;runtime.dispose();}
+    });
+    it('distinguishes account and bot principals with the same ID and rejects forged raw identity', async () => {
+      const input=await seedWorkItem(); const runtime=executionRuntime({taskControl:true,withSessionLock:withSendToSessionLock});
+      try {
+        expect(await adoption(runtime).start(Object.assign({},input,{actor:{kind:'account',id:'owner-a'}}))).toMatchObject({ok:false,errorCode:'INVALID_ARGS'});
+        expect(await adoption(runtime).start({...input,callerSessionId:'some-other-session'})).toMatchObject({ok:false,errorCode:'CALLER_MISMATCH'});
+        h.ownerScopeKey='bot-a:2';
+        expect(await adoption(runtime).start(input)).toMatchObject({ok:false,errorCode:'NOT_PROJECT_MEMBER'});
+        expect(runtime.dispatch).not.toHaveBeenCalled(); expect(h.sqlite!.prepare('SELECT COUNT(*) FROM bot_delegations').pluck().get()).toBe(0);
+      } finally {runtime.dispose();}
+    });
+    it.each(['archived','deleted','private','running','permission'] as const)('does not adopt a %s target or silently replace configuration',async kind=>{
+      const input=await seedWorkItem();const runtime=executionRuntime({taskControl:true,withSessionLock:withSendToSessionLock});
+      try{
+        if(kind==='archived'||kind==='deleted')h.sqlite!.prepare('UPDATE sessions SET status=? WHERE id=?').run(kind,input.sessionId);
+        if(kind==='private')h.sqlite!.prepare("INSERT INTO bot_session_links(id,bot_id,session_id,profile_version,role,route_key,created_at) VALUES('private-link','bot-a',?,1,'routine','routine:private',1)").run(input.sessionId);
+        if(kind==='running')await runtime.dispatch({targetSessionId:input.sessionId,message:'Existing user turn',clientId:'direct-existing'});
+        if(kind==='permission')h.sqlite!.prepare("UPDATE sessions SET permission_mode='ask' WHERE id=?").run(input.sessionId);
+        const before=h.sqlite!.prepare('SELECT * FROM sessions WHERE id=?').get(input.sessionId),calls=runtime.dispatch.mock.calls.length;
+        expect(await adoption(runtime).start(input)).toMatchObject({ok:false});
+        expect(runtime.dispatch.mock.calls).toHaveLength(calls);expect(h.sqlite!.prepare('SELECT * FROM sessions WHERE id=?').get(input.sessionId)).toEqual(before);
+        expect(h.sqlite!.prepare('SELECT COUNT(*) FROM bot_delegations').pluck().get()).toBe(0);
+      }finally{runtime.dispose();}
+    });
+    it.each(['paused','pending'] as const)('does not acquire an unowned work item with an existing %s input boundary',async kind=>{
+      const input=await seedWorkItem();const runtime=executionRuntime({taskControl:true,withSessionLock:withSendToSessionLock,queueSnapshots:new Map()});
+      try{
+        if(kind==='paused')runtime.coordinator!.setExecutionPaused(input.sessionId,true);
+        else h.sqlite!.prepare('INSERT INTO agent_input_queue_snapshots(session_id,payload,updated_at) VALUES(?,?,1)').run(input.sessionId,JSON.stringify([{clientId:'existing-input',message:'Existing queued input'}]));
+        expect(await adoption(runtime).start(input)).toMatchObject({ok:false,errorCode:kind==='paused'?'TASK_PAUSED':'SESSION_QUEUED'});
+        expect(runtime.dispatch).not.toHaveBeenCalled();expect(h.sqlite!.prepare('SELECT COUNT(*) FROM bot_delegations').pluck().get()).toBe(0);
+        if(kind==='paused')expect(runtime.coordinator!.isExecutionPaused(input.sessionId)).toBe(true);
+      }finally{runtime.dispose();}
+    });
+    it('does not resume a paused existing execution for another start request',async()=>{
+      const input=await seedWorkItem();const runtime=executionRuntime({taskControl:true,withSessionLock:withSendToSessionLock});
+      try{
+        expect(await adoption(runtime).start(input)).toMatchObject({ok:true});
+        await runtime.delegation.stopSessionTask(input.callerSessionId,`project-workitem:${testSha256(input.sessionId)}`,'pause');
+        const calls=runtime.dispatch.mock.calls.length;
+        expect(await adoption(runtime).start({...input,requestId:'another-start'})).toMatchObject({ok:true,existing:true});
+        expect(runtime.dispatch.mock.calls).toHaveLength(calls);
+        const snapshot=JSON.parse(h.sqlite!.prepare('SELECT permission_snapshot_json FROM bot_delegations').pluck().get() as string);
+        expect(snapshot.taskPause).toBeDefined();
+      }finally{runtime.dispose();}
+    });
+    it('rolls back formal association and request admission together on insert failure',async()=>{
+      const input=await seedWorkItem();const runtime=executionRuntime({taskControl:true,withSessionLock:withSendToSessionLock});
+      try{
+        const before=h.sqlite!.prepare('SELECT * FROM sessions WHERE id=?').get(input.sessionId);
+        h.sqlite!.exec("CREATE TRIGGER reject_adoption BEFORE INSERT ON bot_task_followup_requests BEGIN SELECT RAISE(ABORT,'CONTROLLED_ADOPTION_FAILURE'); END");
+        expect(await adoption(runtime).start(input)).toMatchObject({ok:false});expect(runtime.dispatch).not.toHaveBeenCalled();
+        expect(h.sqlite!.prepare('SELECT COUNT(*) FROM bot_delegations').pluck().get()).toBe(0);
+        expect(h.sqlite!.prepare('SELECT COUNT(*) FROM bot_task_followup_requests').pluck().get()).toBe(0);
+        expect(h.sqlite!.prepare('SELECT * FROM sessions WHERE id=?').get(input.sessionId)).toEqual(before);
+      }finally{runtime.dispose();}
+    });
+    it('does not dispatch an admitted project task during unguarded restart or raw message control',async()=>{
+      const input=await seedWorkItem();let runtime=executionRuntime({taskControl:true,withSessionLock:withSendToSessionLock});
+      try{
+        expect(await adoption(runtime,p=>p.action==='admit'?()=>{h.ownerScopeKey='owner-a:2';}:undefined).start(input)).toMatchObject({ok:false});
+        expect(h.sqlite!.prepare('SELECT phase FROM bot_task_followup_requests').pluck().get()).toBe('admitted');
+        const id=h.sqlite!.prepare('SELECT id FROM bot_delegations').pluck().get() as string;
+        runtime.dispose();runtime=executionRuntime({taskControl:true,withSessionLock:withSendToSessionLock});
+        h.sqlite!.prepare("DELETE FROM project_members WHERE project_id='project' AND subject_kind='bot' AND subject_id='bot-a'").run();
+        await runtime.delegation.restore();expect(runtime.dispatch).not.toHaveBeenCalled();
+        expect(await runtime.delegation.messageSessionTask(input.callerSessionId,id,{kind:'message',text:'Unscoped follow-up',idempotencyKey:'raw-request'}))
+          .toMatchObject({ok:false,errorCode:'PROJECT_EXECUTION_GUARD_REQUIRED'});
+        expect(await runtime.delegation.getSessionTask(input.callerSessionId,id)).toMatchObject({ok:false,errorCode:'PROJECT_EXECUTION_GUARD_REQUIRED'});
+        expect(h.sqlite!.prepare('SELECT phase FROM bot_task_followup_requests').pluck().get()).toBe('admitted');
+      }finally{runtime.dispose();}
+    });
+    it('preserves fixed input and unknown outcome across service restart without dispatching again',async()=>{
+      const input=await seedWorkItem();let lose=true;
+      let runtime=executionRuntime({taskControl:true,withSessionLock:withSendToSessionLock,
+        decorateDispatch:dispatch=>async p=>{const r=await dispatch(p);if(p.targetSessionId===input.sessionId&&lose){lose=false;throw new Error('CONTROLLED_ACK_LOST');}return r;}});
+      try{
+        expect(await adoption(runtime).start(input)).toMatchObject({ok:false,errorCode:'FOLLOWUP_OUTCOME_UNKNOWN'});
+        const ledger=h.sqlite!.prepare('SELECT * FROM bot_task_followup_requests').get();expect(ledger).toMatchObject({phase:'unknown'});
+        runtime.dispose();runtime=executionRuntime({taskControl:true,withSessionLock:withSendToSessionLock});await runtime.delegation.restore();
+        expect(await adoption(runtime).start(input)).toMatchObject({ok:false,errorCode:'FOLLOWUP_OUTCOME_UNKNOWN'});
+        expect(runtime.dispatch).not.toHaveBeenCalled();expect(h.sqlite!.prepare('SELECT * FROM bot_task_followup_requests').get()).toEqual(ledger);
+        expect(h.sqlite!.prepare('SELECT run_sequence FROM bot_delegations').pluck().get()).toBe(1);
+      }finally{runtime.dispose();}
+    });
+  });
+
+  describe('terminal follow-up idempotency', () => {
+    it.each(['active', 'completed', 'restart'] as const)('replays the original receipt without dispatch or a new run (%s)', async boundary => {
+      await seedPair();
+      let runtime = createDelegationRuntime();
+      try {
+        const task = await runtime.delegation.startSessionTask({ callerSessionId: 'session-1', objective: 'Original work.' });
+        if (!task.ok) throw new Error('missing task');
+        await runtime.settleChild(task.childSessionId, 'Original result.');
+        const input = { kind: 'message' as const, mode: 'queue' as const, text: 'Follow up.', idempotencyKey: 'K' };
+        const receipt = await runtime.delegation.messageSessionTask('session-1', task.delegationId, input);
+        expect(receipt).toMatchObject({ ok: true, childSessionId: task.childSessionId, resumed: true });
+        if (boundary !== 'active') {
+          await runtime.settleChild(task.childSessionId, 'Follow-up result.');
+          expect(h.sqlite!.prepare('SELECT status FROM bot_delegations WHERE id = ?').pluck().get(task.delegationId)).toBe('completed');
+        }
+        const read = () => h.sqlite!.prepare('SELECT run_sequence AS run, permission_snapshot_json AS snapshot FROM bot_delegations WHERE id = ?').get(task.delegationId);
+        const before = read();
+        const messagesBefore = h.sqlite!.prepare('SELECT COUNT(*) FROM messages').pluck().get();
+        if (boundary === 'restart') {
+          runtime.dispose();
+          runtime = createDelegationRuntime();
+        }
+        const dispatches = runtime.dispatch.mock.calls.length;
+        const replay = await runtime.delegation.messageSessionTask('session-1', task.delegationId, input);
+        expect({ dispatches: runtime.dispatch.mock.calls.length, state: read(), replay,
+          messages: h.sqlite!.prepare('SELECT COUNT(*) FROM messages').pluck().get() }).toEqual({
+          dispatches, state: before, replay: receipt, messages: messagesBefore,
+        });
+      } finally { runtime.dispose(); }
+    });
+
+    it('rejects changed normalized text for K', async () => {
+      await seedPair();
+      const runtime = createDelegationRuntime();
+      try {
+        const task = await runtime.delegation.startSessionTask({ callerSessionId: 'session-1', objective: 'Original work.' });
+        if (!task.ok) throw new Error('missing task');
+        await runtime.settleChild(task.childSessionId, 'Original result.');
+        const input = { kind: 'message' as const, mode: 'queue' as const, text: 'Follow up.', idempotencyKey: 'K' };
+        await runtime.delegation.messageSessionTask('session-1', task.delegationId, input);
+        const dispatches = runtime.dispatch.mock.calls.length;
+        const conflict = await runtime.delegation.messageSessionTask('session-1', task.delegationId, { ...input, text: 'A different intent.' });
+        expect({ result: conflict, dispatches: runtime.dispatch.mock.calls.length }).toMatchObject({
+          result: { ok: false, errorCode: 'IDEMPOTENCY_CONFLICT' }, dispatches,
+        });
+      } finally { runtime.dispose(); }
+    });
+
+    it('treats the same text under K2 as new intent on the same child', async () => {
+      await seedPair();
+      const runtime = createDelegationRuntime();
+      try {
+        const task = await runtime.delegation.startSessionTask({ callerSessionId: 'session-1', objective: 'Original work.' });
+        if (!task.ok) throw new Error('missing task');
+        await runtime.settleChild(task.childSessionId, 'Original result.');
+        const input = { kind: 'message' as const, mode: 'queue' as const, text: 'Follow up.', idempotencyKey: 'K' };
+        const originalReceipt = await runtime.delegation.messageSessionTask('session-1', task.delegationId, input);
+        await runtime.settleChild(task.childSessionId, 'Follow-up result.');
+        const starts = runtime.started.filter(turn => turn.sessionId === task.childSessionId).length;
+        expect(await runtime.delegation.messageSessionTask('session-1', task.delegationId, { ...input, idempotencyKey: 'K2' }))
+          .toMatchObject({ ok: true, childSessionId: task.childSessionId, resumed: true });
+        expect(h.sqlite!.prepare('SELECT run_sequence FROM bot_delegations WHERE id = ?').pluck().get(task.delegationId)).toBe(3);
+        expect(runtime.started.filter(turn => turn.sessionId === task.childSessionId)).toHaveLength(starts + 1);
+        expect(h.sqlite!.prepare('SELECT COUNT(*) FROM bot_delegations').pluck().get()).toBe(1);
+        expect(h.sqlite!.prepare('SELECT COUNT(*) FROM bot_task_followup_requests').pluck().get()).toBe(2);
+        const calls = runtime.dispatch.mock.calls.length;
+        expect(await runtime.delegation.messageSessionTask('session-1', task.delegationId, input)).toEqual(originalReceipt);
+        expect(runtime.dispatch.mock.calls).toHaveLength(calls);
+      } finally { runtime.dispose(); }
+    });
+
+    it('retains the same request after an unknown post-accept dispatch outcome', async () => {
+      await seedPair();
+      let loseNextAcknowledgement = false;
+      const runtime = createDelegationRuntime({ decorateDispatch: dispatch => async params => {
+        const result = await dispatch(params);
+        if (loseNextAcknowledgement && (params.clientId?.startsWith('bot-delegation-start:') || params.clientId?.includes(':request-'))) {
+          loseNextAcknowledgement = false;
+          throw new Error('CONTROLLED_POST_ACCEPT_ACK_LOST');
+        }
+        return result;
+      } });
+      try {
+        const task = await runtime.delegation.startSessionTask({ callerSessionId: 'session-1', objective: 'Original work.' });
+        if (!task.ok) throw new Error('missing task');
+        await runtime.settleChild(task.childSessionId, 'Original result.');
+        const input = { kind: 'message' as const, mode: 'queue' as const, text: 'Follow up.', idempotencyKey: 'K' };
+        loseNextAcknowledgement = true;
+        await expect(runtime.delegation.messageSessionTask('session-1', task.delegationId, input)).rejects.toThrow('CONTROLLED_POST_ACCEPT_ACK_LOST');
+        const starts = runtime.started.filter(turn => turn.sessionId === task.childSessionId).length;
+        const dispatches = runtime.dispatch.mock.calls.length;
+        await runtime.delegation.messageSessionTask('session-1', task.delegationId, input);
+        expect({ dispatches: runtime.dispatch.mock.calls.length,
+          starts: runtime.started.filter(turn => turn.sessionId === task.childSessionId).length })
+          .toEqual({ dispatches, starts });
+        const original = h.sqlite!.prepare('SELECT * FROM bot_task_followup_requests').get();
+        expect(original).toMatchObject({ phase: 'unknown', native_accepted_at: expect.any(Number) });
+        runtime.dispose();
+        // A legacy snapshot restore may lose the current run's execution pointer.
+        // The independent ledger must still block a fallback start/retry identity.
+        const snapshot = JSON.parse(h.sqlite!.prepare('SELECT permission_snapshot_json FROM bot_delegations WHERE id=?').pluck().get(task.delegationId) as string);
+        delete snapshot.taskInput.inputId;
+        h.sqlite!.prepare("UPDATE bot_delegations SET permission_snapshot_json=?, status='queued' WHERE id=?")
+          .run(JSON.stringify(snapshot), task.delegationId);
+        const recovered = createDelegationRuntime();
+        try {
+          await recovered.delegation.restore();
+          expect(await recovered.delegation.messageSessionTask('session-1', task.delegationId, input))
+            .toMatchObject({ ok: false, errorCode: 'FOLLOWUP_OUTCOME_UNKNOWN' });
+          expect(recovered.dispatch).not.toHaveBeenCalled();
+          expect(h.sqlite!.prepare('SELECT * FROM bot_task_followup_requests').get()).toEqual(original);
+        } finally { recovered.dispose(); }
+      } finally { runtime.dispose(); }
+    });
+
+    // The production transaction has only expectedStatus, not expected run/key.
+    // Prove the ABA gap before proposing a data contract outside this write scope.
+    it('rejects a stale reopen transaction when a later run is completed again', async () => {
+      await seedPair();
+      const runtime = createDelegationRuntime();
+      const originalTx = h.tx!;
+      let replayReopen: (() => Promise<unknown>) | undefined;
+      h.tx = async (name, args) => {
+        if (name === 'bots.reopenDelegation') replayReopen = () => originalTx(name, args);
+        const followup = name === 'bots.followupRequest' ? args as BotFollowupRequestArgs : null;
+        if (followup?.action === 'admit' && followup.reopen) replayReopen = () => originalTx('bots.reopenDelegation', followup.reopen!);
+        return originalTx(name, args);
+      };
+      try {
+        const task = await runtime.delegation.startSessionTask({ callerSessionId: 'session-1', objective: 'Original work.' });
+        if (!task.ok) throw new Error('missing task');
+        await runtime.settleChild(task.childSessionId, 'Original result.');
+        await runtime.delegation.messageSessionTask('session-1', task.delegationId, { kind: 'message', mode: 'queue', text: 'Follow up.', idempotencyKey: 'K' });
+        await runtime.settleChild(task.childSessionId, 'Follow-up result.');
+        expect(h.sqlite!.prepare('SELECT status, run_sequence AS run FROM bot_delegations WHERE id = ?').get(task.delegationId))
+          .toEqual({ status: 'completed', run: 2 });
+        if (!replayReopen) throw new Error('reopen transaction was not reached');
+        const result = await replayReopen();
+        expect({ result, row: h.sqlite!.prepare('SELECT status, run_sequence AS run FROM bot_delegations WHERE id = ?').get(task.delegationId) })
+          .toMatchObject({ result: { reopened: false }, row: { status: 'completed', run: 2 } });
+      } finally { h.tx = originalTx; runtime.dispose(); }
+    });
+  });
+
+  describe('persistent follow-up admission', () => {
+    it('returns explicit unknown rather than a false queued success when continuation dispatch has no acceptance', async () => {
+      await seedPair(); let unavailable = false;
+      const runtime = createDelegationRuntime({ transientUnavailable: () => unavailable });
+      try {
+        const task = await runtime.delegation.startSessionTask({ callerSessionId: 'session-1', objective: 'Uncertain work.' });
+        if (!task.ok) throw new Error(task.message);
+        await runtime.settleChild(task.childSessionId, 'First result.'); unavailable = true;
+        const input = { kind: 'message' as const, text: 'Continue once.', idempotencyKey: 'no-acceptance' };
+        expect(await runtime.delegation.messageSessionTask('session-1', task.delegationId, input))
+          .toMatchObject({ ok: false, errorCode: 'FOLLOWUP_OUTCOME_UNKNOWN' });
+        const record = h.sqlite!.prepare('SELECT * FROM bot_task_followup_requests').get();
+        expect(record).toMatchObject({ phase: 'unknown', native_accepted_at: null, result_json: null });
+        unavailable = false; const calls = runtime.dispatch.mock.calls.length;
+        expect(await runtime.delegation.messageSessionTask('session-1', task.delegationId, input))
+          .toMatchObject({ ok: false, errorCode: 'FOLLOWUP_OUTCOME_UNKNOWN' });
+        expect(runtime.dispatch.mock.calls).toHaveLength(calls);
+        expect(h.sqlite!.prepare('SELECT * FROM bot_task_followup_requests').get()).toEqual(record);
+      } finally { runtime.dispose(); }
+    });
+
+    it('keeps the no-key retry behavior after a confirmed pre-provider rejection', async () => {
+      await seedPair(); let execution = { instanceId: 'native', generation: 1 }, reject = false;
+      const runtime = createDelegationRuntime({ readSessionExecution: () => execution, rejectAfterNativeAcceptance: () => reject });
+      try {
+        const task = await runtime.delegation.startSessionTask({ callerSessionId: 'session-1', objective: 'Legacy work.' });
+        if (!task.ok) throw new Error(task.message);
+        execution = { ...execution, generation: 2 }; reject = true;
+        const input = { kind: 'message' as const, text: 'Legacy supplement without key.' };
+        expect(await runtime.delegation.messageSessionTask('session-1', task.delegationId, input)).toMatchObject({ ok: false });
+        expect(JSON.parse(h.sqlite!.prepare('SELECT permission_snapshot_json FROM bot_delegations WHERE id=?').pluck().get(task.delegationId) as string).taskExecution)
+          .toMatchObject({ instanceId: 'native', generation: 1 });
+        reject = false;
+        expect(await runtime.delegation.messageSessionTask('session-1', task.delegationId, input)).toMatchObject({ ok: true });
+        expect(runtime.started.filter(turn => turn.sessionId === task.childSessionId)).toHaveLength(2);
+        expect(h.sqlite!.prepare('SELECT COUNT(*) FROM bot_task_followup_requests').pluck().get()).toBe(0);
+      } finally { runtime.dispose(); }
+    });
+    it('replays the same receipt after closing and reopening file SQLite and changing parent lane', async () => {
+      const file = join(h.userDataDir, 'followup-restart.sqlite');
+      h.sqlite!.close(); createDb(file);
+      await seedPair(); seedGroupLane('routine-caller', 'routine:fixture');
+      h.sqlite!.prepare("UPDATE bot_session_links SET role='routine' WHERE session_id='routine-caller'").run();
+      let runtime = createDelegationRuntime();
+      try {
+        const task = await runtime.delegation.startSessionTask({ callerSessionId: 'session-1', objective: 'File-backed work.' });
+        if (!task.ok) throw new Error(task.message);
+        await runtime.settleChild(task.childSessionId, 'First result.');
+        const input = { kind: 'message' as const, text: 'Follow up.', idempotencyKey: 'disk-key' };
+        const receipt = await runtime.delegation.messageSessionTask('session-1', task.delegationId, input);
+        await runtime.settleChild(task.childSessionId, 'Follow-up result.');
+        const stored = h.sqlite!.prepare('SELECT * FROM bot_task_followup_requests').all();
+        runtime.dispose(); h.sqlite!.close(); attachDb(openJointFollowupDb(file));
+        runtime = createDelegationRuntime(); await runtime.delegation.restore();
+        expect(await runtime.delegation.messageSessionTask('routine-caller', task.delegationId, { ...input, text: '  Follow up.\n' })).toEqual(receipt);
+        expect(runtime.dispatch).not.toHaveBeenCalled(); expect(runtime.started).toEqual([]);
+        expect(h.sqlite!.prepare('SELECT * FROM bot_task_followup_requests').all()).toEqual(stored);
+        expect(h.sqlite!.prepare('SELECT run_sequence FROM bot_delegations WHERE id=?').pluck().get(task.delegationId)).toBe(2);
+        expect(await runtime.delegation.messageSessionTask('routine-caller', task.delegationId, { ...input, text: 'Changed after restart.' }))
+          .toMatchObject({ ok: false, errorCode: 'IDEMPOTENCY_CONFLICT' });
+      } finally { runtime.dispose(); }
+    });
+
+    it('admits and dispatches once when two service instances race on two file connections', async () => {
+      const file = join(h.userDataDir, 'followup-race.sqlite');
+      h.sqlite!.close(); createDb(file); await seedPair();
+      const left = createDelegationRuntime(), right = createDelegationRuntime();
+      const second = openJointFollowupDb(file); second.pragma('foreign_keys = ON');
+      const baseTx = h.tx!; let connection = false;
+      try {
+        const task = await left.delegation.startSessionTask({ callerSessionId: 'session-1', objective: 'Race work.' });
+        if (!task.ok) throw new Error(task.message);
+        await left.settleChild(task.childSessionId, 'First result.');
+        h.tx = async (name, args) => { connection = !connection;
+          return runWorkerTx(connection ? h.sqlite! : second, { name: name as never, args } as never); };
+        const input = { kind: 'message' as const, text: 'Only one input.', idempotencyKey: 'race-key' };
+        const before = left.started.filter(turn => turn.sessionId === task.childSessionId).length;
+        const replies = await Promise.all([left.delegation.messageSessionTask('session-1', task.delegationId, input),
+          right.delegation.messageSessionTask('session-1', task.delegationId, input)]);
+        expect(left.started.filter(turn => turn.sessionId === task.childSessionId).length
+          + right.started.filter(turn => turn.sessionId === task.childSessionId).length).toBe(before + 1);
+        expect(h.sqlite!.prepare('SELECT COUNT(*) FROM bot_task_followup_requests').pluck().get()).toBe(1);
+        expect(h.sqlite!.prepare('SELECT run_sequence FROM bot_delegations WHERE id=?').pluck().get(task.delegationId)).toBe(2);
+        const receipt = replies.find(reply => reply.ok); expect(receipt).toBeDefined();
+        expect(await right.delegation.messageSessionTask('session-1', task.delegationId, input)).toEqual(receipt);
+      } finally { h.tx = baseTx; second.close(); left.dispose(); right.dispose(); }
+    });
+
+    it('rolls back reopen, parent and input admission together if the ledger insert fails', async () => {
+      await seedPair(); seedGroupLane('routine-caller', 'routine:fixture');
+      h.sqlite!.prepare("UPDATE bot_session_links SET role='routine' WHERE session_id='routine-caller'").run();
+      const runtime = createDelegationRuntime();
+      try {
+        const task = await runtime.delegation.startSessionTask({ callerSessionId: 'session-1', objective: 'Atomic work.' });
+        if (!task.ok) throw new Error(task.message);
+        await runtime.settleChild(task.childSessionId, 'First result.');
+        const before = h.sqlite!.prepare('SELECT * FROM bot_delegations WHERE id=?').get(task.delegationId);
+        const child = h.sqlite!.prepare('SELECT * FROM sessions WHERE id=?').get(task.childSessionId);
+        const messages = h.sqlite!.prepare('SELECT COUNT(*) FROM messages').pluck().get();
+        h.sqlite!.exec("CREATE TRIGGER reject_followup BEFORE INSERT ON bot_task_followup_requests BEGIN SELECT RAISE(ABORT, 'CONTROLLED_ADMISSION_FAILURE'); END");
+        await expect(runtime.delegation.messageSessionTask('routine-caller', task.delegationId,
+          { kind: 'message', text: 'Continue atomically.', idempotencyKey: 'atomic-key' })).rejects.toThrow('CONTROLLED_ADMISSION_FAILURE');
+        expect(h.sqlite!.prepare('SELECT * FROM bot_delegations WHERE id=?').get(task.delegationId)).toEqual(before);
+        expect(h.sqlite!.prepare('SELECT * FROM sessions WHERE id=?').get(task.childSessionId)).toEqual(child);
+        expect(h.sqlite!.prepare('SELECT COUNT(*) FROM messages').pluck().get()).toBe(messages);
+        expect(h.sqlite!.prepare('SELECT COUNT(*) FROM bot_task_followup_requests').pluck().get()).toBe(0);
+      } finally { runtime.dispose(); }
+    });
+
+    it('rejects a new key at its captured stale run instead of adopting a later generation', async () => {
+      await seedPair(); const runtime = createDelegationRuntime(); const baseTx = h.tx!;
+      try {
+        const task = await runtime.delegation.startSessionTask({ callerSessionId: 'session-1', objective: 'CAS work.' });
+        if (!task.ok) throw new Error(task.message);
+        await runtime.settleChild(task.childSessionId, 'First result.');
+        h.tx = async (name, args) => {
+          const followup = name === 'bots.followupRequest' ? args as BotFollowupRequestArgs : null;
+          if (followup?.action === 'admit') {
+            expect(followup.expectedRunSequence).toBe(1);
+            h.sqlite!.prepare('UPDATE bot_delegations SET run_sequence=2 WHERE id=?').run(task.delegationId);
+          }
+          return baseTx(name, args);
+        };
+        const starts = runtime.started.length;
+        expect(await runtime.delegation.messageSessionTask('session-1', task.delegationId,
+          { kind: 'message', text: 'Stale new intent.', idempotencyKey: 'stale-key' }))
+          .toMatchObject({ ok: false, errorCode: 'SESSION_TASK_STATE_CHANGED' });
+        expect(runtime.started).toHaveLength(starts);
+        expect(h.sqlite!.prepare('SELECT COUNT(*) FROM bot_task_followup_requests').pluck().get()).toBe(0);
+        expect(h.sqlite!.prepare('SELECT status,run_sequence FROM bot_delegations WHERE id=?').get(task.delegationId))
+          .toEqual({ status: 'completed', run_sequence: 2 });
+      } finally { h.tx = baseTx; runtime.dispose(); }
+    });
+
+    it.each(['before-read', 'after-read'] as const)('rechecks group permissions on known replay (%s) and posts no duplicate group cards', async boundary => {
+      await seedPair(); seedGroupLane(); let revoked = false;
+      const release = registerGroupToolAuthority('group-lane', { botId: 'bot-a', mode: 'owner', isCurrent: () => true,
+        validate: async () => { if (revoked) throw new GroupToolAuthorizationError(); } });
+      const post = vi.fn(async (input: { clientId: string }) => ({ ok: true as const, messageId: input.clientId }));
+      const runtime = createDelegationRuntime({ postGroupTaskMessage: post }); const baseTx = h.tx!;
+      try {
+        const task = await runtime.delegation.startSessionTask({ callerSessionId: 'group-lane', objective: 'Group work.' });
+        if (!task.ok) throw new Error(task.message);
+        await runtime.settleChild(task.childSessionId, 'First group result.');
+        const input = { kind: 'message' as const, text: 'Follow up.', idempotencyKey: 'group-key' };
+        const receipt = await runtime.delegation.messageSessionTask('group-lane', task.delegationId, input);
+        await runtime.settleChild(task.childSessionId, 'Second group result.');
+        const posts = post.mock.calls.map(([p]) => p.clientId), calls = runtime.dispatch.mock.calls.length;
+        expect(await runtime.delegation.messageSessionTask('group-lane', task.delegationId, input)).toEqual(receipt);
+        expect(post.mock.calls.map(([p]) => p.clientId)).toEqual(posts);
+        if (boundary === 'before-read') revoked = true;
+        else h.tx = async (name, args) => { const result = await baseTx(name, args);
+          if (name === 'bots.followupRequest' && (args as BotFollowupRequestArgs).action === 'lookup') revoked = true;
+          return result; };
+        expect(await runtime.delegation.messageSessionTask('group-lane', task.delegationId, input))
+          .toMatchObject({ ok: false, errorCode: 'GROUP_AUTHORIZATION_REQUIRED' });
+        expect(runtime.dispatch.mock.calls).toHaveLength(calls);
+        expect(post.mock.calls.map(([p]) => p.clientId)).toEqual(posts);
+      } finally { h.tx = baseTx; release(); runtime.dispose(); }
+    });
+
+    it('preserves the ledger through pause and rejects ordinary messages as resume or permission approval', async () => {
+      await seedPair(); const resolveInteraction = vi.fn(() => true);
+      const runtime = createDelegationRuntime({ taskControl: true, resolveInteraction });
+      try {
+        const task = await runtime.delegation.startSessionTask({ callerSessionId: 'session-1', objective: 'Controlled work.' });
+        if (!task.ok) throw new Error(task.message);
+        const input = { kind: 'message' as const, text: 'Queued supplement.', idempotencyKey: 'hold-key' };
+        await runtime.delegation.messageSessionTask('session-1', task.delegationId, input);
+        const ledger = h.sqlite!.prepare('SELECT * FROM bot_task_followup_requests').all();
+        await runtime.delegation.stopSessionTask('session-1', task.delegationId, 'pause');
+        const calls = runtime.dispatch.mock.calls.length;
+        expect(await runtime.delegation.messageSessionTask('session-1', task.delegationId, input)).toMatchObject({ ok: false, errorCode: 'TASK_PAUSED' });
+        expect(runtime.dispatch.mock.calls).toHaveLength(calls);
+        expect(h.sqlite!.prepare('SELECT * FROM bot_task_followup_requests').all()).toEqual(ledger);
+        await runtime.delegation.messageSessionTask('session-1', task.delegationId, { kind: 'resume' });
+        await runtime.delegation.handleInteractionStart(task.childSessionId, { kind: 'permission', requestId: 'followup-permission', toolName: 'write_file', input: {} });
+        expect(await runtime.delegation.messageSessionTask('session-1', task.delegationId,
+          { kind: 'message', text: 'This is not an approval.', idempotencyKey: 'not-approval' })).toMatchObject({ ok: false });
+        expect(resolveInteraction).not.toHaveBeenCalled();
+        expect(h.sqlite!.prepare('SELECT * FROM bot_task_followup_requests').all()).toEqual(ledger);
+      } finally { runtime.dispose(); }
+    });
   });
 
   it('does not rebind an idempotent supplement replay to a later direct turn', async () => {
@@ -9675,7 +10230,8 @@ describe('Bot Session task end-to-end runtime', () => {
         }),
       ).resolves.toMatchObject({ ok: true, queued: true, resumed: false });
 
-      const childClientId = `bot-delegation-interject:${started.delegationId}:follow-up-1`;
+      const childClientId = h.sqlite!.prepare('SELECT input_id FROM bot_task_followup_requests WHERE task_id=?').pluck().get(started.delegationId) as string;
+      expect(childClientId).toMatch(new RegExp(`^bot-delegation-interject:${started.delegationId}:request-`));
       expect(runtime.dispatch).toHaveBeenCalledWith(expect.objectContaining({
         targetSessionId: started.childSessionId,
         clientId: childClientId,

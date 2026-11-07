@@ -765,6 +765,15 @@ export function useOptionalAuthUser(): User | null {
   return useContext(AuthContext)?.user ?? null;
 }
 
+/**
+ * Null-safe read for surfaces that also render outside an AuthProvider (单页 UI 验证
+ * harness 不挂认证)。产品界面仍用 `useAuth()`：认证缺失本该是错误，只有需要在
+ * 隔离渲染里显示的组件才允许降级。
+ */
+export function useOptionalAuth(): AuthContextValue | null {
+  return useContext(AuthContext);
+}
+
 export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext);
   if (!context) {

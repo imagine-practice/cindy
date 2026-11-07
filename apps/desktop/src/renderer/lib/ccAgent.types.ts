@@ -367,6 +367,14 @@ export interface Session {
   /** Explicit project membership; old hosts/tasks fall back to workingDir. */
   projectDir?: string | null;
   /**
+   * 实体项目绑定（`projects.id`）。非空时侧栏归到该实体项目下，否则仍走
+   * `projectDir ?? workingDir` 的旧目录归组。
+   */
+  projectId?: string | null;
+  /** 工作项处理人；`null` = 未分配（不会回落到项目负责人）。 */
+  assigneeKind?: import('../../shared/projects').ProjectSubjectKind | null;
+  assigneeId?: string | null;
+  /**
    * 侧边栏/产品归属语义。
    * - project: projectDir 决定 Projects 分组，旧任务回落 workingDir。
    * - dialogue: workingDir 只是对话运行/文件目录, 不参与 Projects 分组。

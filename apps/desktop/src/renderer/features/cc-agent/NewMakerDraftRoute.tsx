@@ -43,6 +43,7 @@ import { isModelEnabled, useModelVisibilityVersion } from '@/state/modelVisibili
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { ProjectBindingSelect } from '@/features/projects/ProjectBindingSelect';
 import { DraftDirectoryRecovery, type DraftDirectoryRecoveryContext } from './draftDirectoryRecovery';
 import { DraftDirectoryRecoveryNotice } from './DraftDirectoryRecoveryNotice';
 import { NEW_MAKER_DRAFT_KEY } from './newMakerDraftKeys';
@@ -726,6 +727,27 @@ export function NewMakerDraftRoute() {
   const { dataOwnerId, dataOwnerGeneration } = useAuth();
   const draft = useNewMakerDraft();
   const location = useLocation();
+  /**
+   * 归属项目（项目内核 M1）：从项目详情页「新建任务」带过来，也可在本页改。
+   * 没有项目时保持 null —— 是否归项目只听这个显式选择，不按目录推断。
+   */
+  const rawRouteProjectId = (location.state as { projectId?: unknown } | null)?.projectId;
+  const routeProjectId = typeof rawRouteProjectId === 'string' && rawRouteProjectId.length > 0
+    ? rawRouteProjectId : null;
+  const [projectBinding, setProjectBinding] = useState(() => ({
+    routeKey: location.key, routeProjectId, selected: routeProjectId,
+  }));
+  const bindingMatchesRoute = projectBinding.routeKey === location.key
+    && projectBinding.routeProjectId === routeProjectId;
+  const boundProjectId = bindingMatchesRoute ? projectBinding.selected : routeProjectId;
+  if (!bindingMatchesRoute) {
+    // Adjust only the selection, before children/submit closures see an old binding.
+    // Keep the composer, attachments and model/directory draft mounted and intact.
+    setProjectBinding({ routeKey: location.key, routeProjectId, selected: routeProjectId });
+  }
+  const setBoundProjectId = (selected: string | null) => {
+    setProjectBinding({ routeKey: location.key, routeProjectId, selected });
+  };
   const navigate = useNavigate();
   const dialogueTargetRequest = useMemo(
     () => readNewMakerDialogueTargetRequest(location.state),
@@ -768,7 +790,7 @@ export function NewMakerDraftRoute() {
    * 否则先删掉它(同一个 id 可直接再建),再按原流程新建。
    */
   const createSession = useCallback(
-    async (args: Parameters<typeof createSessionRow>[0] = {}) => {
+    async (args: Parameters<typeof createSessionRow>[0] & Pick<ProvisionalDraftCreateArgs, 'projectId'> = {}) => {
       const context = directoryRecoveryRef.current?.captureContext() ?? null;
       createSessionErrorRef.current = null;
       createSessionErrorHandledRef.current = false;
@@ -2194,7 +2216,8 @@ export function NewMakerDraftRoute() {
       planModeEnabled: effectivePlanMode,
       workingDir,
       // Same shape the send path creates with: no project folder = a dialogue task.
-      workspaceKind: workingDir === undefined ? 'dialogue' : 'project',
+      workspaceKind: workingDir === undefined && !boundProjectId ? 'dialogue' : 'project',
+      ...(boundProjectId ? { projectId: boundProjectId } : {}),
       remoteHostId: workingDir === undefined ? undefined : (effectiveRemoteHostId ?? undefined),
       ...(effectiveAgentDeviceId ? { agentDeviceId: effectiveAgentDeviceId } : {}),
       extraDirs: effectiveExtraDirs,
@@ -2207,6 +2230,7 @@ export function NewMakerDraftRoute() {
     wtEnabled,
     wtConfirmedIneligible,
     effectiveWorkingDir,
+    boundProjectId,
     persistedAgentKind,
     draftInitialModel,
     draftInitialEffort,
@@ -2246,6 +2270,17 @@ export function NewMakerDraftRoute() {
     if (!args || !canOpenProvisionalDraftTask(args)) return;
     void ensureProvisionalDraftTask(args).then((session) => {
       if (!session || provisionalDraftTaskId() !== session.id) return;
+      const latest = provisionalDraftArgsRef.current;
+      if (!latest || latest.id !== args.id
+        || provisionalDraftArgsKey(latest) !== provisionalDraftArgsKey(args)) {
+        // The first create can still be pending when the project changes, before
+        // a provisional id exists for the settings effect to observe. Reconcile
+        // through the same serial queue, without seeding/prewarming the old row.
+        if (sendInFlightRef.current) return; // send owns take/discard from here
+        if (!latest || !canOpenProvisionalDraftTask(latest)) void discardProvisionalDraftTask();
+        else openProvisionalDraftTask();
+        return;
+      }
       // 每次输入都会走到这里：建出来后只初始化一次，之后只续预热(接收方节流)。
       const seededKey = `${session.id}:${provisionalDraftTaskGeneration()}`;
       const firstTime = provisionalSeededKeyRef.current !== seededKey;
@@ -2651,6 +2686,7 @@ export function NewMakerDraftRoute() {
           agentKind: draftVendor,
           workingDir: target.path,
           workspaceKind: 'project',
+          ...(boundProjectId ? { projectId: boundProjectId } : {}),
           permissionMode: chatInitialPermissionMode,
           model: sshModel,
           effort: sshEffort ?? '',
@@ -2749,6 +2785,7 @@ export function NewMakerDraftRoute() {
       attachmentState,
       applyDraftTarget,
       createSession,
+      boundProjectId,
       carryDraftFavoriteAnchorToSession,
       navigate,
       t,
@@ -4437,6 +4474,7 @@ export function NewMakerDraftRoute() {
               planModeEnabled: effectivePlanMode,
               workingDir: baseRepo,
               workspaceKind: 'project',
+              ...(boundProjectId ? { projectId: boundProjectId } : {}),
               extraDirs: effectiveExtraDirs,
               writableDirs: effectiveWritableDirs,
               remoteHostId: effectiveRemoteHostId ?? undefined,
@@ -4710,7 +4748,9 @@ export function NewMakerDraftRoute() {
             workingDir: workingDir ?? undefined,
             // 没选项目目录 = 创建 standalone dialogue;main 端会按 workspaceKind='dialogue'
             // 自动分配 <userData>/dialogues/<date>/<sid>/ 作为运行目录,不进入项目段。
-            workspaceKind: workingDir ? 'project' : 'dialogue',
+            // 显式选了归属项目时仍算项目任务（项目内核 M1）。
+            workspaceKind: workingDir || boundProjectId ? 'project' : 'dialogue',
+            ...(boundProjectId ? { projectId: boundProjectId } : {}),
             remoteHostId: workingDir ? (effectiveRemoteHostId ?? undefined) : undefined,
             // Agent 在另一台电脑运行:任务与文件仍在本机,只记下运行 Agent 的电脑。
             ...(routeAgentDeviceId ? { agentDeviceId: routeAgentDeviceId } : {}),
@@ -4964,6 +5004,7 @@ export function NewMakerDraftRoute() {
     [
       activePluginModel,
       effectiveWorkingDir,
+      boundProjectId,
       effectiveRemoteHostId,
       isRemoteProjectDraft,
       isDeviceLinkDraft,
@@ -5495,7 +5536,8 @@ export function NewMakerDraftRoute() {
           permissionMode: chatInitialPermissionMode,
           fastMode: effectiveFastMode,
           workingDir: goalWorkingDir,
-          workspaceKind: goalWorkingDir ? 'project' : 'dialogue',
+          workspaceKind: goalWorkingDir || boundProjectId ? 'project' : 'dialogue',
+          ...(boundProjectId ? { projectId: boundProjectId } : {}),
           remoteHostId: goalWorkingDir ? (effectiveRemoteHostId ?? undefined) : undefined,
           ...(routeAgentDeviceId ? { agentDeviceId: routeAgentDeviceId } : {}),
           extraDirs: effectiveExtraDirs,
@@ -5650,6 +5692,7 @@ export function NewMakerDraftRoute() {
       effectiveDeviceLinkDeviceId,
       effectiveDeviceLinkDeviceName,
       effectiveWorkingDir,
+      boundProjectId,
       dataOwnerId,
       createSession,
       carryDraftFavoriteAnchorToSession,
@@ -6111,6 +6154,11 @@ export function NewMakerDraftRoute() {
                 className={cn('flex w-full flex-col items-start gap-0', isDraftNarrow && 'order-3')}
               >
                 <div className="w-full">
+                  <ProjectBindingSelect
+                    value={boundProjectId}
+                    onChange={setBoundProjectId}
+                    className="mb-2"
+                  />
                   {!effectiveRemoteHostId && (
                     <div className="mb-3 empty:hidden">
                       <PluginUiEnablePrompt deviceId={effectiveDeviceLinkDeviceId ?? undefined} />

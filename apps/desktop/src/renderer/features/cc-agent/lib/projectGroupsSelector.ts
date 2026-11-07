@@ -35,6 +35,22 @@ function sameGroupingInput(a: Session, b: Session): boolean {
   return true;
 }
 
+function sameEntityProjects(
+  a: GroupSessionsOptions['entityProjects'],
+  b: GroupSessionsOptions['entityProjects'],
+): boolean {
+  return (
+    a === b ||
+    (!!a &&
+      !!b &&
+      a.length === b.length &&
+      a.every((p, i) => {
+        const next = b[i];
+        return p.id === next.id && p.name === next.name && p.updatedAt === next.updatedAt;
+      }))
+  );
+}
+
 function samePersistentProjects(
   a: readonly PersistentLocalProject[] | undefined,
   b: readonly PersistentLocalProject[] | undefined,
@@ -74,6 +90,7 @@ function sameOptions(a: GroupSessionsOptions, b: GroupSessionsOptions): boolean 
     a.provisionalDraftTaskId === b.provisionalDraftTaskId &&
     a.localPlatform === b.localPlatform &&
     a.botOwnerBySessionId === b.botOwnerBySessionId &&
+    sameEntityProjects(a.entityProjects, b.entityProjects) &&
     samePersistentProjects(a.persistentLocalProjects, b.persistentLocalProjects)
   );
 }

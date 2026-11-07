@@ -30,6 +30,7 @@ import { startRewoundSchedulerPromptCleanup, stopRewoundSchedulerPromptCleanup }
 import { isReviewSessionSource } from '../../shared/sessionSource.js';
 import { dbToMakerAgentKind } from '../../shared/agentKindConversion.js';
 import { assertScheduledHarnessSupported } from '../maker-ipc/scheduledModelSelection';
+import { assertScheduleProjectBinding } from './projectBinding';
 import { readRemoteProviderRoute } from '../remote-agent/controller/deviceCatalog.js';
 import {
   resolveDefaultScheduleRoute,
@@ -262,6 +263,10 @@ async function startSchedulerInternal(deps: StartSchedulerDeps): Promise<Schedul
       } : null, selection.modelAgentKind, selection.modelAgentDeviceId === undefined
         ? undefined : selection.modelAgentDeviceId || null);
     },
+    // 自动化绑定项目实体：创建/更新时要求成员资格且项目未归档。放在引擎里而不是
+    // IPC handler 里，是为了让 GUI、MCP 工具、仓库自动化三条入口共用同一道门；
+    // 运行期还有一次同口径复核，见 runner 的 project binding 段落。
+    validateProjectBinding: (projectId) => assertScheduleProjectBinding(deps.getDb(), projectId),
     // 卡死收口的通知出口。通知投递平时住在两个 runner 里(它们各自持 notifier),而
     // 卡死收口刻意绕过 runner —— 要么它压根不返回、要么它把守卫 abort 当普通中断处理。
     // 没有这条线,用户配了桌面/飞书通知也只会看到一个未读红点(PR #944 review P1)。

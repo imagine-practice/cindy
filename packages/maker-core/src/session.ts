@@ -353,6 +353,13 @@ export interface SessionSendOptions extends SendOptions {
    */
   beforeProviderStart?: () => void | Promise<void>;
   /**
+   * Optional trusted Host refresh immediately before input consumption. Vision
+   * runs after acceptance preparation; provider runs after async intent/vision
+   * preparation. Rejection blocks consumption, never vision-fallbacks to text.
+   * Host-only function: stripped before calling the provider, not a usage receipt.
+   */
+  beforeInputConsumption?: (stage: 'vision' | 'provider') => Promise<void>;
+  /**
    * 产品层 accepted hook。
    * Session 在 active/running 守卫通过、turn reservation 建立后调用；
    * hook 完成后才启动 vendor handle。
@@ -863,6 +870,7 @@ export class Session {
     const {
       afterTurnReserved,
       beforeProviderStart,
+      beforeInputConsumption,
       onAccepted,
       onDispatching,
       onTurnReserved,
@@ -991,6 +999,12 @@ export class Session {
       this.ensureActive();
       const cancelledAfterAcceptance = finishCancelledBeforeDispatch();
       if (cancelledAfterAcceptance !== null) return cancelledAfterAcceptance;
+      if (beforeInputConsumption) {
+        await beforeInputConsumption('vision');
+        const cancelledAfterConsumptionCheck = finishCancelledBeforeDispatch();
+        if (cancelledAfterConsumptionCheck !== null) return cancelledAfterConsumptionCheck;
+        this.ensureActive();
+      }
       // 层 B：用户贴图主动调视觉（视觉桥钩子）。此时 turn guard 已通过、reservation 已
       // 建立——并发 send 已被 isTurnRunning 挡住，不会在 guard 前浪费视觉调用；取消时
       // reservation.abortController.signal 可中止视觉请求。钩子失败/未生效 → 原样透传。
@@ -1017,6 +1031,12 @@ export class Session {
         if (intent !== undefined) handleOpts[AUTO_REVIEW_USER_INTENT] = intent;
         const cancelledAfterAuthorization = finishCancelledBeforeDispatch();
         if (cancelledAfterAuthorization !== null) return cancelledAfterAuthorization;
+      }
+      if (beforeInputConsumption) {
+        await beforeInputConsumption('provider');
+        const cancelledAfterConsumptionCheck = finishCancelledBeforeDispatch();
+        if (cancelledAfterConsumptionCheck !== null) return cancelledAfterConsumptionCheck;
+        this.ensureActive();
       }
       reservation.phase = 'dispatching';
       // 越过 dispatch 边界才记 origin — cancelled-before-dispatch 早返回不会到这,
@@ -1240,7 +1260,7 @@ export class Session {
 
   async steer(
     message: UserMessage | string,
-    opts?: SendOptions & Pick<SessionSendOptions, 'beforeProviderStart'>,
+    opts?: SendOptions & Pick<SessionSendOptions, 'beforeProviderStart' | 'beforeInputConsumption'>,
   ): Promise<void> {
     let msg: UserMessage = typeof message === 'string'
       ? { type: 'user', content: message }
@@ -1258,16 +1278,32 @@ export class Session {
     // 的 turn（跨 turn 串线）。记录发起时代号，转换后必须「同一 generation 且仍
     // 在跑」才投递。
     const steerTurnGeneration = this.getTurnGeneration();
+    const { beforeProviderStart, beforeInputConsumption, ...handleOpts } = opts ?? {};
+    const assertConsumptionTurnCurrent = () => {
+      this.ensureActive();
+      if (handleOpts.signal?.aborted) throw new Error(`Session ${this.id} steer cancelled before dispatch`);
+      if (this.getTurnGeneration() !== steerTurnGeneration || !this.handle.isTurnRunning?.()) {
+        throw new Error(`Session ${this.id} has no active turn to steer`);
+      }
+    };
     const autoReviewSourceContent = opts?.[AUTO_REVIEW_SOURCE_CONTENT] ?? msg.content;
+    if (beforeInputConsumption) {
+      await beforeInputConsumption('vision');
+      assertConsumptionTurnCurrent();
+    }
     // 层 B：steer 追加图片同样走视觉桥（与 send 一致），否则纯文本模型收到的
     // 原始 image block 会被后端忽略或拒绝（Greptile P1）。
     msg = await this.bridgedVisionMessage(msg, opts?.signal);
-    const { beforeProviderStart, ...handleOpts } = opts ?? {};
     // Host grants must survive all asynchronous preparation, including steer.
     // Keep the private authorization hook out of provider options.
     if (beforeProviderStart) {
       await beforeProviderStart();
       this.ensureActive();
+    }
+    if (beforeInputConsumption) {
+      assertConsumptionTurnCurrent();
+      await beforeInputConsumption('provider');
+      assertConsumptionTurnCurrent();
     }
     // 异步视觉转换期间 turn 可能已完成/被中止（视觉后端慢、用户已切任务等）：
     // 转换结果此时已无人接收，必须先复查原 turn 生命周期再调用 handle.steer，

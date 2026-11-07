@@ -1,8 +1,16 @@
+import { runMaterialDispatchTransaction } from '../worker/opHandlers/materialDispatchTx.js';
+import { runProjectGroupLinksTransaction } from '../worker/opHandlers/projectGroupLinksTx.js';
+import { readProjectGroupLinksByProjectTransaction } from '../worker/opHandlers/projectGroupLinksProjectReadTx.js';
+import { readProjectProgressTransaction } from '../worker/opHandlers/projectProgressReadTx.js';
+import { runAuthorizedSessionCreateTransaction } from '../worker/opHandlers/authorizedSessionCreateTx.js';
+import { runWorkItemProgressTransaction } from '../worker/opHandlers/workItemProgressTx.js';
 import { fastModeToStorage } from '@cindy/maker-shared';
 import { extractToolResultDiagnostics, sanitizeToolResultDiagnostics } from '@cindy/maker-shared/tool-result-compaction';
 import { runPluginUsageTransaction } from '../worker/opHandlers/pluginUsageTx.js';
 import { runSessionImportTransaction } from '../worker/opHandlers/sessionImportTx.js';
 import { runTaskTagsTransaction } from '../worker/opHandlers/taskTagsTx.js';
+import { runProjectsTransaction } from '../worker/opHandlers/projectsTx.js';
+import { runMaterialsTransaction } from '../worker/opHandlers/materialsTx.js';
 import { recordMediaSpend } from '../worker/opHandlers/mediaSpendTx.js';
 import { createAutoReviewIntentProjection } from '@cindy/maker-shared/auto-review-intent';
 import { batchAutoReviewProjection, readAutoReviewProjection } from '../autoReviewProjection.js';
@@ -36,6 +44,14 @@ const CLOSE_SHARED_TASKS_FOR_SESSION_SQL = ${JSON.stringify(CLOSE_SHARED_TASKS_F
 const runPluginUsageTransaction = ${runPluginUsageTransaction.toString()};
 const runSessionImportTransaction = ${runSessionImportTransaction.toString()};
 const runTaskTagsTransaction = ${runTaskTagsTransaction.toString()};
+const runProjectsTransaction = ${runProjectsTransaction.toString()};
+const runMaterialDispatchTransaction = ${runMaterialDispatchTransaction.toString()};
+const runProjectGroupLinksTransaction = ${runProjectGroupLinksTransaction.toString()};
+const runMaterialsTransaction = ${runMaterialsTransaction.toString()};
+const runWorkItemProgressTransaction = ${runWorkItemProgressTransaction.toString()};
+const readProjectProgressTransaction = ${readProjectProgressTransaction.toString()};
+const readProjectGroupLinksByProjectTransaction = ${readProjectGroupLinksByProjectTransaction.toString()};
+const runAuthorizedSessionCreateTransaction = ${runAuthorizedSessionCreateTransaction.toString()};
 const recordMediaSpend = ${recordMediaSpend.toString()};
 const fastModeToStorage = ${fastModeToStorage.toString()};
 // 旧版 inline worker fallback。默认运行时走 .vite/build/dbWorker.js；
@@ -483,6 +499,23 @@ function dispatchTransaction(readyDb, payload) {
     case 'pluginUsage.execute': return runPluginUsageTransaction(readyDb, request.args);
     case 'sessionImport.execute': return runSessionImportTransaction(readyDb, request.args);
     case 'taskTags.execute': return runTaskTagsTransaction(readyDb, request.args);
+    case 'materialDispatch.execute': return runMaterialDispatchTransaction(readyDb, request.args);
+    case 'projectGroupLinks.execute': return runProjectGroupLinksTransaction(readyDb, request.args);
+    case 'projectGroupLinks.listProject': {
+      const read = request.args || {};
+      return readProjectGroupLinksByProjectTransaction(readyDb, read.request, read.context);
+    }
+    case 'projects.execute': return runProjectsTransaction(readyDb, request.args);
+    case 'projectProgress.read': {
+      const read = request.args || {};
+      return readProjectProgressTransaction(readyDb, read.request, read.context);
+    }
+    case 'sessions.createAuthorized': return runAuthorizedSessionCreateTransaction(readyDb, request.args);
+    case 'workItemProgress.execute': {
+      const progress = request.args || {};
+      return runWorkItemProgressTransaction(readyDb, progress.intent, progress.context);
+    }
+    case 'materials.execute': return runMaterialsTransaction(readyDb, request.args);
     case 'projectAliases.replaceIdentity':
       return projectAliasesReplaceIdentity(readyDb, request.args);
     case 'toolResults.compactSession':
@@ -792,6 +825,11 @@ function messageInsert(readyDb, args) {
       : expectNumber(payload.expectedClearBoundaryMs, 'expectedClearBoundaryMs');
   return readyDb.transaction(() => {
     let changes = 0;
+    const material = payload.materialDispatch === undefined ? undefined : asRecord(payload.materialDispatch, 'materialDispatch');
+    if (material && (Object.keys(material).some(k => k !== 'revision' && k !== 'host')
+      || role !== 'user' || (payload.publication && payload.publication !== 'stage' && payload.publication !== 'publish'))) {
+      throw Object.assign(new Error('Invalid main material message envelope'), { code: 'INVALID_ARGS' });
+    }
     // Connection-local stages never enter history, counts or persistent FTS.
     // SQLite discards them automatically when this worker exits.
     if (payload.publication) {
@@ -817,6 +855,9 @@ function messageInsert(readyDb, args) {
       changes = readyDb.prepare(
         'INSERT INTO messages (id, client_id, session_id, role, content, tool_use_id, agent_meta, agent_kind, created_at) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? FROM sessions AS s WHERE s.id = ? AND COALESCE(s.cleared_at, -1) = COALESCE(?, -1) ON CONFLICT(session_id, client_id) DO NOTHING',
       ).run(id, clientId, sessionId, role, content, toolUseId, agentMeta, agentKind, createdAt, sessionId, expected).changes;
+    } else if (material) {
+      changes = readyDb.prepare('INSERT INTO messages (id,client_id,session_id,role,content,tool_use_id,agent_meta,agent_kind,created_at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(session_id,client_id) DO NOTHING')
+        .run(id,clientId,sessionId,role,content,toolUseId,agentMeta,agentKind,createdAt).changes;
     } else {
       changes = readyDb.prepare(
         'INSERT INTO messages (id, client_id, session_id, role, content, tool_use_id, agent_meta, agent_kind, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -830,6 +871,23 @@ function messageInsert(readyDb, args) {
       } else {
         readyDb.prepare('UPDATE sessions SET list_message_count = NULL WHERE id = ?').run(sessionId);
       }
+    }
+    if (material && (!payload.publication || payload.publication === 'publish')) {
+      // A conflicting stable key can skip INSERT; still enforce this request's clear CAS.
+      if (guarded) {
+        const boundary = readyDb.prepare('SELECT cleared_at FROM sessions WHERE id=?').get(sessionId);
+        if (!boundary || (boundary.cleared_at ?? null) !== expected) {
+          throw Object.assign(new Error('REMOTE_OPTIMISTIC_INPUT_CLEARED: Material message clear boundary changed'), { code: 'REMOTE_OPTIMISTIC_INPUT_CLEARED' });
+        }
+      }
+      // This nested SAVEPOINT uses the same SQLite connection/outer writer transaction.
+      // Compare attempted bytes too: an old existing row must not turn an edited retry into success.
+      const stored = readyDb.prepare('SELECT id,role,content,rewind_at FROM messages WHERE session_id=? AND client_id=?').get(sessionId,clientId);
+      if (!stored || stored.role !== 'user' || stored.content !== content || stored.rewind_at !== null) {
+        throw new Error('[MESSAGE_MISMATCH] Material message attachment rejected');
+      }
+      runMaterialDispatchTransaction(readyDb, { action: 'attachMessage', key: { sessionId,clientId },
+        revision: material.revision, host: material.host, messageId: stored.id });
     }
     return { changes };
   })();

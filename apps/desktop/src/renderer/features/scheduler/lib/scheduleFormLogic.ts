@@ -161,6 +161,12 @@ export interface ScheduleFormState {
   workspaceKind: ScheduleWorkspaceKind;
   workingDir: string;
   useWorktree: boolean;
+  /**
+   * 归属的项目实体（`projects.id`）。'' = 不归属项目。
+   * 与 `workspaceKind` / `workingDir` 是两件事：目录决定 agent 在哪跑，项目决定运行
+   * 产生的会话落到哪个项目的进度里。绑定已有会话时无意义（不新建会话）。
+   */
+  projectId: string;
   /** 非空 → heartbeat 模式;'__pending__' = bound 态已选中但还没挑会话的占位 */
   targetSessionId: string;
   /**
@@ -611,6 +617,9 @@ export function buildScheduleInput(form: ScheduleFormState): CreateScheduleInput
         : undefined,
     workspaceKind: form.workspaceKind,
     useWorktree: !isScript && form.workspaceKind === 'project' && form.useWorktree,
+    // 恒带 key：编辑时把旧的项目绑定清掉也要落库（只影响后续运行，历史会话归属不变）。
+    // script / 绑定已有会话这两种没有“新建会话”的运行不发送，免得存下一个永远不会生效的值。
+    projectId: !isScript && !isHeartbeat ? form.projectId.trim() || undefined : undefined,
     persistentSession: !isScript && form.persistentSession,
     silentWhenIdle: !isScript && form.silentWhenIdle,
     targetSessionId: hasRealBinding(form) ? form.targetSessionId.trim() : undefined,
@@ -692,6 +701,8 @@ export function scheduleToUserCreateInput(
     workspaceKind: schedule.workspaceKind,
     workingDir: schedule.workingDir,
     useWorktree: schedule.useWorktree,
+    // 复制一条自动化时保留项目归属（不是会话绑定，不要跟着 targetSessionId 一起丢）。
+    projectId: schedule.projectId,
     persistentSession: schedule.persistentSession,
     notify: schedule.notify,
     ...overrides,

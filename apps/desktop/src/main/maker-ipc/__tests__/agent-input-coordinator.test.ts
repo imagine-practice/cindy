@@ -1520,6 +1520,7 @@ function unsupportedChatBridgeImageError(feature = "input content part 'input_im
 }
 
 function createHarness(opts?: {
+  assertInputDispatchable?: AgentInputCoordinatorDeps['assertInputDispatchable'];
   getRecoveryContextSnapshot?: (sessionId: string, userClientId: string) => Promise<RecoveryContextSnapshot>;
   providerGroupSwitchCandidate?: AgentInputCoordinatorDeps['providerGroupSwitchCandidate'];
 }) {
@@ -1730,6 +1731,7 @@ function createHarness(opts?: {
     noteSessionClearBoundary,
     resolveSessionReferences,
     refreshAgentReferencesBeforeDispatch,
+    assertInputDispatchable: opts?.assertInputDispatchable,
     hasPendingCredentialSwitch: () => hasPendingCredentialSwitch?.() === true,
     screenUserMessage: (sessionId, agentFacingText, item) =>
       screenUserMessage
@@ -16041,5 +16043,35 @@ describe('teammate relay review intent', () => {
     await flush();
     expect(h.sendToAgent).toHaveBeenCalledTimes(1);
     expect(h.sendToAgent.mock.calls[0][3][AUTO_REVIEW_SOURCE_CONTENT]).toBe(expected);
+  });
+});
+
+// Unit / material formal-input contract: the coordinator must await main admission
+// before either dispatch; rejection must not reach the provider or persist an accepted row.
+// Existing authority tests did not cover the new post-restore material admission await.
+describe('material input dispatch admission', () => {
+  it('keeps a rejected queue head recoverable without a provider send or user-row insert', async () => {
+    const check = vi.fn(async () => { throw new Error('[NOT_READY] Material input unavailable'); });
+    const h = createHarness({ assertInputDispatchable: check });
+    h.coordinator.enqueue('material-task', makeItem('material-head', 'selected material'));
+    await vi.waitFor(() => expect(check).toHaveBeenCalledOnce());
+    await flush();
+    expect(h.sendToAgent).not.toHaveBeenCalled();
+    expect(mocks.createMessage).not.toHaveBeenCalled();
+    expect(h.coordinator.getProjection('material-task').recovery).toMatchObject({ kind: 'queue-head', clientId: 'material-head' });
+  });
+  it('rejects same-turn material steer before provider acceptance and persistence', async () => {
+    const check = vi.fn<NonNullable<AgentInputCoordinatorDeps['assertInputDispatchable']>>(async (_sid, item) => {
+      if (item.clientId === 'material-steer') throw new Error('[NOT_READY] Material input unavailable');
+    });
+    const h = createHarness({ assertInputDispatchable: check });
+    h.coordinator.enqueue('material-steer-task', makeItem('ordinary', 'ordinary input'));
+    await vi.waitFor(() => expect(h.sendToAgent).toHaveBeenCalledOnce());
+    await flush();
+    const persistedBefore = mocks.createMessage.mock.calls.length;
+    await expect(h.coordinator.steer('material-steer-task', makeItem('material-steer', 'selected material'))).resolves.toBe(false);
+    expect(check).toHaveBeenCalledWith('material-steer-task', expect.objectContaining({ clientId: 'material-steer' }));
+    expect(h.steerToAgent).not.toHaveBeenCalled();
+    expect(mocks.createMessage.mock.calls).toHaveLength(persistedBefore);
   });
 });

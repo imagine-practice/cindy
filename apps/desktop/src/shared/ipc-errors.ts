@@ -344,7 +344,44 @@ export type IpcErrorCode =
   | 'PRIVACY_CONSENT_REQUIRED' // 未明示同意《隐私政策》
   | 'LOG_UPLOAD_EMPTY' // 采集后没有任何可上报的记录
   | 'LOG_UPLOAD_FAILED' // 上传失败(离线 / 被拒 / 超时)
-  | 'LOG_UPLOAD_BUSY'; // 已有一次上报在进行中
+  | 'LOG_UPLOAD_BUSY' // 已有一次上报在进行中
+  // 项目内核：三种「规则不满足」要能被 renderer 说清原因，而不是笼统失败。
+  | 'MUST_TRANSFER_OWNER_FIRST' // 移除负责人被拒：必须先转交
+  | 'ASSIGNEE_NOT_MEMBER' // 指派/转交给非项目成员
+  | 'PROJECT_TASK_UNBOUND' // 任务未绑定项目，无法校验处理人身份
+  // 项目级访问判定（M3-A）：拒绝原因要能被 renderer 与伙伴侧工具区分开。
+  | 'FORBIDDEN'
+  | 'PROJECT_MISMATCH'
+  | 'SESSION_DELETED'
+  | 'DB_TRANSPORT_OUTCOME_UNKNOWN'
+  | 'DB_TRANSPORT_NOT_SENT'
+  | 'BINDING_CONFLICT'
+  | 'REVISION_CONFLICT'
+  | 'REQUEST_CONFLICT'
+  | 'REASON_REQUIRED'
+  | 'UNBLOCK_CONDITION_REQUIRED'
+  | 'RESOLUTION_REQUIRED'
+  | 'COMPLETION_NOTE_REQUIRED'
+  | 'ILLEGAL_TRANSITION'
+  | 'NOT_PROJECT_MEMBER' // 调用方不是项目成员：不可看项目/工作项/材料，也不可写
+  | 'NOT_PROJECT_OWNER' // 调用方是成员但不是负责人：不可改成员、转交负责人
+  // 材料与版本（M2）。契约 `docs/plans/2026-11-05-materials-contract-draft.md` §3 的
+  // 错误码必须在跨进程类型里可表达，否则主进程只能抛无 code 的 Error。
+  | 'MATERIAL_NOT_FOUND' // 材料 id 不存在（含已被彻底移除的引用）
+  | 'VERSION_NOT_FOUND' // 指定版本不存在
+  | 'VERSION_NOT_READABLE' // 版本当前不可读（读数失败 / 字节缺失）
+  | 'DUPLICATE_CONTENT' // 同名不同内容或同内容重复补版本：需用户显式选择，未落库
+  | 'UNSUPPORTED_FILE' // 字节不属于媒体总仓收编白名单（按真实字节判定）
+  | 'MEDIA_WRITE_FAILED' // 媒体总仓写入或记账失败
+  | 'SOURCE_MISSING' // 材料引用的用户原文件已不存在（契约 0.1 file 形态）
+  | 'SOURCE_CHANGED' // 用户原文件内容与添加时的 sha256 不一致
+  | 'REFERENCE_SCOPE_REQUIRED'
+  | 'REFERENCE_NOT_FOUND'
+  | 'REFERENCE_MISMATCH'
+  | 'CONTEXT_SCOPE_UNKNOWN'
+  | 'PROJECT_NOT_FOUND' // 项目 id 不存在
+  | 'PROJECT_ARCHIVED' // 项目已归档（与「账号不可用」分开，避免误导用户去恢复一个没归档的项目）
+  | 'ACCOUNT_UNAVAILABLE'; // 当前账号不可用/已切换
 
 export interface IpcError {
   code: IpcErrorCode;
@@ -577,6 +614,39 @@ const IPC_ERROR_CODES: ReadonlySet<IpcErrorCode> = new Set<IpcErrorCode>([
   'LOG_UPLOAD_EMPTY',
   'LOG_UPLOAD_FAILED',
   'LOG_UPLOAD_BUSY',
+  'MUST_TRANSFER_OWNER_FIRST',
+  'ASSIGNEE_NOT_MEMBER',
+  'PROJECT_TASK_UNBOUND',
+  'FORBIDDEN',
+  'PROJECT_MISMATCH',
+  'SESSION_DELETED',
+  'DB_TRANSPORT_OUTCOME_UNKNOWN',
+  'DB_TRANSPORT_NOT_SENT',
+  'BINDING_CONFLICT',
+  'REVISION_CONFLICT',
+  'REQUEST_CONFLICT',
+  'REASON_REQUIRED',
+  'UNBLOCK_CONDITION_REQUIRED',
+  'RESOLUTION_REQUIRED',
+  'COMPLETION_NOTE_REQUIRED',
+  'ILLEGAL_TRANSITION',
+  'NOT_PROJECT_MEMBER',
+  'NOT_PROJECT_OWNER',
+  'MATERIAL_NOT_FOUND',
+  'VERSION_NOT_FOUND',
+  'VERSION_NOT_READABLE',
+  'DUPLICATE_CONTENT',
+  'UNSUPPORTED_FILE',
+  'MEDIA_WRITE_FAILED',
+  'SOURCE_MISSING',
+  'SOURCE_CHANGED',
+  'REFERENCE_SCOPE_REQUIRED',
+  'REFERENCE_NOT_FOUND',
+  'REFERENCE_MISMATCH',
+  'CONTEXT_SCOPE_UNKNOWN',
+  'PROJECT_NOT_FOUND',
+  'PROJECT_ARCHIVED',
+  'ACCOUNT_UNAVAILABLE',
 ]);
 
 export function isIpcErrorCode(code: unknown): code is IpcErrorCode {

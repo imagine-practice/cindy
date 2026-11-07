@@ -51,6 +51,9 @@ function s(partial: Partial<Session>): Session {
     title: partial.title ?? `t${id}`,
     workingDir: partial.workingDir ?? null,
     projectDir: partial.projectDir,
+    projectId: partial.projectId,
+    assigneeKind: partial.assigneeKind,
+    assigneeId: partial.assigneeId,
     workspaceKind: partial.workspaceKind ?? 'project',
     model: 'm',
     effort: 'medium' as Session['effort'],
@@ -1300,5 +1303,73 @@ describe('pinnedSessionIdsInDisplayOrder（拖拽 baseline:与置顶段同序 st
 
   it('无置顶 → 空数组', () => {
     expect(pinnedSessionIdsInDisplayOrder([s({ pinnedAt: null })])).toEqual([]);
+  });
+});
+
+/* ============================== entity projects (项目内核 M1) ============================== */
+
+describe('entity projects', () => {
+  const entity = (id: string, name: string, updatedAt = '2026-01-02T00:00:00.000Z') => ({
+    id,
+    name,
+    updatedAt,
+  });
+
+  it('groups bound tasks under the entity project and leaves legacy tasks on their directory', () => {
+    const bound = s({ id: 'bound', workingDir: '/repo/cindy', projectId: 'p1' });
+    const legacy = s({ id: 'legacy', workingDir: '/repo/cindy' });
+    const groups = groupSessions([bound, legacy], { entityProjects: [entity('p1', 'Cindy desktop')] });
+
+    const entityNode = groups.projects.find((project) => project.entityProjectId === 'p1');
+    expect(entityNode?.displayName).toBe('Cindy desktop');
+    expect(entityNode?.projectKey).toBe('project:p1');
+    expect(entityNode?.sessions.map((session) => session.id)).toEqual(['bound']);
+
+    const dirNode = groups.projects.find((project) => !project.entityProjectId);
+    expect(dirNode?.workingDir).toBe('/repo/cindy');
+    expect(dirNode?.sessions.map((session) => session.id)).toEqual(['legacy']);
+    // 互不吞并：绑定任务不再出现在目录分组里。
+    expect(groups.projects).toHaveLength(2);
+  });
+
+  it('keeps an empty entity project in the list', () => {
+    const groups = groupSessions([], { entityProjects: [entity('p1', 'Empty project')] });
+    expect(groups.projects.map((project) => [project.projectKey, project.displayName])).toEqual([
+      ['project:p1', 'Empty project'],
+    ]);
+  });
+
+  it('places a freshly created project task that has not been sent yet', () => {
+    const draft = s({
+      id: 'draft',
+      workingDir: null,
+      userSendAt: null,
+      _count: { messages: 0 },
+      projectId: 'p1',
+    });
+    const groups = groupSessions([draft], { entityProjects: [entity('p1', 'Cindy desktop')] });
+    expect(groups.unclassified).toHaveLength(0);
+    expect(groups.projects[0]?.sessions.map((session) => session.id)).toEqual(['draft']);
+  });
+
+  it('keeps same-name entity projects separate and ignores directory aliases', () => {
+    const a = s({ id: 'a', workingDir: '/repo/a', projectId: 'pa' });
+    const b = s({ id: 'b', workingDir: '/repo/a', projectId: 'pb' });
+    const groups = groupSessions([a, b], {
+      entityProjects: [entity('pa', 'Same name'), entity('pb', 'Same name')],
+      projectAliases: { 'local:/repo/a': 'Alias should not win' },
+    });
+    const names = groups.projects.map((project) => project.displayName).sort();
+    expect(names).toEqual(['Same name', 'Same name']);
+    expect(groups.projects.every((project) => project.segments === 0)).toBe(true);
+  });
+
+  it('falls back to directory grouping when the bound project is unknown', () => {
+    const orphan = s({ id: 'orphan', workingDir: '/repo/cindy', projectId: 'gone' });
+    const groups = groupSessions([orphan], { entityProjects: [entity('p1', 'Cindy desktop')] });
+    expect(groups.projects.some((project) => project.entityProjectId === 'p1')).toBe(true);
+    const dirNode = groups.projects.find((project) => !project.entityProjectId);
+    // 项目已被删/尚未加载：绑定任务先按目录出现，不静默消失。
+    expect(dirNode?.sessions.map((session) => session.id)).toEqual(['orphan']);
   });
 });

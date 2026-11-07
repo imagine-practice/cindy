@@ -220,7 +220,17 @@ export interface Schedule {
   /** Release-compat tombstone：老 issue-triage 的 JSON 配置；新代码不读不写。 */
   jobConfig?: string;
   source?: 'user' | 'project' | 'bot';
+  /** 项目自动化配置 id（`.cindy/automations/schedules.json` 的条目 id），不是项目实体。 */
   projectConfigId?: string;
+  /**
+   * 归属的项目实体（`projects.id`）。设了之后每次运行产生的会话都落进该项目
+   * （`sessions.project_id`，初始 `project_binding_revision=0`）。
+   *
+   * 创建/更新时要求当前账号是项目成员且项目未归档；运行前再校验一次：
+   * 项目归档或成员被移除 → 本轮失败并留下原因，不会退化成「无项目运行」。
+   * undefined = 不归属任何项目。清空只影响后续运行，历史会话归属不变。
+   */
+  projectId?: string;
   kind: ScheduleKind;
   cronExpr: string;
   timezone: string;
@@ -424,6 +434,8 @@ export interface CreateScheduleInput {
   persistentSession?: boolean;
   /** 仅明确判定为检查型的创建入口显式设 true；未分类 agent 与 script 缺省 false。存量与显式选择保持不变。 */
   silentWhenIdle?: boolean;
+  /** 归属的项目实体（`projects.id`）；省略 = 不归属项目。详见 Schedule.projectId。 */
+  projectId?: string;
   /** Execution mode; defaults to agent for legacy schedules. */
   executionMode?: ScheduleExecutionMode;
   /** Required when executionMode is 'script'. */

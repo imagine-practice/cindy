@@ -57,6 +57,7 @@ import type {
 import { normalizeSessionSource } from '../../shared/sessionSource.js';
 import type { SessionSource } from '../../shared/sessionSource.js';
 import { normalizeWorkingDirForStorage } from '../../shared/workingDir.js';
+import type { ProjectSubjectKind } from '../../shared/projects.js';
 import { isSyntheticTriggerText } from '../../shared/interruptedTurn.js';
 import {
   addRegionalMoney,
@@ -277,6 +278,9 @@ export function sessionToCamel(row: SessionRowWithCount): Session {
     title: row.title,
     workingDir: row.workingDir,
     projectDir: row.projectDir,
+    projectId: row.projectId ?? null,
+    assigneeKind: (row.assigneeKind as ProjectSubjectKind | null) ?? null,
+    assigneeId: row.assigneeId ?? null,
     workspaceKind: normalizeWorkspaceKind(row.workspaceKind),
     model: row.model,
     effort: row.effort as Effort,
@@ -417,6 +421,8 @@ export function sessionCreateToRow(
         title?: string;
         workingDir?: string;
         projectDir?: string | null;
+        /** 实体项目绑定（projects.id）；缺省 = 仍按 project_dir 归组。 */
+        projectId?: string | null;
         workspaceKind?: WorkspaceKind;
         model?: string;
         effort?: string;
@@ -455,6 +461,7 @@ export function sessionCreateToRow(
         : DEFAULT_DRAFT_SESSION_TITLE,
     workingDir: normalizeWorkingDirForStorage(body?.workingDir),
     projectDir: normalizeWorkingDirForStorage(body?.projectDir),
+    projectId: body?.projectId ?? null,
     workspaceKind: body?.workspaceKind ?? 'project',
     model: body?.model ?? 'claude-sonnet-4-6',
     effort: (body?.effort as SessionInsert['effort']) ?? 'high',
@@ -750,6 +757,7 @@ export function scheduleToCamel(row: ScheduleRow): Schedule {
     scriptConfig: parseScriptConfig(row.scriptConfig),
     source: row.source === 'project' ? 'project' : row.source === 'bot' ? 'bot' : 'user',
     projectConfigId: row.projectConfigId ?? undefined,
+    projectId: row.projectId ?? undefined,
     kind: row.kind,
     cronExpr: row.cronExpr,
     timezone: row.timezone,
@@ -810,6 +818,7 @@ export function scheduleCreateToRow(s: Schedule): ScheduleInsert {
     scriptConfig: serializeScriptConfig(s.scriptConfig),
     source: s.source ?? 'user',
     projectConfigId: s.projectConfigId ?? null,
+    projectId: s.projectId ?? null,
     kind: s.kind,
     cronExpr: s.cronExpr,
     timezone: s.timezone,
@@ -868,6 +877,7 @@ export function schedulePatchToRow(patch: Partial<Schedule>): Partial<ScheduleIn
   if (hasKey(patch, 'scriptConfig')) out.scriptConfig = serializeScriptConfig(patch.scriptConfig);
   if (hasKey(patch, 'source')) out.source = patch.source ?? 'user';
   if (hasKey(patch, 'projectConfigId')) out.projectConfigId = patch.projectConfigId ?? null;
+  if (hasKey(patch, 'projectId')) out.projectId = patch.projectId ?? null;
   if (hasKey(patch, 'kind')) out.kind = patch.kind as ScheduleInsert['kind'];
   if (hasKey(patch, 'cronExpr')) out.cronExpr = patch.cronExpr as string;
   if (hasKey(patch, 'timezone')) out.timezone = patch.timezone as string;

@@ -245,8 +245,13 @@ describe('Mixed main list (sidebar-redesign D 期)', () => {
     // workingDir。workingDir 为空时直接创建 dialogue,不再强制弹项目 picker。
     expect(newMakerDraftRouteSource).not.toContain('selectProjectRequired');
     expect(newMakerDraftRouteSource).not.toContain('!selectedWorkingDir');
+    // 项目内核 M1 修订：没有目录**且**没有显式归属项目时仍是 dialogue；
+    // 从项目里发起（显式 projectId）时即使没选目录也算项目任务。
     expect(newMakerDraftRouteSource).toContain(
-      "workspaceKind: workingDir ? 'project' : 'dialogue'",
+      "workspaceKind: workingDir || boundProjectId ? 'project' : 'dialogue'",
+    );
+    expect(newMakerDraftRouteSource).toContain(
+      '...(boundProjectId ? { projectId: boundProjectId } : {}),',
     );
   });
 });

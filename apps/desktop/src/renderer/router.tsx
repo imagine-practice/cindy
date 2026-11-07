@@ -25,6 +25,9 @@ import { SkillhubDetailRoute, LegacySkillDetailRedirect } from '@/features/skill
 import { SkillhubMarketListView } from '@/features/skillhub/SkillhubMarketListView';
 import { MakerExperimentalView } from '@/features/maker-experimental/MakerExperimentalView';
 import { SchedulerPage } from '@/features/scheduler';
+import { ProjectDetailPage } from './features/projects/ProjectDetailPage';
+import { ProjectsIndexRoute } from './features/projects/ProjectsIndexRoute';
+import { WorkItemMaterialsPage } from './features/materials/WorkItemMaterialsPage';
 import { GhostPluginPage } from '@/features/plugin/GhostPluginPage';
 import { BotsFeatureLayout } from '@/features/bots/BotsFeatureLayout';
 import { BotsListView } from '@/features/bots/BotsListView';
@@ -107,6 +110,11 @@ export const router = createHashRouter([
                       { path: 'new', element: <NewMakerDraftRoute /> },
                       // 兼容旧 deep link:新建入口已收敛到同一个可切换 workspace 的创建页。
                       { path: 'new-dialogue', element: <Navigate to="/cc-agent/new" replace /> },
+                      // 工作项详情：参考材料与快照（项目内核 M2）。静态段必须在 :sessionId 之前。
+                      { path: 'projects', element: <ProjectsIndexRoute /> },
+                      { path: 'projects/:projectId/items/:sessionId', element: <WorkItemMaterialsPage /> },
+                      // 实体项目详情（项目内核 M1）。静态段 'projects' 必须在 :sessionId 之前匹配。
+                      { path: 'projects/:projectId', element: <ProjectDetailPage /> },
                       // Scheduled — 调度任务列表（与 new 同一层级，必须在 :sessionId 之前）
                       { path: 'scheduled', element: <SchedulerPage /> },
                       // Workdir File Browser — 文件树视图(vscode-style),sidebar 自动 swap。

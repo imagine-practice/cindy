@@ -1,3 +1,6 @@
+import { createMaterialReferenceBridge } from './materialReferenceBridge';
+import { MATERIALS_READ_PREVIEW_BYTES_CHANNEL, type MaterialPreviewBytesParams, type MaterialPreviewBytesResult } from '../shared/materials';
+import { MATERIAL_DISPATCH_STATUS_CHANNEL } from '../shared/materialDispatch';
 import { APP_PREFERENCE_REQUEST, APP_PREFERENCE_REPLY, APP_SETTINGS_CHANGED, type AppPreferenceControlBridge } from '../shared/appPreferenceControl.js';
 import type { VoiceConversationApi } from '../shared/voiceConversation';
 import { PERFORMANCE_TRACE_CHANNEL, PERFORMANCE_TRACE_EVENTS_CHANNEL, PERFORMANCE_TRACE_STATE_CHANNEL, type PerformanceTraceAPI, type PerformanceTraceState } from '../shared/performanceTrace';
@@ -634,6 +637,8 @@ const fanOutPluginUpdateConsentHoldsChanged = createIpcFanOut(
 // #37: release 端检测到 schema drift 时一次性 toast 提示开发者切回 dev 自动修复
 const fanOutSchemaDriftWarning = createIpcFanOut('local-db:schema-drift-warning');
 const fanOutProjectAliasesChanged = createIpcFanOut('local-db:project-aliases:changed');
+// 项目内核：项目/成员/任务绑定任意一处变化后，renderer 重拉项目快照。
+const fanOutProjectsChanged = createIpcFanOut('local-db:projects:changed');
 const fanOutSessionImportProgress = createIpcFanOut('session-import:progress');
 const fanOutSidebarPinnedOrderChanged = createIpcFanOut('sidebar-settings:pinned-order-changed');
 const fanOutSidebarHiddenProjectKeysChanged = createIpcFanOut(
@@ -1109,6 +1114,8 @@ const appDisplayVersionInfo = ipcRenderer.sendSync('get-app-display-version-info
 // 只暴露 renderer 实际消费的字段,新增消费点时在此处扩展。
 const clientEndpointsInfo = ipcRenderer.sendSync('client-endpoints:get-sync') as {
   websiteUrl: string;
+  /** 聊天服务器基址；群 ↔ 项目关联按它定位房间。 */
+  chatApiBaseUrl?: string;
 };
 
 let appearanceSettingsInfo = ipcRenderer.sendSync(
@@ -1122,6 +1129,8 @@ ipcRenderer.on('appearance-settings:changed', (_event, settings: AppearanceSetti
 
 const readMicrophonePermissionSnapshot = createMicrophonePermissionSnapshot();
 const voiceInputDataSnapshot = createVoiceInputDataSnapshot();
+
+const materialReferenceBridge = createMaterialReferenceBridge();
 
 contextBridge.exposeInMainWorld('electronAPI', {
   appPreferenceControl: {
@@ -1257,7 +1266,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }),
   osRelease: ipcRenderer.sendSync('get-os-release') as string,
   appVersion: ipcRenderer.sendSync('get-app-version') as string,
-  clientEndpoints: { websiteUrl: clientEndpointsInfo?.websiteUrl ?? '' },
+  clientEndpoints: {
+    websiteUrl: clientEndpointsInfo?.websiteUrl ?? '',
+    chatApiBaseUrl: clientEndpointsInfo?.chatApiBaseUrl ?? '',
+  },
   preferredSystemLocale: readInitialPreferredSystemLocale(),
   appDisplayVersion: appDisplayVersionInfo.display,
   appDisplayVersionDetail: appDisplayVersionInfo.detail,
@@ -6216,6 +6228,48 @@ contextBridge.exposeInMainWorld('electronAPI', {
         request: import('@cindy/maker-shared').TaskTagRequest,
       ): Promise<import('@cindy/maker-shared').TaskTagResult> =>
         ipcRenderer.invoke('local-db:task-tags:execute', request),
+    },
+    projects: {
+      list: (): Promise<unknown> => ipcRenderer.invoke('local-db:projects:list'),
+      detail: (projectId: string): Promise<unknown> =>
+        ipcRenderer.invoke('local-db:projects:detail', projectId),
+      mutate: (mutation: unknown): Promise<unknown> =>
+        ipcRenderer.invoke('local-db:projects:mutate', mutation),
+      onChanged: (cb: () => void) => fanOutProjectsChanged(cb as IpcCallback),
+    },
+    projectGroupLinks: {
+      list: (request: import('../shared/projectGroupLinks').ProjectGroupLinksListIntent): Promise<import('../shared/projectGroupLinks').ProjectGroupLinksResponse> => ipcRenderer.invoke('local-db:project-group-links:list', request),
+      listProject: (request: import('../shared/projectGroupLinks').ProjectGroupLinksListProjectIntent): Promise<import('../shared/projectGroupLinks').ProjectGroupLinksProjectListResult | import('../shared/projectGroupLinks').ProjectGroupLinksFailure> => ipcRenderer.invoke('local-db:project-group-links:list-project', request),
+      link: (request: import('../shared/projectGroupLinks').ProjectGroupLinkIntent): Promise<import('../shared/projectGroupLinks').ProjectGroupLinksResponse> => ipcRenderer.invoke('local-db:project-group-links:link', request),
+      unlink: (request: import('../shared/projectGroupLinks').ProjectGroupUnlinkIntent): Promise<import('../shared/projectGroupLinks').ProjectGroupLinksResponse> => ipcRenderer.invoke('local-db:project-group-links:unlink', request),
+    },
+    projectProgress: {
+      read: (request: import('../shared/projectProgressApi').ProjectProgressReadRequest): Promise<import('../shared/projectProgressApi').ProjectProgressReadResult> =>
+        ipcRenderer.invoke('local-db:project-progress:read', request),
+      update: (intent: import('../shared/workItemProgress').WorkItemProgressIntent): Promise<import('../shared/workItemProgress').WorkItemProgressResult> =>
+        ipcRenderer.invoke('local-db:project-progress:update', intent),
+    },
+    projectExecution: {
+      read: (request: import('../shared/projectWorkItemExecutionRequest').ProjectWorkItemExecutionReadRequest): Promise<import('../shared/projectWorkItemExecutionRequest').ProjectWorkItemExecutionReadResult> =>
+        ipcRenderer.invoke('local-db:project-execution:read', request),
+      request: (intent: import('../shared/projectWorkItemExecutionRequest').ProjectWorkItemExecutionRequestIntent): Promise<import('../shared/projectWorkItemExecutionRequest').ProjectWorkItemExecutionRequestResult> =>
+        ipcRenderer.invoke('local-db:project-execution:request', intent),
+      followup: (intent: import('../shared/projectWorkItemExecutionRequest').ProjectWorkItemFollowupIntent): Promise<import('../shared/projectWorkItemExecutionRequest').ProjectWorkItemFollowupResult> =>
+        ipcRenderer.invoke('local-db:project-execution:followup', intent),
+    },
+    materials: {
+      ...materialReferenceBridge.materials,
+      readPreviewBytes: (params: MaterialPreviewBytesParams): Promise<MaterialPreviewBytesResult> =>
+        ipcRenderer.invoke(MATERIALS_READ_PREVIEW_BYTES_CHANNEL, params),
+    },
+    materialContexts: {
+      ...materialReferenceBridge.materialContexts,
+    },
+    // Read-only dispatch ledger projection for the work-item UI; the send envelope is
+    // unchanged, so this is the only material-dispatch channel the renderer needs.
+    materialDispatch: {
+      status: (params: { sessionId: string }) =>
+        ipcRenderer.invoke(MATERIAL_DISPATCH_STATUS_CHANNEL, params),
     },
     projectAliases: {
       list: (): Promise<unknown> => ipcRenderer.invoke('local-db:project-aliases:list'),

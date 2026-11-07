@@ -1,3 +1,5 @@
+import { isProvisionalSession, forgetProvisionalSession } from '../../provisionalSessions';
+import { notifyGhostSessionEvent } from '../../../cindy-brain/index';
 import { registerMakerSessionCreateHandler } from '../../../maker-ipc/sessionCreateHandler';
 import { MAKER_INVOKE } from '../../../maker-ipc/channels';
 import { withSendToSessionLock } from '../../../maker-ipc/sendToSessionLock';
@@ -86,6 +88,9 @@ const h = vi.hoisted(() => ({
   ),
   captureOwnerScope: false,
   ownerCurrent: true,
+  // Snapshot returned by getCurrentDbClientSnapshot(): the project access gate reads the
+  // acting account from `userId` here (the legacy inproc getCurrentUserId() is not it).
+  userId: 'test-user' as string | null,
   requestRecycle: vi.fn(async () => undefined),
   routeLock: vi.fn(async <T>(_sessionId: string, task: () => Promise<T>): Promise<T> =>
     task(),
@@ -122,10 +127,11 @@ vi.mock('../../../appSessionState', () => ({
 vi.mock('../../../logger', () => ({
   createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
+vi.mock('../../index', () => ({ getCurrentUserId: () => h.userId }));
 vi.mock('../../client/current', () => ({
   getCurrentDbClientSnapshot: () => h,
   getDbClient: () => h.client,
-  getCurrentDbClientUserId: () => 'test-user',
+  getCurrentDbClientUserId: () => h.userId,
 }));
 vi.mock('../../botProfileDeletionStore.js', () => ({
   commitBotProfileDeletion: h.commitBotProfileDeletion,
@@ -294,7 +300,11 @@ function createDb(): void {
       last_turn_ended_at INTEGER,
       list_preview TEXT,
       list_preview_role TEXT,
-      list_message_count INTEGER
+      list_message_count INTEGER,
+      project_id TEXT,
+      project_binding_revision INTEGER NOT NULL DEFAULT 0,
+      assignee_kind TEXT,
+      assignee_id TEXT
     );
     CREATE TABLE messages (
       id TEXT PRIMARY KEY,
@@ -373,6 +383,7 @@ beforeEach(() => {
   h.upsertRecentWorkdir.mockImplementation(async () => true);
   h.captureOwnerScope = false;
   h.ownerCurrent = true;
+  h.userId = 'test-user';
   h.requestRecycle.mockResolvedValue(undefined);
   h.handlers.clear();
   h.windows = [];
@@ -2160,4 +2171,94 @@ describe('terminal intent during session creation', () => {
     expect(failure).toBeUndefined();
   });
 
+});
+
+// C1 unit: real sessions:create/openSession + SQLite, coordinator's failing revocation probe.
+// Existing update tests miss final create authorization. Model admission is controlled; no real model.
+describe('project session create atomic authorization (C1)', () => {
+  function projectFixture() {
+    h.sqlite!.exec(`CREATE TABLE projects(id TEXT PRIMARY KEY, status TEXT, owner_id TEXT);
+      CREATE TABLE project_members(project_id TEXT, subject_kind TEXT, subject_id TEXT, role TEXT,
+        PRIMARY KEY(project_id,subject_kind,subject_id));
+      INSERT INTO projects VALUES('p','active','owner');
+      INSERT INTO project_members VALUES('p','account','test-user','member'), ('p','bot','test-user','owner');`);
+    const execute = vi.fn(async (name: string, args: unknown) => runDbTransaction(h.sqlite!, { name, args }));
+    Object.assign(h.client!, {
+      query: async (sql: string, params: unknown[] = []) => h.sqlite!.prepare(sql).all(...params),
+      queryOne: async (sql: string, params: unknown[] = []) => h.sqlite!.prepare(sql).get(...params),
+      tx: execute,
+    });
+    return execute;
+  }
+  const body = { id: 'c1-task', title: 'Task', workspaceKind: 'project', projectId: 'p', provisional: true,
+    actor: { kind: 'bot', id: 'test-user' }, role: 'owner' };
+  const saved = () => h.sqlite!.prepare('SELECT project_id,project_binding_revision FROM sessions WHERE id=?').get(body.id);
+  afterEach(() => forgetProvisionalSession(body.id));
+  function admit(change: () => void = () => {}) {
+    setSessionOpeningModelAdmission(async value => { change(); return { ...value, agentKind: 'codex', model: 'fixture-model', providerId: 'fixture-provider' }; });
+  }
+  it('keeps normal-member control and ignores raw bot actor', async () => {
+    const execute = projectFixture(); admit(); await invokeCreate(body);
+    expect(saved()).toEqual({ project_id: 'p', project_binding_revision: 0 });
+    expect(execute).toHaveBeenCalledWith('sessions.createAuthorized', expect.objectContaining({ actor: { kind: 'account', id: 'test-user' } }));
+  });
+  it.each(['revoke', 'archive', 'delete'] as const)('rejects %s during preparation without session, broadcast or provisional marker', async change => {
+    projectFixture(); admit(() => h.sqlite!.exec(change === 'revoke'
+      ? "DELETE FROM project_members WHERE project_id='p' AND subject_kind='account' AND subject_id='test-user'"
+      : change === 'archive' ? "UPDATE projects SET status='archived' WHERE id='p'" : "DELETE FROM projects WHERE id='p'"));
+    await expect(invokeCreate(body)).rejects.toThrow(change === 'archive' ? '[PRECONDITION_FAILED]' : '[FORBIDDEN]');
+    expect(saved()).toBeUndefined(); expect(isProvisionalSession(body.id)).toBe(false);
+    expect(notifyGhostSessionEvent).not.toHaveBeenCalled(); expect(h.tapWindowBroadcast).not.toHaveBeenCalled();
+  });
+  it('rejects missing trusted identity despite forged raw actor', async () => {
+    const execute = projectFixture(); h.userId = null; admit();
+    await expect(invokeCreate(body)).rejects.toThrow('[NOT_PROJECT_MEMBER]');
+    expect(execute).not.toHaveBeenCalled(); expect(saved()).toBeUndefined();
+  });
+  /** Flip the captured owner epoch inside the binding gate's project read, before its member read. */
+  function switchOwnerDuringBindingGate(): void {
+    const client = h.client as unknown as {
+      queryOne: (sql: string, params?: unknown[]) => Promise<unknown>;
+    };
+    const read = client.queryOne;
+    client.queryOne = async (sql, params = []) => {
+      const row = await read(sql, params);
+      if (/FROM projects WHERE id/.test(sql)) h.ownerCurrent = false;
+      return row;
+    };
+  }
+  it('reports the account switch instead of membership when the account moves during the gate', async () => {
+    const execute = projectFixture(); h.captureOwnerScope = true; admit();
+    switchOwnerDuringBindingGate();
+    await expect(invokeCreate(body)).rejects.toThrow('Active account changed');
+    expect(execute).not.toHaveBeenCalled(); expect(saved()).toBeUndefined();
+    expect(isProvisionalSession(body.id)).toBe(false);
+  });
+  it('still reports a non-member while the account itself is unchanged', async () => {
+    const execute = projectFixture(); h.captureOwnerScope = true; admit();
+    h.sqlite!.exec("DELETE FROM project_members WHERE project_id='p' AND subject_kind='account'");
+    await expect(invokeCreate(body)).rejects.toThrow('[NOT_PROJECT_MEMBER]');
+    expect(execute).not.toHaveBeenCalled(); expect(saved()).toBeUndefined();
+  });
+  it('prefers the account switch over a simultaneous membership revoke', async () => {
+    const execute = projectFixture(); h.captureOwnerScope = true; admit();
+    h.sqlite!.exec("DELETE FROM project_members WHERE project_id='p' AND subject_kind='account'");
+    switchOwnerDuringBindingGate();
+    await expect(invokeCreate(body)).rejects.toThrow('Active account changed');
+    expect(execute).not.toHaveBeenCalled(); expect(saved()).toBeUndefined();
+    expect(isProvisionalSession(body.id)).toBe(false);
+  });
+  it('rejects owner switch during preparation before dispatch', async () => {
+    const execute = projectFixture(); h.captureOwnerScope = true; admit(() => { h.ownerCurrent = false; });
+    await expect(invokeCreate(body)).rejects.toThrow('Active account changed');
+    expect(execute).not.toHaveBeenCalled(); expect(saved()).toBeUndefined(); expect(isProvisionalSession(body.id)).toBe(false);
+  });
+  it('rejects post-dispatch owner switch without claiming rollback of a committed row', async () => {
+    const execute = projectFixture(); h.captureOwnerScope = true; admit();
+    execute.mockImplementationOnce(async (name, args) => { const result = runDbTransaction(h.sqlite!, { name, args }); h.ownerCurrent = false; return result; });
+    await expect(invokeCreate(body)).rejects.toThrow('Active account changed');
+    expect(saved()).toEqual({ project_id: 'p', project_binding_revision: 0 });
+    expect(execute).toHaveBeenCalledOnce(); expect(isProvisionalSession(body.id)).toBe(false);
+    expect(notifyGhostSessionEvent).not.toHaveBeenCalled();
+  });
 });

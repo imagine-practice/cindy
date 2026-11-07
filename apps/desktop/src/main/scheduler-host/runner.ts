@@ -114,6 +114,11 @@ import {
   type SanitizedSendOutcomeError,
 } from '../maker-host/send-outcome.js';
 import { resolveWorkingDir } from './workdir-resolver';
+import {
+  describeScheduleProjectRejection,
+  isProjectBindingRejection,
+  projectBindingRejectionMessage,
+} from './projectBinding';
 import { WorktreePool } from '../worktree';
 import type { SchedulerDrizzleDb } from './storage';
 import { backfillSessionMeta } from './runners/_shared';
@@ -878,6 +883,19 @@ export class MakerScheduleRunner implements ScheduleRunner {
       throw new Error(errMsg);
     }
 
+    // 1.2 自动化绑定项目实体的运行期复核（规格 A3 / A4）。
+    // 保存时是成员 / 项目未归档，不代表现在还是：这里在**创建任何东西之前**再判一次，
+    // 失败就带着可核对的原因让本轮结束 —— 不静默降级成“无项目运行”，也不产生
+    // 归属错误或没有归属的会话。判定口径与保存时同一份（projectBinding.ts）。
+    if (schedule.projectId) {
+      const rejection = await describeScheduleProjectRejection(this.deps.getDb(), schedule.projectId);
+      if (rejection) {
+        const errMsg = `Project binding unavailable: ${rejection}`;
+        await this.notifyFailureSilent(schedule, ctx, errMsg);
+        throw new Error(errMsg);
+      }
+    }
+
     // A scheduled message restores its ordinary target just like user input.
     // Do this before hooks/model selection, while keeping deleted-target behavior
     // and service-owned Bot lifecycle separate.
@@ -1612,6 +1630,11 @@ export class MakerScheduleRunner implements ScheduleRunner {
         : {}),
       title: isHeartbeat ? undefined : `[Schedule] ${schedule.name}`,
       resumeSessionId,
+      // 自动化归属的项目实体（规格 A1）。只在“本次新建会话”时下传：heartbeat 复用的是
+      // 用户既有会话，它自己的归属不能被自动化改写（规格 A7）。
+      // 落库走会话创建的授权事务，成员资格 / 项目未归档在同一个 IMMEDIATE 事务里
+      // 再判一次，`project_binding_revision` 从默认 0 开始。
+      ...(!isHeartbeat && schedule.projectId ? { projectId: schedule.projectId } : {}),
       // Explicit null means Cindy's default route for Pi.
       providerId: createProviderId,
       vendorOptions: { source: 'scheduler' as const },
@@ -1623,6 +1646,17 @@ export class MakerScheduleRunner implements ScheduleRunner {
       if (err instanceof CredentialModeSwitchBusyError) {
         // fresh Codex 也共用本地 credential mode，撞上其它本地 Codex turn 时按撞忙处理。
         return this.failOrDeferSessionRunning(schedule, ctx, sessionId, true);
+      }
+      // 项目绑定在落库授权事务里被拒（例如复核之后项目刚好归档 / 成员被移除）：
+      // 本轮必须失败并给出可核对原因，不能带着被吞掉的错误继续。
+      // 事务只回 FORBIDDEN / PRECONDITION_FAILED，分不清「不是成员」「已归档」「账号变了」；
+      // 这里按同一份判定重查一次拿准确原因，重查不可用时才回落到按码推断的措辞。
+      if (schedule.projectId && !isHeartbeat && isProjectBindingRejection(err)) {
+        const currentReason = await describeScheduleProjectRejection(this.deps.getDb(), schedule.projectId)
+          .catch(() => null);
+        const errMsg = `Project binding unavailable: ${currentReason ?? projectBindingRejectionMessage(err)}`;
+        await this.notifyFailureSilent(schedule, ctx, errMsg);
+        throw new Error(errMsg);
       }
       throw err;
     }

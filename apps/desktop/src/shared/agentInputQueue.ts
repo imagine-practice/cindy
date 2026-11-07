@@ -1,3 +1,4 @@
+import type { MaterialDispatchSelector } from './materialDispatch.js';
 import type { AgentRequestReceipt } from './forwardedRequest.js';
 import { coordinationModelPrefix, type BotTaskCoordination } from './botTaskCoordination.js';
 /**
@@ -295,6 +296,10 @@ export interface RecoveryCheckpoint {
 export const HOST_ONLY_AGENT_PREFIX = Symbol('host-only-agent-prefix');
 
 export interface AgentInputQueuedMessage {
+  /** Explicit material selection and CAS only; never an identity or preparation. */
+  materialDispatch?: { selector: MaterialDispatchSelector; expectedRevision: number };
+  /** Main-stamped durable revision. Renderer values are stripped at admission. */
+  materialDispatchRevision?: number;
   /** Rejection marker only. The positive authorization is a Main-only, non-persisted guard. */
   taskActionRequiresAuthorization?: true;
   /** Main-owned delegation receipt; stripped from renderer/device-link input. */

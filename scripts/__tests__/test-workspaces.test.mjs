@@ -725,6 +725,88 @@ test("desktop unit excludes integration, migration, direct db-tier, and source-c
 	);
 });
 
+// Tier regression: the real .integration.test.ts pattern does not match TSX.
+// A migrated-SQLite/compiled-preload test must execute in manual integration, not default unit.
+// Minimal failure is the actual manifest + selector assigning this file to unit only; no IO or waits.
+test("project progress TSX integration belongs only to Desktop integration without excluding neighboring TSX", () => {
+	const desktop = manifest.workspaces.find((workspace) => workspace.cwd === "apps/desktop");
+	const target = "apps/desktop/src/renderer/features/projects/__tests__/ProjectProgressWrite.integration.test.tsx";
+	const neighbors = [
+		"apps/desktop/src/renderer/features/projects/__tests__/ProjectProgressPage.test.tsx",
+		"apps/desktop/src/renderer/features/projects/__tests__/Other.integration.test.tsx",
+	];
+	assert.deepEqual(selectFilesForTier(desktop, desktop.tiers.unit, [target, ...neighbors]), neighbors);
+	assert.deepEqual(selectFilesForTier(desktop, desktop.tiers.integration, [target, ...neighbors]), [target]);
+	assert.deepEqual(Object.entries(desktop.tiers)
+		.filter(([, tier]) => selectFilesForTier(desktop, tier, [target]).length)
+		.map(([name]) => name), ["integration"]);
+	assert.equal(desktop.tiers.integration.status, "manual");
+});
+
+// The local-only MCP host fixture executes full migrations/native SQLite. Its source
+// integration annotation is not a tier registration: assert the real manifest/selector.
+test("entity project MCP migrated database fixture belongs only to Desktop integration", () => {
+	const desktop = manifest.workspaces.find((workspace) => workspace.cwd === "apps/desktop");
+	const target = "apps/desktop/src/main/mcp-integrations/__tests__/entityProjectManagement.test.ts";
+	assert.deepEqual(selectFilesForTier(desktop, desktop.tiers.unit, [target]), []);
+	assert.deepEqual(selectFilesForTier(desktop, desktop.tiers.integration, [target]), [target]);
+	assert.deepEqual(Object.entries(desktop.tiers)
+		.filter(([, tier]) => selectFilesForTier(desktop, tier, [target]).length)
+		.map(([name]) => name), ["integration"]);
+	assert.equal(desktop.tiers.integration.status, "manual");
+});
+
+// Real migrated SQLite resolver fixture must be selected, but never by default unit.
+test("group reference resolver belongs only to Desktop integration without dropping its tests", () => {
+	const desktop = manifest.workspaces.find((workspace) => workspace.cwd === "apps/desktop");
+	const target = "apps/desktop/src/main/mcp-integrations/__tests__/projectGroupReferenceResolver.test.ts";
+	assert.deepEqual(selectFilesForTier(desktop, desktop.tiers.unit, [target]), []);
+	assert.deepEqual(selectFilesForTier(desktop, desktop.tiers.integration, [target]), [target]);
+	assert.deepEqual(Object.entries(desktop.tiers)
+		.filter(([, tier]) => selectFilesForTier(desktop, tier, [target]).length)
+		.map(([name]) => name), ["integration"]);
+});
+
+// Real migrated SQLite, native file reads and final revocation snapshots belong in integration.
+// Minimal regression: actual selector drops this fixture from integration or includes it in unit.
+test("material execution preparation belongs only to Desktop integration", () => {
+	const desktop = manifest.workspaces.find((workspace) => workspace.cwd === "apps/desktop");
+	const target = "apps/desktop/src/main/maker-ipc/__tests__/materialExecutionInput.test.ts";
+	assert.deepEqual(selectFilesForTier(desktop, desktop.tiers.unit, [target]), []);
+	assert.deepEqual(selectFilesForTier(desktop, desktop.tiers.integration, [target]), [target]);
+	assert.deepEqual(Object.entries(desktop.tiers)
+		.filter(([, tier]) => selectFilesForTier(desktop, tier, [target]).length)
+		.map(([name]) => name), ["integration"]);
+	assert.equal(desktop.tiers.integration.status, "manual");
+});
+
+// Full0150/native SQLite coordinator fixtures belong only to manual integration.
+test("project group link coordinator is selected only by Desktop integration", () => {
+	const desktop = manifest.workspaces.find(w => w.cwd === "apps/desktop");
+	const file = "apps/desktop/src/main/mcp-integrations/__tests__/projectGroupLinksCoordinator.test.ts";
+	assert.deepEqual(selectFilesForTier(desktop, desktop.tiers.unit, [file]), []);
+	assert.deepEqual(selectFilesForTier(desktop, desktop.tiers.integration, [file]), [file]);
+	assert.deepEqual(Object.entries(desktop.tiers).filter(([,t]) => selectFilesForTier(desktop,t,[file]).length).map(([n]) => n), ["integration"]);
+});
+
+// Registered IPC and full0150 native/file/inline worker fixture must not disappear between tiers.
+test("group links real IPC worker chain is excluded from unit and retained in integration and db", () => {
+	const desktop = manifest.workspaces.find(w => w.cwd === "apps/desktop");
+	const file = "apps/desktop/src/main/localDb/__tests__/projectGroupLinksIpc.test.ts";
+	assert.deepEqual(selectFilesForTier(desktop, desktop.tiers.unit, [file]), []);
+	assert.deepEqual(selectFilesForTier(desktop, desktop.tiers.integration, [file]), [file]);
+	assert.deepEqual(Object.entries(desktop.tiers).filter(([,t]) => selectFilesForTier(desktop,t,[file]).length).map(([n])=>n), ["integration", "db"]);
+});
+
+// Real R3 DOM/service/registered IPC/migration fixture must run in integration, never unit.
+test("material reference page backend chain belongs only to Desktop integration", () => {
+	const desktop = manifest.workspaces.find(w => w.cwd === "apps/desktop");
+	const file = "apps/desktop/src/renderer/features/materials/__tests__/materialReferencePage.integration.test.tsx";
+	assert.deepEqual(selectFilesForTier(desktop, desktop.tiers.unit, [file]), []);
+	assert.deepEqual(selectFilesForTier(desktop, desktop.tiers.integration, [file]), [file]);
+	assert.deepEqual(Object.entries(desktop.tiers).filter(([,t])=>selectFilesForTier(desktop,t,[file]).length).map(([n])=>n), ["integration"]);
+});
+
 test("desktop real-Git coverage is an explicit coordinated tier outside default unit", () => {
 	const desktopPackage = readWorkspacePackageJson("apps/desktop");
 	const desktop = manifest.workspaces.find(
@@ -2641,4 +2723,20 @@ test("the runner drops agent-shell variables that change test results, and nothi
 	assert.deepEqual(stripAgentEnvPollutants(env), ["NODE_ENV", "CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL", "CINDY_INPUT_HANDOFF_ROUTE"]);
 	assert.deepEqual(env, { PATH: "/bin", CI: "true" });
 	assert.deepEqual(stripAgentEnvPollutants(env), []);
+});
+
+// Formal migrations and file/inline worker serialization require the explicit DB tier.
+test("material dispatch durable registration is integration and db, never unit", () => {
+ const desktop = manifest.workspaces.find(w => w.cwd === "apps/desktop");
+ for (const name of ["materialDispatch.test.ts", "materialDispatchRegistration.test.ts"]) {
+  const file = "apps/desktop/src/main/localDb/__tests__/" + name;
+  assert.deepEqual(Object.entries(desktop.tiers).filter(([,t]) => selectFilesForTier(desktop,t,[file]).length).map(([n])=>n), ["integration", "db"]);
+ }
+});
+
+// The original message writer test now exercises a full formal migration/queue boundary.
+test("material queue original message writer is integration and db, never unit", () => {
+ const desktop = manifest.workspaces.find(w => w.cwd === "apps/desktop");
+ const file = "apps/desktop/src/main/localDb/ipc/__tests__/messagesWriteReadback.test.ts";
+ assert.deepEqual(Object.entries(desktop.tiers).filter(([,t]) => selectFilesForTier(desktop,t,[file]).length).map(([n])=>n), ["integration", "db"]);
 });
