@@ -72,6 +72,8 @@ export const projectsStore = {
         id: project.id,
         name: project.name,
         updatedAt: project.updatedAt,
+        // 认领的目录随项目快照一起进分组：目录里的历史任务并到项目行，侧栏只留一行。
+        dirs: project.dirs.map((dir) => dir.dirKey),
       }));
     }
     return derivedIndex;

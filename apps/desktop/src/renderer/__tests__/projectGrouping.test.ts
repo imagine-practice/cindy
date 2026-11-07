@@ -1309,11 +1309,12 @@ describe('pinnedSessionIdsInDisplayOrder（拖拽 baseline:与置顶段同序 st
 /* ============================== entity projects (项目内核 M1) ============================== */
 
 describe('entity projects', () => {
-  const entity = (id: string, name: string, updatedAt = '2026-01-02T00:00:00.000Z') => ({
-    id,
-    name,
-    updatedAt,
-  });
+  const entity = (
+    id: string,
+    name: string,
+    updatedAt = '2026-01-02T00:00:00.000Z',
+    dirs?: string[],
+  ) => ({ id, name, updatedAt, ...(dirs ? { dirs } : {}) });
 
   it('groups bound tasks under the entity project and leaves legacy tasks on their directory', () => {
     const bound = s({ id: 'bound', workingDir: '/repo/cindy', projectId: 'p1' });
@@ -1330,6 +1331,31 @@ describe('entity projects', () => {
     expect(dirNode?.sessions.map((session) => session.id)).toEqual(['legacy']);
     // 互不吞并：绑定任务不再出现在目录分组里。
     expect(groups.projects).toHaveLength(2);
+  });
+
+  it('merges a claimed folder into the project row instead of showing two rows', () => {
+    // project_id 仍是 null（认领前建的任务），但目录已被项目认领。
+    const legacy = s({ id: 'legacy', workingDir: '/repo/cindy' });
+    const groups = groupSessions([legacy], {
+      entityProjects: [entity('p1', 'Cindy desktop', undefined, ['local:/repo/cindy'])],
+    });
+    expect(groups.projects).toHaveLength(1);
+    expect(groups.projects[0]?.projectKey).toBe('project:p1');
+    expect(groups.projects[0]?.sessions.map((session) => session.id)).toEqual(['legacy']);
+  });
+
+  it('keeps an explicit project binding even when the folder belongs to another project', () => {
+    const moved = s({ id: 'moved', workingDir: '/repo/cindy', projectId: 'p2' });
+    const groups = groupSessions([moved], {
+      entityProjects: [
+        entity('p1', 'Cindy desktop', undefined, ['local:/repo/cindy']),
+        entity('p2', 'Other'),
+      ],
+    });
+    // 任务跟显式绑定走；认领目录那一侧不留空的项目外目录行。
+    expect(groups.projects.find((project) => project.entityProjectId === 'p2')?.sessions.map((session) => session.id))
+      .toEqual(['moved']);
+    expect(groups.projects.every((project) => !!project.entityProjectId)).toBe(true);
   });
 
   it('keeps an empty entity project in the list', () => {

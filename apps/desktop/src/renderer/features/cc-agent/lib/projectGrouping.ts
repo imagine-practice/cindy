@@ -198,6 +198,12 @@ export interface EntityProjectOption {
   name: string;
   /** 项目自身更新时间（ISO）；零任务项目靠它参与项目间排序。 */
   updatedAt: string;
+  /**
+   * 项目认领的工作目录键（`local:` / `remote:` / `device:`）。
+   * 认领目录里尚未绑定 project_id 的历史任务也归到这个项目节点下，
+   * 侧栏因此只出现一行，而不是「项目 + 目录」两行。
+   */
+  dirs?: readonly string[];
 }
 
 /** 实体项目节点的 key 命名空间：与 `local:` / `remote:` / `device:` 目录 key 互不相交。 */
@@ -575,6 +581,37 @@ export function groupSessions(
     if (entity.id) entityProjectsById.set(entity.id, entity);
   }
   const entityProjectKeys = new Set<string>();
+  // 目录 → 认领它的项目。本地键按比较键折叠（Windows 大小写/路径写法差异），
+  // 远端与设备键保持精确匹配。
+  const claimedDirProject = new Map<string, EntityProjectOption>();
+  const claimKey = (key: string): string => projectKeyComparisonKey(key, localPlatform) ?? key;
+  for (const entity of entityProjectsById.values()) {
+    for (const dirKey of entity.dirs ?? []) {
+      const key = claimKey(dirKey);
+      if (!claimedDirProject.has(key)) claimedDirProject.set(key, entity);
+    }
+  }
+  /** 项目节点分组：显式绑定与「目录被认领」共用同一段落组逻辑。 */
+  const groupIntoEntityProject = (session: Session, entity: EntityProjectOption): void => {
+    const projectKey = entityProjectKey(entity.id);
+    entityProjectKeys.add(projectKey);
+    const arr = groups.get(projectKey);
+    if (arr) arr.push(session);
+    else groups.set(projectKey, [session]);
+    if (!identityByKey.has(projectKey)) {
+      identityByKey.set(projectKey, {
+        scope: 'local',
+        // 实体项目不以路径为身份；空串让目录消歧逻辑跳过它（见 5c）。
+        workingDir: '',
+        remoteHostId: null,
+        deviceLinkDeviceId: null,
+        deviceLinkDeviceName: null,
+        deviceLinkConnectionStatus: null,
+        entityProjectId: entity.id,
+        entityProjectName: entity.name,
+      });
+    }
+  };
 
   // 3. 按 normalize 后 workingDir 分组
   // 草稿判定主线：userSendAt == null（用户从未按下发送）。
@@ -612,28 +649,20 @@ export function groupSessions(
     // 伙伴任务仍归伙伴段（M1 不改伙伴/群聊模型）。
     const entityProject = s.projectId ? entityProjectsById.get(s.projectId) : undefined;
     if (entityProject) {
-      const projectKey = entityProjectKey(entityProject.id);
-      entityProjectKeys.add(projectKey);
-      const arr = groups.get(projectKey);
-      if (arr) arr.push(s);
-      else groups.set(projectKey, [s]);
-      if (!identityByKey.has(projectKey)) {
-        identityByKey.set(projectKey, {
-          scope: 'local',
-          // 实体项目不以路径为身份；空串让目录消歧逻辑跳过它（见 5c）。
-          workingDir: '',
-          remoteHostId: null,
-          deviceLinkDeviceId: null,
-          deviceLinkDeviceName: null,
-          deviceLinkConnectionStatus: null,
-          entityProjectId: entityProject.id,
-          entityProjectName: entityProject.name,
-        });
-      }
+      groupIntoEntityProject(s, entityProject);
       continue;
     }
 
     const dir = normalizeWorkingDir(sessionProjectDirectory(s));
+    // 目录被项目认领后，这个目录里的历史任务（project_id 仍是 null）也跟着项目走：
+    // 否则侧栏会出现「项目」与「目录」两行，同一批任务被拆开。
+    if (dir != null) {
+      const claimed = claimedDirProject.get(claimKey(projectIdentityKeyForSession(s) ?? ''));
+      if (claimed) {
+        groupIntoEntityProject(s, claimed);
+        continue;
+      }
+    }
     const noPhysicalMessages = (s._count?.messages ?? 0) === 0;
     const isOrcaLead = isOrcaLeadSession(s);
     // 新建页里正在输入、还没发送的任务：已经选好项目，就放在那个项目下。
@@ -701,6 +730,8 @@ export function groupSessions(
     const workingDir = normalizeWorkingDir(project.workingDir);
     if (!workingDir) continue;
     const seedKey = projectIdentityKey('local', workingDir, null);
+    // 已认领的目录不再单独占一行：它的任务在项目节点下，空目录也没有存在的必要。
+    if (claimedDirProject.has(claimKey(seedKey))) continue;
     const comparisonKey = projectKeyComparisonKey(seedKey, localPlatform);
     const projectKey = (comparisonKey && localProjectKeyByComparison.get(comparisonKey)) ?? seedKey;
     if (!groups.has(projectKey)) {
