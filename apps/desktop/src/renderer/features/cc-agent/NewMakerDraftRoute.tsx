@@ -2215,8 +2215,10 @@ export function NewMakerDraftRoute() {
       fastMode: effectiveFastMode,
       planModeEnabled: effectivePlanMode,
       workingDir,
-      // Same shape the send path creates with: no project folder = a dialogue task.
-      workspaceKind: workingDir === undefined && !boundProjectId ? 'dialogue' : 'project',
+      // 没有工作目录时一律用 dialogue 工作区（main 会分配托管目录）。
+      // 旧写法在「带项目但没选目录」时写成 project + working_dir NULL：
+      // 任务能建出来，但发送时没有可用 cwd，消息会被静默丢弃。
+      workspaceKind: workingDir === undefined ? 'dialogue' : 'project',
       ...(boundProjectId ? { projectId: boundProjectId } : {}),
       remoteHostId: workingDir === undefined ? undefined : (effectiveRemoteHostId ?? undefined),
       ...(effectiveAgentDeviceId ? { agentDeviceId: effectiveAgentDeviceId } : {}),
@@ -4749,7 +4751,8 @@ export function NewMakerDraftRoute() {
             // 没选项目目录 = 创建 standalone dialogue;main 端会按 workspaceKind='dialogue'
             // 自动分配 <userData>/dialogues/<date>/<sid>/ 作为运行目录,不进入项目段。
             // 显式选了归属项目时仍算项目任务（项目内核 M1）。
-            workspaceKind: workingDir || boundProjectId ? 'project' : 'dialogue',
+            // 与 draft 创建保持同一口径：没有选目录 → dialogue（main 分配托管目录）。
+            workspaceKind: workingDir ? 'project' : 'dialogue',
             ...(boundProjectId ? { projectId: boundProjectId } : {}),
             remoteHostId: workingDir ? (effectiveRemoteHostId ?? undefined) : undefined,
             // Agent 在另一台电脑运行:任务与文件仍在本机,只记下运行 Agent 的电脑。
@@ -5536,7 +5539,8 @@ export function NewMakerDraftRoute() {
           permissionMode: chatInitialPermissionMode,
           fastMode: effectiveFastMode,
           workingDir: goalWorkingDir,
-          workspaceKind: goalWorkingDir || boundProjectId ? 'project' : 'dialogue',
+          // 同发送路径：没有目标目录就是 dialogue（main 托管），项目绑定不改变 cwd 的存在。
+          workspaceKind: goalWorkingDir ? 'project' : 'dialogue',
           ...(boundProjectId ? { projectId: boundProjectId } : {}),
           remoteHostId: goalWorkingDir ? (effectiveRemoteHostId ?? undefined) : undefined,
           ...(routeAgentDeviceId ? { agentDeviceId: routeAgentDeviceId } : {}),

@@ -725,9 +725,12 @@ it.each(['send', 'goal'] as const)(
       });
       expect(result.errors).toEqual([]);
       expect(result.createSession).toHaveBeenCalledTimes(1);
+      // 项目绑定 + 没选目录：普通发送必须是 dialogue（main 分配托管目录）。
+      // 旧实现写成 project + working_dir NULL，任务能建但发送静默失败。
+      // worktree 一定带 baseRepo，所以仍然是 project。
       expect(result.ipcCreate.mock.calls[0][0]).toMatchObject({
         projectId: 'p2',
-        workspaceKind: 'project',
+        workspaceKind: worktree ? 'project' : 'dialogue',
       });
     }
   },
