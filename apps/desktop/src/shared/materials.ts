@@ -96,6 +96,10 @@ export interface MaterialAddVersionResult {
   scope: MaterialScope;
   referenceContract: 1;
 }
+export type MaterialRecordSourceParams = MaterialScope & { referenceId: string; materialId: string };
+export type MaterialRecordSourceResult =
+  | { unchanged: true; version: number }
+  | { unchanged: false; version: MaterialVersion; reference: MaterialReference };
 export type MaterialRemoveReferenceParams = MaterialScope & { referenceId: string };
 export interface MaterialRemoveReferenceResult {
   ok: true;
@@ -153,6 +157,8 @@ export interface MaterialRetryReadResult { version: MaterialVersion; referenceCo
 export const MATERIALS_LIST_CHANNEL = 'local-db:materials:list';
 export const MATERIALS_ADD_CHANNEL = 'local-db:materials:add';
 export const MATERIALS_ADD_VERSION_CHANNEL = 'local-db:materials:add-version';
+/** 源文件变更后，把当前磁盘内容记成新版本（renderer 不传路径，由 main 解析 storage_ref）。 */
+export const MATERIALS_RECORD_SOURCE_CHANNEL = 'local-db:materials:record-source-version';
 export const MATERIALS_REMOVE_REFERENCE_CHANNEL = 'local-db:materials:remove-reference';
 export const MATERIALS_RETRY_READ_CHANNEL = 'local-db:materials:retry-read';
 export const MATERIALS_PREVIEW_CHANNEL = 'local-db:materials:preview';

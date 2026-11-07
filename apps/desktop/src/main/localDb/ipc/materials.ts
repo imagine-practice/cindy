@@ -3,7 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ipcMain } from 'electron';
 import {
-  MATERIALS_LIST_CHANNEL, MATERIALS_ADD_CHANNEL, MATERIALS_ADD_VERSION_CHANNEL,
+  MATERIALS_LIST_CHANNEL, MATERIALS_ADD_CHANNEL, MATERIALS_ADD_VERSION_CHANNEL, MATERIALS_RECORD_SOURCE_CHANNEL,
   MATERIALS_REMOVE_REFERENCE_CHANNEL, MATERIALS_RETRY_READ_CHANNEL, MATERIALS_PREVIEW_CHANNEL,
   MATERIAL_CONTEXTS_CREATE_CHANNEL, MATERIAL_CONTEXTS_LIST_CHANNEL,
   MATERIAL_NAME_MAX_LENGTH,
@@ -11,6 +11,7 @@ import {
   type MaterialScope, type MaterialHistoryParams, type MaterialFileInput, type MaterialPreviewParams,
   type MaterialsListResult, type MaterialsAddResult, type MaterialAddVersionResult,
   type MaterialRemoveReferenceResult, type MaterialRetryReadResult, type MaterialPreview,
+  type MaterialRecordSourceResult,
   type MaterialContextCreateResult, type MaterialContextsListResult, type MaterialVersion,
   type MaterialRejection, type MaterialReference,
 } from '../../../shared/materials';
@@ -246,6 +247,49 @@ export async function addMaterialVersion(raw: unknown, actor?: ProjectAccessActo
     return result;
   } finally { await cleanupMaterialStaging(staged,state,client,ctx.db,ctx.assertStable); await ctx.guard(s); }
 }
+/**
+ * 源文件变更 → 记录为新版本。
+ *
+ * 文档类材料引用原文件（不复制字节），源文件被覆盖后，已记录的旧版本哈希不再匹配。
+ * 这条通道让用户把**当前磁盘内容**记成 v(N+1)：renderer 只给 referenceId/materialId，
+ * 路径由 main 从已记录版本里取，绝不接受 renderer 传来的任意路径。
+ * 内容与当前版本相同则不改版本（unchanged），避免点击一次就造一个空版本。
+ */
+export async function recordMaterialSourceVersion(
+  raw: unknown, actor?: ProjectAccessActor, client: DbClient = getDbClient(),
+): Promise<MaterialRecordSourceResult> {
+  const b = object(raw), s = scope(b), id = referenceId(b), materialId = text(b.materialId);
+  const ctx = requestContext(actor, client);
+  await ctx.guard(s);
+  const current = await ctx.queryOne<{
+    version: number; name: string; sha256: string; storageKind: string; storageRef: string;
+  }>(
+    `SELECT v.version AS version, m.name AS name, v.sha256 AS sha256,
+            v.storage_kind AS storageKind, v.storage_ref AS storageRef
+       FROM material_references r
+       JOIN materials m ON m.id = r.material_id AND m.project_id = r.project_id
+       JOIN material_versions v ON v.material_id = r.material_id AND v.version = r.version
+      WHERE r.id = ? AND r.project_id = ? AND r.material_id = ? AND r.status = 'active'`,
+    [id, s.projectId, materialId],
+  );
+  await ctx.guard(s);
+  if (!current) throwIpcError('REFERENCE_NOT_FOUND', 'Material reference not found');
+  // 媒体文件在入库时已经复制进 cindy-media，字节不可变，不存在“源文件被改”的问题。
+  if (current.storageKind !== 'file') throwIpcError('PRECONDITION_FAILED', 'Material bytes are immutable');
+  const probe = await probeMaterialSource(current.storageRef);
+  await ctx.guard(s);
+  if (!probe.ok) throwIpcError(probe.reason === 'empty' ? 'SOURCE_MISSING' : 'SOURCE_CHANGED', 'Material source cannot be read');
+  if (probe.sha256 === current.sha256) {
+    return { unchanged: true, version: current.version };
+  }
+  const result = await addMaterialVersion(
+    { ...s, referenceId: id, materialId, file: { name: current.name, path: current.storageRef } },
+    actor,
+    client,
+  );
+  return { unchanged: false, version: result.version, reference: result.reference };
+}
+
 export async function removeMaterialReference(raw: unknown, actor?: ProjectAccessActor, client: DbClient = getDbClient()): Promise<MaterialRemoveReferenceResult> {
   const b=object(raw), s=scope(b), id=referenceId(b), ctx=requestContext(actor,client);
   await ctx.guard(s);
@@ -361,7 +405,8 @@ export async function readMaterialDispatchStatus(raw: unknown): Promise<Material
 
 export function registerMaterialsIpc(): void {
   const channels = [    [MATERIALS_LIST_CHANNEL,listMaterials], [MATERIALS_ADD_CHANNEL,addMaterials],
-    [MATERIALS_ADD_VERSION_CHANNEL,addMaterialVersion], [MATERIALS_REMOVE_REFERENCE_CHANNEL,removeMaterialReference],
+    [MATERIALS_ADD_VERSION_CHANNEL,addMaterialVersion], [MATERIALS_RECORD_SOURCE_CHANNEL,recordMaterialSourceVersion],
+    [MATERIALS_REMOVE_REFERENCE_CHANNEL,removeMaterialReference],
     [MATERIALS_RETRY_READ_CHANNEL,retryMaterialRead], [MATERIALS_PREVIEW_CHANNEL,previewMaterial],
     [MATERIAL_CONTEXTS_CREATE_CHANNEL,createMaterialContext], [MATERIAL_CONTEXTS_LIST_CHANNEL,listMaterialContexts],
     [MATERIAL_DISPATCH_STATUS_CHANNEL,readMaterialDispatchStatus],

@@ -727,6 +727,7 @@ function MaterialSnapshotScope({
         onInvalidate={onInvalidate}
         onClose={() => setPreview(null)}
         onOpenInApp={(path, name) => setInApp({ path, name })}
+        onVersionRecorded={() => void load()}
       />
       {inApp && (
         <FileLightbox filePath={inApp.path} fileName={inApp.name} onClose={() => setInApp(null)} />

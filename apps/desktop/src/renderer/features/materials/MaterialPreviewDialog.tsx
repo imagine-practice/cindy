@@ -54,6 +54,8 @@ export interface MaterialPreviewDialogProps {
   onClose: () => void;
   /** Legacy callback retained for caller compatibility; protected PDFs stay in this dialog. */
   onOpenInApp: (filePath: string, name: string) => void;
+  /** 源文件变更被记成新版本后通知外层刷新列表（版本号变了）。 */
+  onVersionRecorded?: () => void;
 }
 
 type PreviewState =
@@ -74,10 +76,16 @@ function MaterialPreviewContent({
   scope,
   onInvalidate,
   onClose,
+  onVersionRecorded,
 }: MaterialPreviewDialogProps): React.ReactElement {
   const { t } = useTranslation();
   const titleId = useId();
   const [state, setState] = useState<PreviewState>({ status: 'loading' });
+  const [reloadToken, setReloadToken] = useState(0);
+  const [recording, setRecording] = useState(false);
+  const [recordError, setRecordError] = useState<string | null>(null);
+  /** 记录新版本后，预览要跟着落到新版本上，而不是继续盯着已过期的旧版本。 */
+  const [recordedVersion, setRecordedVersion] = useState<number | null>(null);
   const [pdfOpen, setPdfOpen] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
   const requestSeq = useRef(0);
@@ -86,7 +94,7 @@ function MaterialPreviewContent({
   useEffect(() => {
     if (!target) return;
     const seq = ++requestSeq.current;
-    const generation = target;
+    const generation = recordedVersion === null ? target : { ...target, version: recordedVersion };
     setState({ status: 'loading' });
     setPdfOpen(false);
     setImageFailed(false);
@@ -135,7 +143,7 @@ function MaterialPreviewContent({
       // 关闭或换目标后，迟到的响应不再落盘到界面。
       requestSeq.current += 1;
     };
-  }, [target, service]);
+  }, [target, service, reloadToken, recordedVersion]);
 
   const readyPayload = state.status === 'ready' ? state.payload : null;
   const pdfUrl = readyPayload?.mime === 'application/pdf' && isProtectedMaterialUrl(readyPayload.url) ? readyPayload.url : null;
@@ -214,9 +222,47 @@ function MaterialPreviewContent({
                   {t(state.failure.sourceIssueKey ?? state.failure.errorKey)}
                 </p>
                 {state.failure.sourceIssueKey ? (
-                  <p className="max-w-[420px] text-11 leading-normal text-[var(--text-secondary)]">
-                    {t('ccAgent.materials.relinkHint')}
-                  </p>
+                  <>
+                    <p className="max-w-[420px] text-11 leading-normal text-[var(--text-secondary)]">
+                      {t('ccAgent.materials.relinkHint')}
+                    </p>
+                    {state.failure.sourceIssueKey === 'ccAgent.materials.sourceChanged' &&
+                      target?.referenceId && (
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          loading={recording}
+                          disabled={recording}
+                          onClick={() => {
+                            void (async () => {
+                              if (!target.referenceId) return;
+                              setRecording(true);
+                              setRecordError(null);
+                              try {
+                                const recorded = await service.recordSourceVersion({
+                                  referenceId: target.referenceId,
+                                  materialId: target.materialId,
+                                });
+                                // 切到刚记录的新版本再重新加载；否则旧版本仍会报“原文件已修改”。
+                                setRecordedVersion(recorded.version);
+                                setReloadToken((value) => value + 1);
+                                onVersionRecorded?.();
+                              } catch (error) {
+                                // 失败必须说出来：静默失败会让人以为已经记了新版本。
+                                setRecordError(t(materialErrorKey(materialErrorCode(error))));
+                              } finally {
+                                setRecording(false);
+                              }
+                            })();
+                          }}
+                        >
+                          {t('ccAgent.materials.recordVersion')}
+                        </Button>
+                      )}
+                    {recordError && (
+                      <p className="text-11 text-[var(--error-fg)]">{recordError}</p>
+                    )}
+                  </>
                 ) : (
                   <p className="text-11 text-[var(--text-secondary)]">
                     {t('ccAgent.materials.previewFailedHint')}

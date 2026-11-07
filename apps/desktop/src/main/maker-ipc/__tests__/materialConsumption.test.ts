@@ -74,6 +74,7 @@ async function fixture(): Promise<{
   dbClient: DbClient;
   selector: { contextId: string; projectId: string; workItemId: string; bindingRevision: number; purpose: 'reference' };
   content: string;
+  filePath: string;
 }> {
   const tag = `t${sequence++}`;
   const projectId = `p-${tag}`;
@@ -115,6 +116,7 @@ async function fixture(): Promise<{
     dbClient,
     selector: { contextId, projectId, workItemId: sessionId, bindingRevision: 1, purpose: 'reference' },
     content: text,
+    filePath,
   };
 }
 
@@ -190,6 +192,28 @@ it('prepares pinned bytes, keeps the persisted body untouched and records one pe
   const retry = await connector.prepare(selector.workItemId, item);
   await expect(retry!.consume(1)).rejects.toThrow('[OUTCOME_UNRESOLVED]');
   expect((await readLedger(selector.workItemId, clientId)).revisions[0].attempts).toHaveLength(1);
+});
+
+it('refuses to send when the source file changed after the pinned version', async () => {
+  const { dbClient, selector, content, filePath } = await fixture();
+  const clientId = 'client-changed';
+  const item = itemFor(selector, clientId, content);
+  const queued = await dbClient.tx<{ revision: number }>('materialDispatch.execute', {
+    action: 'queue',
+    key: { sessionId: selector.workItemId, clientId },
+    host,
+    expectedRevision: 0,
+    selector,
+    contentSha256: hash(content),
+  });
+  item.materialDispatchRevision = queued.revision;
+  // 源文件在钉版之后被改：哈希不再匹配，整单拒绝，绝不能按旧版本悄悄发出去。
+  await fs.writeFile(filePath, 'changed body after pin');
+
+  const connector = createMaterialConsumptionConnector();
+  await expect(connector.prepare(selector.workItemId, item)).rejects.toThrow('[SOURCE_CHANGED]');
+  const ledger = await readLedger(selector.workItemId, clientId);
+  expect(ledger.revisions[0].attempts ?? []).toHaveLength(0);
 });
 
 it('refuses to prepare a removed context so no message or attempt is created', async () => {

@@ -45,6 +45,10 @@ const STALE_INTENT_CODES: readonly string[] = [
   'REVISION_CONFLICT',
   'INTENT_CONFLICT',
   'INTENT_FROZEN',
+  // 源文件被改动/缺失、版本不可读：材料没有按记录版本发出，属于"引用过期"，不是"已发送"。
+  'SOURCE_CHANGED',
+  'SOURCE_MISSING',
+  'VERSION_NOT_READABLE',
 ];
 
 /** A prior attempt exists for this exact message key (attached row or started attempt). That

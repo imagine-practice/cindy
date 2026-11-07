@@ -19,6 +19,7 @@ export interface MaterialReferenceBridge {
     list(input: MaterialsListParams): Promise<unknown>;
     add(input: MaterialsAddParams): Promise<unknown>;
     addVersion(input: MaterialAddVersionParams): Promise<unknown>;
+    recordSourceVersion(input: { referenceId: string; materialId: string }): Promise<unknown>;
     removeReference(input: MaterialRemoveReferenceParams): Promise<unknown>;
     preview(input: MaterialPreviewParams): Promise<unknown>;
     retryRead(input: MaterialRetryReadParams): Promise<unknown>;
@@ -250,6 +251,23 @@ export function createMaterialReferenceService(input: MaterialScope, getBridge =
         if (reference.id !== payload.referenceId || reference.materialId !== payload.materialId || reference.status !== 'active'
           || version.materialId !== payload.materialId || reference.version !== version.version) fail('REFERENCE_MISMATCH');
         return { referenceContract: 1, scope: { ...scope }, version, reference };
+      });
+    },
+    /**
+     * 源文件被改动后，把磁盘当前内容记成新版本。renderer 不提供路径：
+     * 由 main 从已记录版本里解析，避免给任意路径开一条写入口。
+     */
+    async recordSourceVersion(params: { referenceId: string; materialId: string }): Promise<{ unchanged: boolean; version: number }> {
+      // 这里没有调用方传入的 scope：service 自己持有不可变 scope，只用它。
+      const r = object(params); keys(r, ['referenceId', 'materialId']); active(); writable();
+      const payload = { ...scope, referenceId: referenceId(r.referenceId), materialId: id(r.materialId) };
+      return call(() => getBridge().materials.recordSourceVersion(payload), (value) => {
+        const out = object(value);
+        if (out.unchanged === true) return { unchanged: true, version: number(out.version, 1) };
+        const version = versionOf(out.version); const reference = referenceOf(out.reference);
+        referenceIn(scope, reference);
+        if (version.materialId !== payload.materialId || reference.id !== payload.referenceId) fail('REFERENCE_MISMATCH');
+        return { unchanged: false, version: version.version };
       });
     },
     async removeReference(params: MaterialRemoveReferenceParams): Promise<MaterialRemoveReferenceResult> {

@@ -15530,6 +15530,7 @@
       "relinkDone": "“{{name}}” foi vinculado novamente",
       "sourceMissing": "O arquivo original não existe mais",
       "sourceChanged": "O arquivo original foi alterado; vincule novamente",
+      "recordVersion": "Registrar como nova versão",
       "sourceMissingShort": "Arquivo original ausente",
       "sourceChangedShort": "Arquivo original alterado",
       "previewOpenInApp": "Abrir no visualizador do app",

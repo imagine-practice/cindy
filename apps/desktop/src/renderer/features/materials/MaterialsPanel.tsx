@@ -960,6 +960,7 @@ function MaterialsPanelScope({
         onInvalidate={onInvalidate}
         onClose={() => setPreviewTarget(null)}
         onOpenInApp={(path, name) => setInAppFile({ path, name })}
+        onVersionRecorded={() => void onReload()}
       />
 
       {inAppFile && (

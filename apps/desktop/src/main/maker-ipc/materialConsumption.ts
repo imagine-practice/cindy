@@ -50,8 +50,11 @@ type PreparedItem = PreparedSuccess['items'][number];
 function materialPayload(items: readonly PreparedItem[], blocks: readonly MaterialWireBlock[]): {
   referenceIds: string[]; payloadSha256: string;
 } {
-  const selected = items.filter(item => item.status === 'prepared');
-  if (selected.length === 0) return reject('VERSION_NOT_READABLE');
+  // 有任何一项准备失败就整单不发：源文件被改动（SOURCE_CHANGED）、缺失或不可读时，
+  // 静默跳过会让用户以为"材料发出去了"，而实际发的是不完整/过期内容。
+  const blocked = items.find(item => item.status !== 'prepared');
+  if (blocked) return reject(('code' in blocked && blocked.code) || 'VERSION_NOT_READABLE');
+  const selected = items;
   return {
     referenceIds: selected.map(item => item.referenceId),
     payloadSha256: digest(JSON.stringify(blocks)),

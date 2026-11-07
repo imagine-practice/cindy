@@ -15321,6 +15321,7 @@
       "relinkDone": "「{{name}}」已重新关联",
       "sourceMissing": "原文件已不存在",
       "sourceChanged": "原文件已被修改，请重新关联",
+      "recordVersion": "记录为新版本",
       "sourceMissingShort": "原文件已不存在",
       "sourceChangedShort": "原文件已被修改",
       "previewOpenInApp": "用应用内通道打开",
