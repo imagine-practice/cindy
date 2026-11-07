@@ -6183,6 +6183,7 @@
           "addWorkspace": "Ajouter un répertoire de travail",
           "removeWorkspace": "Retirer ce répertoire de travail",
           "changeDir": "Cliquez pour changer de répertoire (alias et préférences conservés)",
+          "claimOwner": "Prendre la responsabilité",
           "defaultWorkspaceChip": "Par défaut : {{name}}",
           "defaultWorkspaceAria": "Choisir le répertoire de travail par défaut des tâches transmises",
           "defaultWorkspaceRadioAria": "Définir « {{name}} » comme répertoire de travail par défaut",

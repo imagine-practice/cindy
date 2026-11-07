@@ -306,6 +306,55 @@ describe('project core transactions', () => {
     );
   });
 
+  it('lets an account member take ownership for themselves, but not hand it to someone else', () => {
+    // 项目负责人是伙伴：伙伴不点界面，账号成员可以接管。
+    run({ action: 'create', newId: 'proj-1', now: 1_000, input: {
+      name: 'Bot owned', owner: { kind: 'bot', id: 'bot-1' },
+      members: [{ kind: 'account', id: 'acc-2' }, { kind: 'bot', id: 'bot-2' }] } });
+    // 接管之前：普通账号成员不能把负责人推给第三方。
+    expectIpcCode(
+      () => runProjectsTransaction(db, { action: 'transferOwner', projectId: 'proj-1',
+        subject: { kind: 'bot', id: 'bot-2' }, now: 2_000, actor: { kind: 'account', id: 'acc-2' } }),
+      'FORBIDDEN',
+    );
+    runProjectsTransaction(db, { action: 'transferOwner', projectId: 'proj-1',
+      subject: { kind: 'account', id: 'acc-2' }, now: 3_000, actor: { kind: 'account', id: 'acc-2' } });
+    const rows = db.prepare(
+      "SELECT subject_kind AS kind, subject_id AS id, role FROM project_members WHERE project_id = 'proj-1'",
+    ).all() as Array<{ kind: string; id: string; role: string }>;
+    // 旧负责人降为成员，接管者成为唯一负责人；创建者仍作为普通成员保留。
+    expect(rows).toEqual(expect.arrayContaining([
+      { kind: 'bot', id: 'bot-1', role: 'member' },
+      { kind: 'account', id: 'acc-2', role: 'owner' },
+      { kind: 'bot', id: 'bot-2', role: 'member' },
+      { kind: 'account', id: 'acc-1', role: 'member' },
+    ]));
+    // 接管之后身份是负责人，可以正常转交。
+    runProjectsTransaction(db, { action: 'transferOwner', projectId: 'proj-1',
+      subject: { kind: 'bot', id: 'bot-2' }, now: 4_000, actor: { kind: 'account', id: 'acc-2' } });
+    expect(db.prepare(
+      "SELECT subject_id AS id FROM project_members WHERE project_id = 'proj-1' AND role = 'owner'",
+    ).get()).toEqual({ id: 'bot-2' });
+  });
+
+  it('does not let a bot member or an outsider take ownership', () => {
+    run({ action: 'create', newId: 'proj-1', now: 1_000, input: {
+      name: 'Bot owned', owner: { kind: 'bot', id: 'bot-1' },
+      members: [{ kind: 'account', id: 'acc-1' }, { kind: 'bot', id: 'bot-2' }] } });
+    // 伙伴成员不能接管：只有账号成员有这条路径。
+    expectIpcCode(
+      () => runProjectsTransaction(db, { action: 'transferOwner', projectId: 'proj-1',
+        subject: { kind: 'bot', id: 'bot-2' }, now: 2_000, actor: { kind: 'bot', id: 'bot-2' } }),
+      'FORBIDDEN',
+    );
+    // 项目外的人更不能。
+    expectIpcCode(
+      () => runProjectsTransaction(db, { action: 'transferOwner', projectId: 'proj-1',
+        subject: { kind: 'account', id: 'stranger' }, now: 3_000, actor: { kind: 'account', id: 'stranger' } }),
+      'FORBIDDEN',
+    );
+  });
+
   it('keeps at most one owner row per project at the database level', () => {
     createProject();
     expect(() =>
@@ -520,8 +569,12 @@ describe('project core transactions', () => {
     'rechecks owner authority after a prechecked %s loses ownership', action => {
       createProject();
       expect(members()).toContainEqual({ kind: 'account', id: 'acc-1', role: 'owner' });
+      // transferOwner 的接管规则只允许「账号成员转给自己」，所以这里用另一位成员做目标，
+      // 验证的仍然是「失去负责人身份后不能把负责人推给别人」。
       const pending = { action, projectId: 'proj-1', now: 4000, name: 'Changed',
-        subject: { kind: 'account', id: 'acc-1' } };
+        subject: action === 'transferOwner'
+          ? { kind: 'bot', id: 'bot-1' }
+          : { kind: 'account', id: 'acc-1' } };
       run({ action: 'transferOwner', projectId: 'proj-1', subject: { kind: 'bot', id: 'bot-1' }, now: 3000 });
       deniedWithoutWrites(pending);
     },

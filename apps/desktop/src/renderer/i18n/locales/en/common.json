@@ -6125,6 +6125,7 @@
           "addWorkspace": "Add working directory",
           "removeWorkspace": "Remove this working directory",
           "changeDir": "Click to change directory (alias and preferences kept)",
+          "claimOwner": "Take over as owner",
           "defaultWorkspaceChip": "Default: {{name}}",
           "defaultWorkspaceAria": "Choose the default working directory for dispatched tasks",
           "defaultWorkspaceRadioAria": "Set \"{{name}}\" as the default working directory",

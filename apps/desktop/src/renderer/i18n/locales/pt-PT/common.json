@@ -6183,6 +6183,7 @@
           "addWorkspace": "Adicionar diretório de trabalho",
           "removeWorkspace": "Remover este diretório de trabalho",
           "changeDir": "Clique para alterar o diretório (o alias e as preferências são mantidos)",
+          "claimOwner": "Assumir como responsável",
           "defaultWorkspaceChip": "Predefinido: {{name}}",
           "defaultWorkspaceAria": "Escolha o diretório de trabalho predefinido para as tarefas enviadas",
           "defaultWorkspaceRadioAria": "Definir \"{{name}}\" como diretório de trabalho predefinido",

@@ -324,8 +324,18 @@ export function runProjectsTransaction(
       const projectId = asText(args.projectId, 200, 'projectId');
       const now = asTimestamp(args.now, 'now');
       requireProject(projectId);
-      requireAccess(projectId, true);
       const subject = asSubject(args.subject);
+      // 负责人可以把项目交给任何成员；账号成员也可以把负责人接管给「自己」——
+      // 负责人是伙伴时只有人能接手，但这条路径不能用来把负责人推给第三方。
+      const membership = selectMember.get(projectId, actor.kind, actor.id) as
+        | { role: string }
+        | undefined;
+      const selfTakeover =
+        actor.kind === 'account' &&
+        subject.kind === 'account' &&
+        subject.id === actor.id &&
+        !!membership;
+      if (!selfTakeover) requireAccess(projectId, true);
       const target = selectMember.get(projectId, subject.kind, subject.id) as
         | { role: string }
         | undefined;

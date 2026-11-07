@@ -165,7 +165,8 @@ it('continues refreshing from current broadcasts and blocks a retained old-route
 function populated(id: string): ProjectDetail {
   const item = detail(id, id);
   item.project.members = [
-    { subject: { kind: 'account', id: 'owner', displayName: 'Owner', avatar: null, avatarColor: null }, role: 'owner', addedAt: '' },
+    // 当前账号必须是负责人，否则负责人专属的成员操作按钮会被正确隐藏（那正是本轮的行为）。
+    { subject: { kind: 'account', id: `owner-${env.generation}`, displayName: 'Owner', avatar: null, avatarColor: null }, role: 'owner', addedAt: '' },
     { subject: { kind: 'bot', id: 'partner', displayName: 'Partner', avatar: null, avatarColor: null }, role: 'member', addedAt: '' },
   ];
   item.workItems = [{ sessionId: 's1', title: 'Work item', status: 'active', assignee: null, updatedAt: '' }];
@@ -230,11 +231,17 @@ it('deletes only after the typed project-name confirmation and returns to the pr
   expect(env.navigate).toHaveBeenCalledWith('/cc-agent/projects');
 });
 
-it('hides the delete action from non-owners', async () => {
-  env.read.mockResolvedValue(populated('p1'));
+it('hides owner-only actions from plain members and offers the ownership takeover instead', async () => {
+  const member = populated('p1');
+  member.project.members[0] = { ...member.project.members[0], role: 'member' };
+  env.read.mockResolvedValue(member);
   render(<ProjectDetailPage />);
   await screen.findByRole('heading', { name: 'p1' });
   expect(screen.queryByRole('button', { name: 'ccAgent.projectCore.deleteProject.action' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'ccAgent.projectCore.detail.removeMember' })).toBeNull();
+  // 负责人可以被账号成员接管（负责人可能是不会点界面的伙伴）。
+  fireEvent.click(screen.getByRole('button', { name: 'ccAgent.projectCore.detail.claimOwner' }));
+  expect(env.transfer).toHaveBeenCalledExactlyOnceWith('p1', { kind: 'account', id: `owner-${env.generation}` });
   expect(env.confirm).not.toHaveBeenCalled();
 });
 

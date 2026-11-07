@@ -6082,6 +6082,7 @@
           "addWorkspace": "作業ディレクトリを追加",
           "removeWorkspace": "この作業ディレクトリを削除",
           "changeDir": "クリックしてディレクトリを変更(別名と設定は保持)",
+          "claimOwner": "担当者を引き継ぐ",
           "defaultWorkspaceChip": "デフォルト: {{name}}",
           "defaultWorkspaceAria": "タスク発行時に使う既定の作業ディレクトリを選択",
           "defaultWorkspaceRadioAria": "「{{name}}」を既定の作業ディレクトリに設定",

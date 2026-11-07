@@ -657,9 +657,22 @@ async function assertProjectMutationAllowed(
     case 'removeMember':
       await requireProjectAction('removeMember', mutation.projectId, subject, client);
       return;
-    case 'transferOwner':
-      await requireProjectAction('transferOwner', mutation.projectId, subject, client);
+    case 'transferOwner': {
+      // 账号成员可以把负责人接管给自己（伙伴不会点界面）；把负责人推给别人仍然只有
+      // 现任负责人能做。两条路径都在事务层再判一次，这里只是把错误码说清楚。
+      const selfTakeover =
+        !!subject &&
+        subject.kind === 'account' &&
+        mutation.subject.kind === 'account' &&
+        mutation.subject.id === subject.id;
+      await requireProjectAction(
+        selfTakeover ? 'claimOwnership' : 'transferOwner',
+        mutation.projectId,
+        subject,
+        client,
+      );
       return;
+    }
     case 'addDir':
     case 'removeDir':
       // 目录决定此后新任务的默认归属，是项目级设置：负责人专属。

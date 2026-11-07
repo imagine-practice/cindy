@@ -6082,6 +6082,7 @@
           "addWorkspace": "增工作目錄",
           "removeWorkspace": "刪此工作目錄",
           "changeDir": "點以更換目錄(別名與偏好仍留)",
+          "claimOwner": "承其主",
           "defaultWorkspaceChip": "常例：{{name}}",
           "defaultWorkspaceAria": "擇派差事時所用之常例工作目錄",
           "defaultWorkspaceRadioAria": "立「{{name}}」為常例工作目錄",

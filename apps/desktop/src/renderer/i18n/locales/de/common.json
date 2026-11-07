@@ -6125,6 +6125,7 @@
           "addWorkspace": "Arbeitsverzeichnis hinzufügen",
           "removeWorkspace": "Dieses Arbeitsverzeichnis entfernen",
           "changeDir": "Zum Ändern des Verzeichnisses klicken (Alias und Einstellungen bleiben erhalten)",
+          "claimOwner": "Verantwortung übernehmen",
           "defaultWorkspaceChip": "Standard: {{name}}",
           "defaultWorkspaceAria": "Wähle das Standardarbeitsverzeichnis für übermittelte Aufgaben",
           "defaultWorkspaceRadioAria": "„{{name}}“ als Standardarbeitsverzeichnis festlegen",

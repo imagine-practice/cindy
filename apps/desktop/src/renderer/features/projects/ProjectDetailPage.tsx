@@ -155,6 +155,11 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
   // Main still enforces owner-only update at the actual transaction boundary.
   // 目录只影响新任务的默认归属，不授予访问：成员就能维护（归档后只读）。
   const canManageDirs = members.length > 0 && project?.status !== 'archived';
+  // 负责人是伙伴时，账号成员可以把负责人接管给自己——伙伴不点界面。
+  const selfMember = dataOwnerId
+    ? members.find((member) => member.subject.kind === 'account' && member.subject.id === dataOwnerId)
+    : undefined;
+  const canClaimOwnership = !!dataOwnerId && !!selfMember && selfMember.role !== 'owner';
   const canEditMetadata = !!dataOwnerId && members.some(member =>
     member.subject.kind === 'account' && member.subject.id === dataOwnerId && member.role === 'owner');
   const metadataBoundary = JSON.stringify([projectId, project?.id ?? null, dataOwnerId,
@@ -259,6 +264,20 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
           </div>
         </div>
         <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-2 sm:w-auto" style={WINDOW_NO_DRAG_STYLE}>
+          {canClaimOwnership && dataOwnerId && (
+            <Button
+              variant="secondary"
+              size="md"
+              disabled={busyKey !== null}
+              onClick={() =>
+                void run('claim-owner', () =>
+                  transferProjectOwner(project.id, { kind: 'account', id: dataOwnerId }),
+                )
+              }
+            >
+              {t('ccAgent.projectCore.detail.claimOwner')}
+            </Button>
+          )}
           {canEditMetadata && <Button variant="secondary" size="md" disabled={busyKey !== null}
             onClick={() => setMetadataEditingScope(metadataToken)}>
             {t('ccAgent.projectCore.metadataEdit.title')}
@@ -452,6 +471,7 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
                   member={member}
                   label={subjectLabel(member.subject)}
                   busy={busyKey !== null}
+                  canManage={canEditMetadata}
                   onRemove={() =>
                     void run(`remove:${projectSubjectKey(member.subject)}`, () =>
                       removeProjectMember(project.id, {
@@ -612,12 +632,15 @@ function MemberRow({
   member,
   label,
   busy,
+  canManage,
   onRemove,
   onTransfer,
 }: {
   member: ProjectMember;
   label: string;
   busy: boolean;
+  /** 成员管理与转交只有负责人能做；接管负责人的入口在页头，不在这里。 */
+  canManage: boolean;
   onRemove: () => void;
   onTransfer: () => void;
 }): React.ReactElement {
@@ -633,7 +656,7 @@ function MemberRow({
         </span>
       )}
       <div className="ml-auto flex shrink-0 items-center gap-1">
-        {!isOwner && (
+        {canManage && !isOwner && (
           <Button
             variant="secondary"
             size="sm"
@@ -647,7 +670,7 @@ function MemberRow({
           </Button>
         )}
         {/* 负责人不能直接移除：服务层会拒绝，这里先不给按钮，避免制造必然失败的操作。 */}
-        {!isOwner && (
+        {canManage && !isOwner && (
           <Button variant="secondary" size="sm" tone="quiet" compact disabled={busy} onClick={onRemove}>
             <UserMinus size={13} strokeWidth={1.75} className="mr-1" />
             {t('ccAgent.projectCore.detail.removeMember')}

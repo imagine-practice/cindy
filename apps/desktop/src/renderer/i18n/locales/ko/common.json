@@ -6082,6 +6082,7 @@
           "addWorkspace": "작업 디렉터리 추가",
           "removeWorkspace": "이 작업 디렉터리 삭제",
           "changeDir": "클릭하여 디렉터리 변경(별명과 설정은 유지)",
+          "claimOwner": "담당자 인계받기",
           "defaultWorkspaceChip": "기본값: {{name}}",
           "defaultWorkspaceAria": "작업을 보낼 때 사용할 기본 작업 디렉터리 선택",
           "defaultWorkspaceRadioAria": "\"{{name}}\"을(를) 기본 작업 디렉터리로 설정",
