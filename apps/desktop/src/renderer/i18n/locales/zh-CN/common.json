@@ -15405,6 +15405,7 @@
       "confirmRefresh": "刷新确认",
       "dispatch": {
         "mount": "随下一轮发送",
+        "sendBlockedStale": "材料源文件已修改，这条消息没有发出。请到材料页「记录为新版本」，再重新创建快照后发送。",
         "mounted": "已挂给下一轮发送",
         "mountedSummary": "将发送 {{count}} 个固定版本",
         "replacesPrevious": "会替换先前挂载的上下文",

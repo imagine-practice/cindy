@@ -15614,6 +15614,7 @@
       "confirmRefresh": "Atualizar para confirmar",
       "dispatch": {
         "mount": "Enviar no próximo turno",
+        "sendBlockedStale": "O ficheiro de origem do material mudou e esta mensagem não foi enviada. Registe como nova versão, recrie o instantâneo e volte a enviar.",
         "mounted": "Será enviado no próximo turno",
         "mountedSummary": "{{count}} versões fixadas serão enviadas",
         "replacesPrevious": "Substitui o contexto anexado anteriormente",

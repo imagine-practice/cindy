@@ -15471,6 +15471,7 @@
       "confirmRefresh": "Zur Bestätigung aktualisieren",
       "dispatch": {
         "mount": "Mit dem nächsten Senden mitschicken",
+        "sendBlockedStale": "Die Quelldatei des Materials wurde geändert; diese Nachricht wurde nicht gesendet. Als neue Version speichern, Snapshot neu erstellen und erneut senden.",
         "mounted": "Wird mit dem nächsten Senden mitgeschickt",
         "mountedSummary": "{{count}} fixierte Versionen werden mitgeschickt",
         "replacesPrevious": "Ersetzt den zuvor angehängten Kontext",

@@ -15471,6 +15471,7 @@
       "confirmRefresh": "Refresh to confirm",
       "dispatch": {
         "mount": "Send with next turn",
+        "sendBlockedStale": "The material source changed and this message was not sent. Record it as a new version, then create a new snapshot and send again.",
         "mounted": "Sending with next turn",
         "mountedSummary": "{{count}} pinned versions will be sent",
         "replacesPrevious": "Replaces the previously attached context",

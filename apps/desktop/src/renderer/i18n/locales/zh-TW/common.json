@@ -15405,6 +15405,7 @@
       "confirmRefresh": "重新整理確認",
       "dispatch": {
         "mount": "隨下一輪傳送",
+        "sendBlockedStale": "材料來源檔案已修改，這則訊息沒有送出。請到材料頁「記錄為新版本」，再重新建立快照後傳送。",
         "mounted": "已掛給下一輪傳送",
         "mountedSummary": "將傳送 {{count}} 個固定版本",
         "replacesPrevious": "會取代先前掛載的上下文",

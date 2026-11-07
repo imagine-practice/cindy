@@ -15405,6 +15405,7 @@
       "confirmRefresh": "刷新核實",
       "dispatch": {
         "mount": "隨下輪發之",
+        "sendBlockedStale": "材之源已改，此信未發。請至材頁「錄為新本」，重立快照而後發。",
         "mounted": "已繫下輪之發",
         "mountedSummary": "將發 {{count}} 定版",
         "replacesPrevious": "將易其前所繫之上下文",

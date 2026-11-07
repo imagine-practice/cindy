@@ -74,7 +74,12 @@ export function ErrorMessageCard({
       : i18nKey
         ? t(i18nKey)
         : undefined;
-  const text = kind === 'blocked-input'
+  // 材料发送被源文件变更拦下：这不是"回复失败"，而是"没发出去"，要说清下一步。
+  const materialSourceStale = kind === 'reply-error'
+    && /\[(SOURCE_CHANGED|SOURCE_MISSING|VERSION_NOT_READABLE)\]/.test(decoded);
+  const text = materialSourceStale
+    ? t('ccAgent.materials.dispatch.sendBlockedStale')
+    : kind === 'blocked-input'
     ? redactSensitiveText(decoded)
     : isResponsesLiteParallelToolCallsError(decoded)
       ? t('chat.errorBanner.requestFormatError')

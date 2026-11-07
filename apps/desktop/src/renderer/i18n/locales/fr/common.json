@@ -15614,6 +15614,7 @@
       "confirmRefresh": "Actualiser pour confirmer",
       "dispatch": {
         "mount": "Envoyer au prochain tour",
+        "sendBlockedStale": "Le fichier source du matériau a changé et ce message n'a pas été envoyé. Enregistrez-le comme nouvelle version, recréez l'instantané puis renvoyez.",
         "mounted": "Sera envoyé au prochain tour",
         "mountedSummary": "{{count}} versions figées seront envoyées",
         "replacesPrevious": "Remplace le contexte attaché précédemment",
