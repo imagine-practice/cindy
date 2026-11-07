@@ -8,6 +8,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { useOptionalAuth } from '@/contexts/AuthContext';
 import { getDataOwnerGeneration } from '@/contexts/dataOwnerGeneration';
 import type { ProjectRecord } from '../../../shared/projects';
+import { useProjectSubjectLabel } from './projectLabels';
 import { useProjectsIndex } from './projectsIndexController';
 import { NewProjectDialog } from './NewProjectDialog';
 
@@ -217,6 +218,7 @@ function ProjectCard({
   const { t, i18n } = useTranslation();
   const label = (key: string, values?: Record<string, unknown>) =>
     t('ccAgent.projectCore.index.' + key, values);
+  const subjectLabel = useProjectSubjectLabel();
   const owner = project.members.find((m) => m.role === 'owner')!.subject;
   const bots = project.members.filter((m) => m.subject.kind === 'bot').length;
   const updated = Date.parse(project.updatedAt);
@@ -263,7 +265,7 @@ function ProjectCard({
           className="mt-auto flex min-w-0 flex-col gap-2 text-12 text-[var(--text-secondary)]"
         >
           <span className="min-w-0 break-words">
-            {label('owner')} · {label(owner.kind)} · {owner.displayName || owner.id}
+            {label('owner')} · {label(owner.kind)} · {subjectLabel(owner)}
           </span>
           <span className="flex flex-wrap gap-x-3 gap-y-1">
             <span>{label('memberCount', { count: project.members.length, bots })}</span>
