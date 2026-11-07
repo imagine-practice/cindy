@@ -14019,6 +14019,7 @@
         "changeDir": "변경",
         "createFirstTask": "첫 작업 만들기",
         "newTask": "New task in this project",
+        "newTaskShort": "새 작업",
         "archive": "Archive project",
         "restore": "Restore project",
         "archived": "Archived",

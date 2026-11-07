@@ -14019,6 +14019,7 @@
         "changeDir": "易之",
         "createFirstTask": "新造首务",
         "newTask": "New task in this project",
+        "newTaskShort": "新造任务",
         "archive": "Archive project",
         "restore": "Restore project",
         "archived": "Archived",

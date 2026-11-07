@@ -1,3 +1,5 @@
+import { assertProjectUiRules } from '../project-core/ui-rules.mjs';
+
 export default {
   name: 'projects-index',
   entry: './projects-index-fixture.tsx',
@@ -26,6 +28,7 @@ export default {
     await page.getByRole('heading', { level: 1 }).waitFor();
   },
   async check(page, ui) {
+    await assertProjectUiRules(page);
     const t = (k, v) => ui.t('ccAgent.projectCore.index.' + k, v);
     const newLabel = await ui.t('ccAgent.projectCore.newProject');
     const fresh = () => page.getByRole('button', { name: newLabel, exact: true }).first();

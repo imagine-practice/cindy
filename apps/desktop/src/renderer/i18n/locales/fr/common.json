@@ -14214,6 +14214,7 @@
         "changeDir": "Changer",
         "createFirstTask": "Créer la première tâche",
         "newTask": "New task in this project",
+        "newTaskShort": "Nouvelle tâche",
         "archive": "Archive project",
         "restore": "Restore project",
         "archived": "Archived",

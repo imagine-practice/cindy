@@ -6,7 +6,7 @@ import type { ProjectDetail } from '../../../src/shared/projects';
 import type { ProjectProgressReadResult } from '../../../src/shared/projectProgressApi';
 const subject = { kind: 'account' as const, id: 'acc-1', displayName: 'Chris', avatar: null, avatarColor: null };
 const detail: ProjectDetail = { project: { id: 'p', name: '春季项目', goal: '核对最新进度与阻塞原因，按记录继续工作。',
-  ownerId: 'acc-1', status: 'active', createdAt: '2026-11-05T08:00:00Z', updatedAt: '2026-11-05T08:00:00Z', taskCount: 3,
+  ownerId: 'acc-1', status: 'active', createdAt: '2026-11-05T08:00:00Z', updatedAt: '2026-11-05T08:00:00Z', taskCount: 3, dirs: [{ dirKey: 'local:F:/sourcecode/anber/cindy', dirPath: 'F:/sourcecode/anber/cindy' }],
   members: [{ subject, role: 'owner', addedAt: '2026-11-05T08:00:00Z' }] },
   workItems: [{ sessionId: 'task-1', title: '核对材料', status: 'active', assignee: null, updatedAt: '2026-11-05T08:00:00Z' }] };
 const snapshot: ProjectProgressReadResult = { projectId: 'p', items: ['核对材料', '整理交付记录', '已归档但未确认进度'].map((title, i) => ({

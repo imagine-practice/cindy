@@ -285,6 +285,7 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
           <Button
             variant="secondary"
             size="md"
+            disabled={busyKey !== null}
             onClick={() =>
               void run('status', async () => {
                 await renameProject(project.id, { status: archived ? 'active' : 'archived' });
@@ -460,6 +461,7 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
                       addProjectMember(project.id, candidate.ref),
                     );
                   }}
+                  disabled={busyKey !== null}
                   className="w-[200px]"
                 />
               )}
@@ -516,7 +518,7 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
                   }
                 >
                   <Plus size={13} strokeWidth={1.75} className="mr-1" />
-                  {t('ccAgent.projectCore.detail.newTask')}
+                  {t('ccAgent.projectCore.detail.newTaskShort')}
                 </Button>
               )}
             </div>

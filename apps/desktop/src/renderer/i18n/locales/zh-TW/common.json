@@ -14019,6 +14019,7 @@
         "changeDir": "更換",
         "createFirstTask": "建立第一個任務",
         "newTask": "在專案中新增任務",
+        "newTaskShort": "新增任務",
         "archive": "封存專案",
         "restore": "還原專案",
         "archived": "已封存",

@@ -14019,6 +14019,7 @@
         "changeDir": "更换",
         "createFirstTask": "新建第一个任务",
         "newTask": "在项目中新建任务",
+        "newTaskShort": "新建任务",
         "archive": "归档项目",
         "restore": "恢复项目",
         "archived": "已归档",

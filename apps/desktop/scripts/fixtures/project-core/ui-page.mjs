@@ -5,6 +5,8 @@
  * 成员/负责人/指派的规则校验在服务层，见
  * `apps/desktop/src/main/localDb/__tests__/projects.test.ts`。
  */
+import { assertProjectUiRules, assertUniqueButtonLabels } from './ui-rules.mjs';
+
 export default {
   name: 'project-core',
   entry: './project-core-fixture.tsx',
@@ -37,7 +39,7 @@ export const useOptionalDataOwnerGeneration = () => fixtureAuth.dataOwnerGenerat
     metadata: { viewport: { width: 320, height: 850 }, about: 'Real detail/edit dialog/service, synthetic metadata backend; name save and keyboard focus' },
     'metadata-wide': { viewport: { width: 390, height: 850 }, about: 'Real detail/edit dialog/service, synthetic metadata backend; goal clear' },
     detail: { about: 'Project detail: goal, members with the owner marked, work items with assignee' },
-    create: { about: 'New project dialog: name, goal, owner defaulted to the current account, member multi-select' },
+    create: { about: 'New project dialog: no preselected owner, folder pick, member multi-select; density and label rules' },
     binding: { about: 'New task project selector (归属项目) with an existing project selected' },
   },
   async ready(page) {
@@ -74,6 +76,8 @@ export const useOptionalDataOwnerGeneration = () => fixtureAuth.dataOwnerGenerat
     }
     if (ui.case === 'detail') {
       await page.getByRole('button', { name: await ui.t('ccAgent.projectCore.detail.newTask'), exact: true }).waitFor();
+      await assertProjectUiRules(page);
+      await ui.capture('detail-rules');
     }
     if (ui.case === 'sidebar') {
       await page.getByRole('button', { name: await ui.t('ccAgent.projectCore.newProject'), exact: true }).waitFor();
@@ -83,6 +87,20 @@ export const useOptionalDataOwnerGeneration = () => fixtureAuth.dataOwnerGenerat
     }
     if (ui.case === 'create') {
       await page.getByRole('textbox').first().waitFor();
+      // 可执行设计规则：单行控件 ≤36px、字号 11–18、按钮都有名字、没有重复按钮。
+      await assertProjectUiRules(page);
+      await assertUniqueButtonLabels(page);
+      const badge = ui.t('ccAgent.projectCore.detail.ownerBadge');
+      const radios = page.getByRole('radio');
+      const count = await radios.count();
+      for (let i = 0; i < count; i += 1) {
+        const name = await radios.nth(i).evaluate((el) => el.closest('label')?.textContent?.trim() ?? '');
+        // 角色名（负责人）绝不能当成人名出现在候选里。
+        if (name === badge) throw new Error('owner option labelled with the role badge');
+      }
+      await radios.first().check();
+      await assertUniqueButtonLabels(page);
+      await ui.capture('create-rules');
     }
   },
 };

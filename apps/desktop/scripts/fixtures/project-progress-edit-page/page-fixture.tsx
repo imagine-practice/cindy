@@ -6,7 +6,7 @@ import type { ProjectProgressReadResult } from '../../../src/shared/projectProgr
 import type { WorkItemProgressIntent, WorkItemProgressResult } from '../../../src/shared/workItemProgress';
 const subject = { kind: 'account' as const, id: 'acc-1', displayName: 'Chris', avatar: null, avatarColor: null };
 const detail: ProjectDetail = { project: { id: 'p', name: 'Progress project', goal: 'Record work progress; completion is not business acceptance.',
- ownerId: 'acc-1', status: 'active', createdAt: '2026-11-05', updatedAt: '2026-11-05', taskCount: 1,
+ ownerId: 'acc-1', status: 'active', createdAt: '2026-11-05', updatedAt: '2026-11-05', taskCount: 1, dirs: [],
  members: [{ subject, role: 'owner', addedAt: '2026-11-05' }] }, workItems: [] };
 mountPage({ host: ctx => {
  const initial = ctx.case === 'done' ? 'review' as const : null;

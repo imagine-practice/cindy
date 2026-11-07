@@ -14019,6 +14019,7 @@
         "changeDir": "変更",
         "createFirstTask": "最初のタスクを作成",
         "newTask": "New task in this project",
+        "newTaskShort": "タスクを作成",
         "archive": "Archive project",
         "restore": "Restore project",
         "archived": "Archived",
