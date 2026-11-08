@@ -306,8 +306,22 @@ export async function requestProjectWorkItemExecution(
     return refusal('DISPATCH_FAILED', state, 'The teammate did not accept the request', null);
   }
   authority.assertCurrent();
-  if (!result.ok)
-    return refusal('DISPATCH_FAILED', state, result.message || 'The teammate did not accept the request', null);
+  if (!result.ok) {
+    // 投递被伙伴侧拒绝时把真实原因记下来：界面只给「可以再试一次」，排查需要代码与原文。
+    log.warn('work item execution dispatch refused', {
+      sessionId: row.sessionId,
+      errorCode: (result as { errorCode?: string }).errorCode ?? null,
+      message: result.message ?? null,
+    });
+    // 伙伴在另一台电脑上运行时，真实原因是 AGENT_NOT_READY；把它原样带回去，
+    // 界面才能说「去那台电脑或在本机接管」，而不是笼统的「可以再试一次」。
+    return refusal(
+      result.errorCode === 'AGENT_NOT_READY' ? 'AGENT_NOT_READY' : 'DISPATCH_FAILED',
+      state,
+      result.message || 'The teammate did not accept the request',
+      null,
+    );
+  }
   return {
     ok: true,
     sessionId: row.sessionId,

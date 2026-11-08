@@ -336,6 +336,22 @@ describe('project work-item execution entry', () => {
     expect(ui.onRequest).not.toHaveBeenCalled();
   });
 
+  it('asks for a teammate when the assignee is an account, not a bot', () => {
+    // 处理人是账号时，「请处理人执行」是错的提示——要让人去指定一个伙伴。
+    mountExecution(
+      executionEntry({
+        executor: null,
+        unavailableReason: 'ASSIGNEE_NOT_BOT',
+        canRequest: false,
+      }),
+    );
+    const button = screen.getByRole('button', {
+      name: 'Pick a teammate to execute',
+    }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(screen.getByText('The assignee is not a teammate, so it cannot execute this.')).toBeTruthy();
+  });
+
   it.each([
     ['requested', 'Request delivered', 'Delivered and waiting for the teammate; it is not sent twice.'],
     ['accepted', 'Teammate accepted', null],

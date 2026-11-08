@@ -279,9 +279,14 @@ function ProgressContent({
                     )}
                     {!executionEntry.executor && (
                       // 没有可执行的处理人时不给可点控件，也不编造一个执行者名字。
+                      // 处理人是账号（不是伙伴）时文案要跟着变：这时说「先指定处理人」是错的。
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <Button variant="secondary" className="whitespace-normal" disabled>
-                          {t(`${PREFIX}.execution.actionUnnamed`)}
+                          {t(
+                            executionEntry.unavailableReason === 'ASSIGNEE_NOT_BOT'
+                              ? `${PREFIX}.execution.actionNeedBot`
+                              : `${PREFIX}.execution.actionUnnamed`,
+                          )}
                         </Button>
                       </div>
                     )}

@@ -14184,7 +14184,8 @@
             "dispatchFailed": "Delivery did not go through. You can try again.",
             "hostNotReady": "The host is not ready yet; try again in a moment.",
             "unavailable": "Execution cannot be requested right now; resolve the reason above first.",
-            "generic": "The request did not complete; refresh and try again."
+            "generic": "The request did not complete; refresh and try again.",
+            "agentRemote": "This teammate runs on another computer, so it cannot execute here. Continue there, or take it over on this computer."
           },
           "followup": {
             "title": "Follow up",
@@ -14229,7 +14230,8 @@
               "idempotencyConflict": "The instruction sent with this key was different. Nothing new was delivered; refresh and send it again."
             },
             "modelChoicesUnavailable": "No usable models are available for this task's engine yet."
-          }
+          },
+          "actionNeedBot": "Pick a teammate to execute"
         },
         "automationOrigin": "By automation",
         "automationOriginNamed": "By automation · {{name}}",

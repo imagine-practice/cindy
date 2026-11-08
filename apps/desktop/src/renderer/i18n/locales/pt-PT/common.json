@@ -14313,7 +14313,8 @@
             "dispatchFailed": "A entrega não foi concluída. Pode tentar novamente.",
             "hostNotReady": "O anfitrião ainda não está pronto; tente daqui a pouco.",
             "unavailable": "Não é possível pedir a execução agora; resolva primeiro o motivo acima.",
-            "generic": "O pedido não foi concluído; atualize e tente novamente."
+            "generic": "O pedido não foi concluído; atualize e tente novamente.",
+            "agentRemote": "Este parceiro corre noutro computador, por isso não pode executar aqui. Continue lá ou assuma-o aqui."
           },
           "followup": {
             "title": "Continuar a execução",
@@ -14358,7 +14359,8 @@
               "idempotencyConflict": "Já existe outra instrução com esta chave. Nada foi enviado; atualize e volte a enviar."
             },
             "modelChoicesUnavailable": "Ainda não há modelos utilizáveis para o motor desta tarefa."
-          }
+          },
+          "actionNeedBot": "Escolha um parceiro para executar"
         },
         "automationOrigin": "Criado por uma automatização",
         "automationOriginNamed": "Criado por uma automatização · {{name}}",

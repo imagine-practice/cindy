@@ -14313,7 +14313,8 @@
             "dispatchFailed": "La transmission a échoué. Vous pouvez réessayer.",
             "hostNotReady": "L'hôte n'est pas encore prêt ; réessayez dans un instant.",
             "unavailable": "L'exécution ne peut pas être demandée maintenant ; résolvez d'abord la raison ci-dessus.",
-            "generic": "La demande n'a pas abouti ; actualisez et réessayez."
+            "generic": "La demande n'a pas abouti ; actualisez et réessayez.",
+            "agentRemote": "Ce coéquipier s'exécute sur un autre ordinateur ; impossible de demander ici. Continuez là-bas ou reprenez-le ici."
           },
           "followup": {
             "title": "Poursuivre l’exécution",
@@ -14358,7 +14359,8 @@
               "idempotencyConflict": "Une autre instruction existe déjà sous cette clé. Rien n’a été envoyé ; actualisez puis renvoyez-la."
             },
             "modelChoicesUnavailable": "Aucun modèle utilisable n’est encore disponible pour le moteur de cette tâche."
-          }
+          },
+          "actionNeedBot": "Choisissez un coéquipier pour exécuter"
         },
         "automationOrigin": "Créé par une automatisation",
         "automationOriginNamed": "Créé par une automatisation · {{name}}",

@@ -14118,7 +14118,8 @@
             "dispatchFailed": "投递没有成功，可以再试一次。",
             "hostNotReady": "宿主还没准备好，稍后再试。",
             "unavailable": "现在不能请求执行，先处理上面的原因。",
-            "generic": "请求没有完成，刷新后再试。"
+            "generic": "请求没有完成，刷新后再试。",
+            "agentRemote": "这个伙伴在另一台电脑上运行，本机不能请求执行。到那台电脑上继续，或先在本机接管它。"
           },
           "followup": {
             "title": "执行后续",
@@ -14163,7 +14164,8 @@
               "idempotencyConflict": "同一个幂等键下已有一条不同内容的指令。这次没有投递，刷新后重新发起。"
             },
             "modelChoicesUnavailable": "这个任务的引擎暂时没有可用模型。"
-          }
+          },
+          "actionNeedBot": "请指定伙伴执行"
         },
         "automationOrigin": "由自动化创建",
         "automationOriginNamed": "由自动化创建 · {{name}}",

@@ -96,7 +96,12 @@ export type WorkItemExecutionRequestErrorCode =
   /** 结果未知：只能对账，不得重发。 */
   | 'OUTCOME_UNKNOWN'
   /** 投递被宿主拒绝（伙伴暂停、会话不可用等）。 */
-  | 'DISPATCH_FAILED';
+  | 'DISPATCH_FAILED'
+  /**
+   * 伙伴当前不在本机运行（例如它跑在另一台电脑上）：本机不能投递，
+   * 需要到那台电脑继续，或先在本机接管它。
+   */
+  | 'AGENT_NOT_READY';
 
 export type ProjectWorkItemExecutionRequestResult =
   | {

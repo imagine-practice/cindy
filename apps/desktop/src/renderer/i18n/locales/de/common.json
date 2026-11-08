@@ -14184,7 +14184,8 @@
             "dispatchFailed": "Die Zustellung hat nicht geklappt. Du kannst es erneut versuchen.",
             "hostNotReady": "Der Host ist noch nicht bereit; gleich erneut versuchen.",
             "unavailable": "Ausführung kann derzeit nicht angefragt werden; zuerst den Grund oben beheben.",
-            "generic": "Die Anfrage wurde nicht abgeschlossen; aktualisieren und erneut versuchen."
+            "generic": "Die Anfrage wurde nicht abgeschlossen; aktualisieren und erneut versuchen.",
+            "agentRemote": "Dieser Teammate läuft auf einem anderen Computer und kann hier nicht ausführen. Dort fortsetzen oder hier übernehmen."
           },
           "followup": {
             "title": "Fortsetzen",
@@ -14229,7 +14230,8 @@
               "idempotencyConflict": "Unter diesem Schlüssel liegt bereits eine andere Anweisung. Diesmal wurde nichts gesendet; aktualisieren und erneut senden."
             },
             "modelChoicesUnavailable": "Für die Engine dieser Aufgabe sind noch keine nutzbaren Modelle verfügbar."
-          }
+          },
+          "actionNeedBot": "Teammate für die Ausführung wählen"
         },
         "automationOrigin": "Von einer Automatisierung",
         "automationOriginNamed": "Von einer Automatisierung · {{name}}",

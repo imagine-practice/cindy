@@ -14118,7 +14118,8 @@
             "dispatchFailed": "投而未達，可再試。",
             "hostNotReady": "宿主未備，稍後再試。",
             "unavailable": "此時不可請行，先解其因。",
-            "generic": "請未成，重新整理再試。"
+            "generic": "請未成，重新整理再試。",
+            "agentRemote": "此伙伴行於他機，本機不得請行。請往彼機，或先於本機承之。"
           },
           "followup": {
             "title": "續行",
@@ -14163,7 +14164,8 @@
               "idempotencyConflict": "同鍵之下已有異文之令。此次未遣，重新整理而後再發。"
             },
             "modelChoicesUnavailable": "此差事之引擎今無可用之模。"
-          }
+          },
+          "actionNeedBot": "請擇伙伴以行"
         },
         "automationOrigin": "自動化所立",
         "automationOriginNamed": "自動化所立 · {{name}}",

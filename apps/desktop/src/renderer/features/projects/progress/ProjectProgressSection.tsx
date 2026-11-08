@@ -28,10 +28,11 @@ function assertProject(result: ProjectProgressReadResult, projectId: string): vo
 
 /** 投递结果 → 界面文案叶子。代码名不当作文案，i18n 只消费这里的固定枚举。 */
 function noticeKey(code: unknown): 'requested' | 'alreadyRequested' | 'unknown' | 'dispatchFailed'
-  | 'hostNotReady' | 'unavailable' | 'generic' {
+  | 'hostNotReady' | 'unavailable' | 'generic' | 'agentRemote' {
   switch (code) {
     case 'OUTCOME_UNKNOWN': return 'unknown';
     case 'DISPATCH_FAILED': return 'dispatchFailed';
+    case 'AGENT_NOT_READY': return 'agentRemote';
     case 'HOST_NOT_READY': return 'hostNotReady';
     case 'UNASSIGNED':
     case 'ASSIGNEE_NOT_BOT':

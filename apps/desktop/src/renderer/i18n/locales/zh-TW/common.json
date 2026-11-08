@@ -14118,7 +14118,8 @@
             "dispatchFailed": "投遞沒有成功，可以再試一次。",
             "hostNotReady": "宿主還沒準備好，稍後再試。",
             "unavailable": "現在不能請求執行，先處理上面的原因。",
-            "generic": "請求沒有完成，重新整理後再試。"
+            "generic": "請求沒有完成，重新整理後再試。",
+            "agentRemote": "這個夥伴在另一台電腦上執行，本機無法請求執行。請到那台電腦繼續，或先在本機接管它。"
           },
           "followup": {
             "title": "執行後續",
@@ -14163,7 +14164,8 @@
               "idempotencyConflict": "同一個冪等鍵下已有一條不同內容的指令。這次沒有投遞，重新整理後重新發起。"
             },
             "modelChoicesUnavailable": "這個任務的引擎目前沒有可用模型。"
-          }
+          },
+          "actionNeedBot": "請指定夥伴執行"
         },
         "automationOrigin": "由自動化建立",
         "automationOriginNamed": "由自動化建立 · {{name}}",

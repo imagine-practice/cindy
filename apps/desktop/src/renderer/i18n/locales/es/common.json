@@ -14313,7 +14313,8 @@
             "dispatchFailed": "La entrega no se completó. Puedes intentarlo otra vez.",
             "hostNotReady": "El host aún no está listo; inténtalo en un momento.",
             "unavailable": "Ahora no se puede pedir la ejecución; resuelve primero el motivo de arriba.",
-            "generic": "La solicitud no se completó; actualiza y vuelve a intentarlo."
+            "generic": "La solicitud no se completó; actualiza y vuelve a intentarlo.",
+            "agentRemote": "Este compañero se ejecuta en otro equipo, así que no puede ejecutar aquí. Continúa allí o tómalo en este equipo."
           },
           "followup": {
             "title": "Continuar la ejecución",
@@ -14358,7 +14359,8 @@
               "idempotencyConflict": "Ya hay una instrucción distinta con esta clave. No se envió nada; actualiza y vuelve a enviarla."
             },
             "modelChoicesUnavailable": "Todavía no hay modelos utilizables para el motor de esta tarea."
-          }
+          },
+          "actionNeedBot": "Elige un compañero para ejecutar"
         },
         "automationOrigin": "Creado por una automatización",
         "automationOriginNamed": "Creado por una automatización · {{name}}",
