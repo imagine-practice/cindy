@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useConfirmDialog } from '@/components/ui/confirm-dialog-provider';
 import { Button } from '@/components/ui/button';
 import { getDataOwnerGeneration, isDataOwnerGenerationCurrent } from '@/contexts/dataOwnerGeneration';
 import type { ProjectProgressReadResult } from '../../../../shared/projectProgressApi';
@@ -84,6 +85,7 @@ export function ProjectProgressSection({ projectId, refreshKey, onAccessLost, on
   const [executionUnavailable, setExecutionUnavailable] = useState(false);
   const [executionBusySessionId, setExecutionBusySessionId] = useState<string | null>(null);
   const [executionNotice, setExecutionNotice] = useState<{ sessionId: string; key: string } | null>(null);
+  const confirmDialog = useConfirmDialog();
   const [followupBusy, setFollowupBusy] = useState<{ sessionId: string; action: WorkItemFollowupAction } | null>(null);
   const followupBusyRef = useRef(false);
   const [followupNotice, setFollowupNotice] = useState<FollowupNotice | null>(null);
@@ -196,9 +198,8 @@ export function ProjectProgressSection({ projectId, refreshKey, onAccessLost, on
     if (mounted.current && isDataOwnerGenerationCurrent(owner.current) && !editorRef.current) void loadRef.current();
     return result;
   };
-  const requestExecution = async (sessionId: string) => {
-    if (executionBusySessionId) return;
-    setExecutionBusySessionId(sessionId); setExecutionNotice(null);
+  /** 真正的投递，不带 busy 守卫：本机接管后要复用同一条路径。 */
+  const dispatchExecutionRequest = async (sessionId: string) => {
     const ticket = sequence.current;
     try {
       const result = await requestProjectWorkItemExecution({ projectId, sessionId });
@@ -214,6 +215,41 @@ export function ProjectProgressSection({ projectId, refreshKey, onAccessLost, on
       const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
       if (code === 'FORBIDDEN' || code === 'NOT_PROJECT_MEMBER') { fail(error); return; }
       setExecutionNotice({ sessionId, key: noticeKey(code) });
+    } finally {
+      if (mounted.current) setExecutionBusySessionId(null);
+    }
+  };
+  const requestExecution = async (sessionId: string) => {
+    if (executionBusySessionId) return;
+    setExecutionBusySessionId(sessionId); setExecutionNotice(null);
+    await dispatchExecutionRequest(sessionId);
+  };
+
+  /**
+   * 伙伴的主力电脑是另一台时：先在本机接管它，再立刻重试一次。
+   * 接管失败要如实说原因（正在别处执行 / 别处已接管 / 那台离线…），不假装成功。
+   */
+  const takeOverAndExecute = async (sessionId: string, botId: string, botName: string) => {
+    if (executionBusySessionId) return;
+    const confirmed = await confirmDialog.confirm({
+      title: t('ccAgent.projectCore.progress.execution.takeOver.title', { name: botName }),
+      description: t('ccAgent.projectCore.progress.execution.takeOver.desc'),
+      confirmText: t('ccAgent.projectCore.progress.execution.takeOver.confirm'),
+      cancelText: t('ccAgent.projectCore.progress.execution.takeOver.cancel'),
+    });
+    if (!confirmed || !mounted.current || !isDataOwnerGenerationCurrent(owner.current)) return;
+    setExecutionBusySessionId(sessionId);
+    setExecutionNotice(null);
+    try {
+      const result = await window.electronAPI.maker.takeOverCompanion(botId);
+      if (!mounted.current || !isDataOwnerGenerationCurrent(owner.current)) return;
+      if (!result.ok) {
+        setExecutionNotice({ sessionId, key: `takeOverFailed.${result.code}` });
+        return;
+      }
+      await dispatchExecutionRequest(sessionId);
+    } catch {
+      if (mounted.current) setExecutionNotice({ sessionId, key: 'takeOverFailed.FAILED' });
     } finally {
       if (mounted.current) setExecutionBusySessionId(null);
     }
@@ -280,6 +316,7 @@ export function ProjectProgressSection({ projectId, refreshKey, onAccessLost, on
       onRefresh={() => void loadRef.current()}
       execution={execution} executionUnavailable={executionUnavailable}
       executionBusySessionId={executionBusySessionId} executionNotice={executionNotice}
+      onTakeOverAndExecute={takeOverAndExecute}
       followupBusy={followupBusy} followupNotice={followupNotice} modelChoices={modelChoices}
       onRequestExecution={id => void requestExecution(id)}
       onFollowup={(id, action, payload) => void followup(id, action, payload)}

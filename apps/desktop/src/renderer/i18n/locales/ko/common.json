@@ -14104,7 +14104,8 @@
             "ASSIGNEE_NOT_BOT": "담당자가 파트너가 아니어서 실행을 요청할 수 없습니다.",
             "EXECUTOR_INACTIVE": "이 파트너는 중지 상태입니다. 다시 시작한 뒤 실행하세요.",
             "EXECUTOR_NOT_MEMBER": "이 파트너는 프로젝트 구성원이 아닙니다. 먼저 추가하세요.",
-            "PROJECT_ARCHIVED": "프로젝트가 보관되었습니다. 복원한 뒤 실행하세요."
+            "PROJECT_ARCHIVED": "프로젝트가 보관되었습니다. 복원한 뒤 실행하세요.",
+            "AGENT_NOT_READY": "이 파트너의 메인 컴퓨터가 다른 컴퓨터라 여기서 턴을 시작할 수 없습니다."
           },
           "unavailableState": "지금은 실행 상태를 읽을 수 없습니다. 새로 고친 뒤 다시 시도하세요.",
           "hint": {
@@ -14165,7 +14166,24 @@
             },
             "modelChoicesUnavailable": "이 세션 엔진에서 사용할 수 있는 모델이 아직 없습니다."
           },
-          "actionNeedBot": "실행할 파트너를 지정하세요"
+          "actionNeedBot": "실행할 파트너를 지정하세요",
+          "takeOverAndRun": "이 컴퓨터에서 인계하고 실행",
+          "takeOver": {
+            "title": "이 컴퓨터에서 “{{name}}”을(를) 인계하고 실행할까요?",
+            "desc": "인계하면 이 파트너의 메인 컴퓨터가 이 컴퓨터가 됩니다. 다른 컴퓨터에서 실행 중이면 그 턴이 끝날 때까지 기다립니다(최대 약 4분).",
+            "confirm": "인계하고 실행",
+            "cancel": "취소"
+          },
+          "takeOverFailed": {
+            "BUSY": "이 파트너가 다른 컴퓨터에서 실행 중입니다. 끝난 뒤 다시 시도하세요.",
+            "HOME_CONFLICT": "이미 다른 컴퓨터가 인계했습니다. 그쪽에서 계속하세요.",
+            "OFFLINE": "그 컴퓨터가 오프라인이라 지금은 인계할 수 없습니다.",
+            "NOT_ENABLED": "이 컴퓨터에서 파트너 클라우드 동기화가 꺼져 있습니다.",
+            "HOME_OUTDATED": "그 컴퓨터의 Cindy가 오래되었습니다. 먼저 업데이트하세요.",
+            "PAUSED": "이 파트너가 일시정지되었습니다. 재개한 뒤 인계하세요.",
+            "FAILED": "인계하지 못했습니다. 잠시 후 다시 시도하세요.",
+            "TARGET_UNAVAILABLE": "그 컴퓨터가 오프라인이라 지금은 인계할 수 없습니다."
+          }
         },
         "automationOrigin": "자동화로 생성됨",
         "automationOriginNamed": "자동화로 생성됨 · {{name}}",

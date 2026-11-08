@@ -16,6 +16,7 @@
  *      见 `followup.ts`；两块共用同一份真实读取与同一个幂等键摘要口径。
  */
 
+import { isCompanionShadowed } from '../companion-cloud/homes.js';
 import { ipcMain } from 'electron';
 import type {
   ProjectWorkItemExecutionReadRequest,
@@ -70,7 +71,7 @@ async function buildEntry(input: {
   followup: FollowupRow | null;
   client: CurrentDbClientSnapshot['client'];
 }): Promise<WorkItemExecutionEntry> {
-  const reason = workItemUnavailableReason(input.row);
+  const reason = workItemUnavailableReason(input.row, isCompanionShadowed);
   const state = projectWorkItemExecutionState({
     delivered: input.delivered !== null,
     delegation: input.delegation,
@@ -214,7 +215,7 @@ export async function requestProjectWorkItemExecution(
     message: string,
     requestKey: string | null = null,
   ): ProjectWorkItemExecutionRequestResult => ({ ok: false, code, state, requestKey, message });
-  const reason = workItemUnavailableReason(row);
+  const reason = workItemUnavailableReason(row, isCompanionShadowed);
   const botId = row.assigneeId ?? '';
   const canonicalSessionId = row.canonicalSessionId ?? '';
   const digest = workItemRequestKeyPrefixDigest(request.projectId, row.sessionId, botId);

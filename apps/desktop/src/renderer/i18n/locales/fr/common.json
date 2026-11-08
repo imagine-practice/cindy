@@ -14299,7 +14299,8 @@
             "ASSIGNEE_NOT_BOT": "Le responsable n'est pas un partenaire : impossible de demander l'exécution.",
             "EXECUTOR_INACTIVE": "Ce partenaire est en pause ; le réactiver d'abord.",
             "EXECUTOR_NOT_MEMBER": "Ce partenaire n'est pas membre du projet ; l'ajouter d'abord.",
-            "PROJECT_ARCHIVED": "Le projet est archivé ; le restaurer d'abord."
+            "PROJECT_ARCHIVED": "Le projet est archivé ; le restaurer d'abord.",
+            "AGENT_NOT_READY": "Ce coéquipier s'exécute sur un autre ordinateur : son tour ne peut pas démarrer ici."
           },
           "unavailableState": "L'état d'exécution est indisponible ; actualiser pour réessayer.",
           "hint": {
@@ -14360,7 +14361,24 @@
             },
             "modelChoicesUnavailable": "Aucun modèle utilisable n’est encore disponible pour le moteur de cette tâche."
           },
-          "actionNeedBot": "Choisissez un coéquipier pour exécuter"
+          "actionNeedBot": "Choisissez un coéquipier pour exécuter",
+          "takeOverAndRun": "Reprendre ici et exécuter",
+          "takeOver": {
+            "title": "Reprendre « {{name}} » sur cet ordinateur et exécuter ?",
+            "desc": "Son ordinateur principal deviendra celui-ci. S'il s'exécute sur l'autre ordinateur, on attendra la fin du tour (jusqu'à environ 4 minutes).",
+            "confirm": "Reprendre et exécuter",
+            "cancel": "Annuler"
+          },
+          "takeOverFailed": {
+            "BUSY": "Le coéquipier s'exécute sur l'autre ordinateur ; réessayez quand il aura terminé.",
+            "HOME_CONFLICT": "Un autre ordinateur l’a déjà repris ; continuez là-bas.",
+            "OFFLINE": "Cet ordinateur est hors ligne ; reprise impossible pour l'instant.",
+            "NOT_ENABLED": "La synchronisation cloud des coéquipiers est désactivée sur cet ordinateur.",
+            "HOME_OUTDATED": "Le Cindy de cet ordinateur est ancien ; mettez-le à jour.",
+            "PAUSED": "Ce coéquipier est en pause ; reprenez-le avant de le récupérer.",
+            "FAILED": "La reprise a échoué. Réessayez plus tard.",
+            "TARGET_UNAVAILABLE": "Cet ordinateur est hors ligne ; reprise impossible pour l'instant."
+          }
         },
         "automationOrigin": "Créé par une automatisation",
         "automationOriginNamed": "Créé par une automatisation · {{name}}",

@@ -14104,7 +14104,8 @@
             "ASSIGNEE_NOT_BOT": "處理人不是夥伴，不能請求執行。",
             "EXECUTOR_INACTIVE": "該夥伴已停用，恢復後才能執行。",
             "EXECUTOR_NOT_MEMBER": "該夥伴不是專案成員，先把它加入專案。",
-            "PROJECT_ARCHIVED": "專案已封存，恢復後才能執行。"
+            "PROJECT_ARCHIVED": "專案已封存，恢復後才能執行。",
+            "AGENT_NOT_READY": "這個夥伴的主力電腦是另一台電腦，本機無法啟動它的回合。"
           },
           "unavailableState": "暫時讀不到執行狀態，重新整理後再試。",
           "hint": {
@@ -14165,7 +14166,24 @@
             },
             "modelChoicesUnavailable": "這個任務的引擎目前沒有可用模型。"
           },
-          "actionNeedBot": "請指定夥伴執行"
+          "actionNeedBot": "請指定夥伴執行",
+          "takeOverAndRun": "在本機接管並執行",
+          "takeOver": {
+            "title": "在本機接管「{{name}}」並執行？",
+            "desc": "接管後這個夥伴的主力電腦會變成這台電腦。如果它正在另一台電腦上執行，會先等它結束（最長約 4 分鐘）。",
+            "confirm": "接管並執行",
+            "cancel": "取消"
+          },
+          "takeOverFailed": {
+            "BUSY": "這個夥伴正在另一台電腦上執行，等它結束後再試。",
+            "HOME_CONFLICT": "它已被另一台電腦接管了，請到那台電腦繼續。",
+            "OFFLINE": "那台電腦目前離線，暫時無法接管。",
+            "NOT_ENABLED": "這台電腦尚未開啟夥伴雲端同步，無法接管。",
+            "HOME_OUTDATED": "那台電腦上的 Cindy 版本較舊，請先更新。",
+            "PAUSED": "這個夥伴已暫停，恢復後才能接管。",
+            "FAILED": "接管沒有成功，請稍後再試。",
+            "TARGET_UNAVAILABLE": "那台電腦目前離線，暫時無法接管。"
+          }
         },
         "automationOrigin": "由自動化建立",
         "automationOriginNamed": "由自動化建立 · {{name}}",

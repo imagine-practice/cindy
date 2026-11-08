@@ -14299,7 +14299,8 @@
             "ASSIGNEE_NOT_BOT": "El responsable no es un compañero, así que no puede ejecutar.",
             "EXECUTOR_INACTIVE": "Este compañero está en pausa; reanúdalo primero.",
             "EXECUTOR_NOT_MEMBER": "Este compañero no es miembro del proyecto; añádelo primero.",
-            "PROJECT_ARCHIVED": "El proyecto está archivado; restáuralo primero."
+            "PROJECT_ARCHIVED": "El proyecto está archivado; restáuralo primero.",
+            "AGENT_NOT_READY": "Este compañero se ejecuta en otro equipo, así que aquí no puede iniciar su turno."
           },
           "unavailableState": "El estado de ejecución no está disponible ahora; actualiza para reintentar.",
           "hint": {
@@ -14360,7 +14361,24 @@
             },
             "modelChoicesUnavailable": "Todavía no hay modelos utilizables para el motor de esta tarea."
           },
-          "actionNeedBot": "Elige un compañero para ejecutar"
+          "actionNeedBot": "Elige un compañero para ejecutar",
+          "takeOverAndRun": "Tomar aquí y ejecutar",
+          "takeOver": {
+            "title": "¿Tomar «{{name}}» en este equipo y ejecutar?",
+            "desc": "Su equipo principal pasará a ser este. Si está ejecutándose en el otro equipo, se esperará a que termine (hasta unos 4 minutos).",
+            "confirm": "Tomar y ejecutar",
+            "cancel": "Cancelar"
+          },
+          "takeOverFailed": {
+            "BUSY": "El compañero se está ejecutando en el otro equipo; inténtalo cuando termine.",
+            "HOME_CONFLICT": "Otro equipo ya lo asumió; continúa allí.",
+            "OFFLINE": "Ese equipo está desconectado, no se puede tomar ahora.",
+            "NOT_ENABLED": "La sincronización en la nube de compañeros está desactivada en este equipo.",
+            "HOME_OUTDATED": "El Cindy de ese equipo está desactualizado; actualízalo primero.",
+            "PAUSED": "Este compañero está en pausa; reanúdalo antes de tomarlo.",
+            "FAILED": "No se pudo tomar. Inténtalo más tarde.",
+            "TARGET_UNAVAILABLE": "Ese equipo está desconectado, no se puede tomar ahora."
+          }
         },
         "automationOrigin": "Creado por una automatización",
         "automationOriginNamed": "Creado por una automatización · {{name}}",

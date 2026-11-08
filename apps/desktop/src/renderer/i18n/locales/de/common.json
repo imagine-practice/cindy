@@ -14170,7 +14170,8 @@
             "ASSIGNEE_NOT_BOT": "Die zuständige Person ist kein Teammate und kann nicht ausführen.",
             "EXECUTOR_INACTIVE": "Dieses Teammate ist pausiert; zuerst fortsetzen.",
             "EXECUTOR_NOT_MEMBER": "Dieses Teammate ist kein Projektmitglied; zuerst hinzufügen.",
-            "PROJECT_ARCHIVED": "Das Projekt ist archiviert; zuerst wiederherstellen."
+            "PROJECT_ARCHIVED": "Das Projekt ist archiviert; zuerst wiederherstellen.",
+            "AGENT_NOT_READY": "Dieser Teammate läuft auf einem anderen Computer; sein Turn kann hier nicht starten."
           },
           "unavailableState": "Der Ausführungsstatus ist derzeit nicht lesbar; zum Wiederholen aktualisieren.",
           "hint": {
@@ -14231,7 +14232,24 @@
             },
             "modelChoicesUnavailable": "Für die Engine dieser Aufgabe sind noch keine nutzbaren Modelle verfügbar."
           },
-          "actionNeedBot": "Teammate für die Ausführung wählen"
+          "actionNeedBot": "Teammate für die Ausführung wählen",
+          "takeOverAndRun": "Hier übernehmen und ausführen",
+          "takeOver": {
+            "title": "„{{name}}“ auf diesem Computer übernehmen und ausführen?",
+            "desc": "Sein Hauptcomputer wird dieser. Läuft er auf dem anderen Computer, wird auf das Ende des Turns gewartet (bis zu ca. 4 Minuten).",
+            "confirm": "Übernehmen und ausführen",
+            "cancel": "Abbrechen"
+          },
+          "takeOverFailed": {
+            "BUSY": "Der Teammate läuft auf dem anderen Computer; versuchen Sie es nach dem Ende erneut.",
+            "HOME_CONFLICT": "Ein anderer Computer hat ihn bereits übernommen; dort fortfahren.",
+            "OFFLINE": "Dieser Computer ist offline; Übernahme derzeit nicht möglich.",
+            "NOT_ENABLED": "Die Teammate-Cloud-Synchronisierung ist auf diesem Computer aus.",
+            "HOME_OUTDATED": "Das Cindy auf jenem Computer ist veraltet; bitte zuerst aktualisieren.",
+            "PAUSED": "Dieser Teammate ist pausiert; vor der Übernahme fortsetzen.",
+            "FAILED": "Übernahme fehlgeschlagen. Bitte später erneut versuchen.",
+            "TARGET_UNAVAILABLE": "Dieser Computer ist offline; Übernahme derzeit nicht möglich."
+          }
         },
         "automationOrigin": "Von einer Automatisierung",
         "automationOriginNamed": "Von einer Automatisierung · {{name}}",

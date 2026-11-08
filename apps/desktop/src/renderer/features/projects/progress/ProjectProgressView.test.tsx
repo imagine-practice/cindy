@@ -295,6 +295,7 @@ describe('project work-item execution entry', () => {
     notice: { sessionId: string; key: string } | null = null,
   ) => {
     const onRequest = vi.fn();
+    const onTakeOver = vi.fn();
     render(
       <I18nextProvider i18n={i18n}>
         <ProjectProgressView
@@ -305,10 +306,11 @@ describe('project work-item execution entry', () => {
           execution={entry ? { s: entry } : {}}
           executionNotice={notice}
           onRequestExecution={onRequest}
+          onTakeOverAndExecute={onTakeOver}
         />
       </I18nextProvider>,
     );
-    return { onRequest };
+    return { onRequest, onTakeOver };
   };
 
   it('names the assignee teammate and delivers on click', () => {
@@ -333,6 +335,20 @@ describe('project work-item execution entry', () => {
     }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     fireEvent.click(button);
+    expect(ui.onRequest).not.toHaveBeenCalled();
+  });
+
+  it('offers taking the teammate over here when it runs on another computer', () => {
+    const ui = mountExecution(
+      executionEntry({
+        executor: { botId: 'bot-remote', displayName: 'Nova' },
+        unavailableReason: 'AGENT_NOT_READY',
+        canRequest: false,
+      }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Take over here and run' }));
+    // 只把「哪个工作项 + 哪个伙伴」交出去；接管与重试由外层执行。
+    expect(ui.onTakeOver).toHaveBeenCalledExactlyOnceWith('s', 'bot-remote', 'Nova');
     expect(ui.onRequest).not.toHaveBeenCalled();
   });
 

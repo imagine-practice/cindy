@@ -41,7 +41,12 @@ export type WorkItemExecutionUnavailableReason =
   | 'ASSIGNEE_NOT_BOT'
   | 'EXECUTOR_INACTIVE'
   | 'EXECUTOR_NOT_MEMBER'
-  | 'PROJECT_ARCHIVED';
+  | 'PROJECT_ARCHIVED'
+  /**
+   * 伙伴的主力电脑是另一台电脑：本机启动不了它的回合。
+   * 界面给「在本机接管并执行」，接管成功后重试一次。
+   */
+  | 'AGENT_NOT_READY';
 
 /** Renderer intent：只给项目与工作项，其余身份由 main 从真实数据解析。 */
 export interface ProjectWorkItemExecutionReadRequest {

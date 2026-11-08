@@ -210,6 +210,8 @@ export function projectWorkItemExecutionState(input: {
 
 export function workItemUnavailableReason(
   row: WorkItemRow,
+  /** 由调用方注入「这个伙伴是否跑在另一台电脑上」；缺省视为本机可执行。 */
+  isShadowed: (botId: string) => boolean = () => false,
 ): WorkItemExecutionUnavailableReason | null {
   // 处理人为空 = 未分配；绝不回退负责人或默认伙伴。
   if (!row.assigneeKind || !row.assigneeId) return 'UNASSIGNED';
@@ -219,6 +221,9 @@ export function workItemUnavailableReason(
   // 执行工具自己的准入要求「Bot-kind executor membership」，提前在这里就说清楚。
   if (!row.executorIsMember) return 'EXECUTOR_NOT_MEMBER';
   if (row.projectStatus !== 'active') return 'PROJECT_ARCHIVED';
+  // 伙伴的主力电脑是另一台时，本机不启动它的回合（cloud-companions §3）。
+  // 界面据此提供「在本机接管并执行」，而不是笼统的「投递失败」。
+  if (row.assigneeId && isShadowed(row.assigneeId)) return 'AGENT_NOT_READY';
   return null;
 }
 

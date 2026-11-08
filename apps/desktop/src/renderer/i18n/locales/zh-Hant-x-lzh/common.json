@@ -14104,7 +14104,8 @@
             "ASSIGNEE_NOT_BOT": "處理人非夥伴，不可請行。",
             "EXECUTOR_INACTIVE": "此夥伴已停，復之乃可行。",
             "EXECUTOR_NOT_MEMBER": "此夥伴非專案之員，先入之。",
-            "PROJECT_ARCHIVED": "專案已歸檔，復之乃可行。"
+            "PROJECT_ARCHIVED": "專案已歸檔，復之乃可行。",
+            "AGENT_NOT_READY": "此伙伴之主機在他機，本機不得啟其回合。"
           },
           "unavailableState": "暫不得執行之狀，重新整理再試。",
           "hint": {
@@ -14165,7 +14166,24 @@
             },
             "modelChoicesUnavailable": "此差事之引擎今無可用之模。"
           },
-          "actionNeedBot": "請擇伙伴以行"
+          "actionNeedBot": "請擇伙伴以行",
+          "takeOverAndRun": "於本機承之而行",
+          "takeOver": {
+            "title": "於本機承「{{name}}」而行乎？",
+            "desc": "既承，則此伙伴之主機易為本機。若其正行於他機，當待其訖（至多約四刻）。",
+            "confirm": "承而行之",
+            "cancel": "止"
+          },
+          "takeOverFailed": {
+            "BUSY": "此伙伴正行於他機，待其訖而後試。",
+            "HOME_CONFLICT": "已為他機所承，請往彼機續之。",
+            "OFFLINE": "彼機今不在線，暫不得承。",
+            "NOT_ENABLED": "本機未啟伙伴雲同步，不得承。",
+            "HOME_OUTDATED": "彼機之 Cindy 舊矣，請先更之。",
+            "PAUSED": "此伙伴已止，復而後可承。",
+            "FAILED": "承之未成，請稍後再試。",
+            "TARGET_UNAVAILABLE": "彼機今不在線，暫不得承。"
+          }
         },
         "automationOrigin": "自動化所立",
         "automationOriginNamed": "自動化所立 · {{name}}",

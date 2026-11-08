@@ -14299,7 +14299,8 @@
             "ASSIGNEE_NOT_BOT": "O responsável não é um parceiro, então não pode executar.",
             "EXECUTOR_INACTIVE": "Este parceiro está pausado; retome primeiro.",
             "EXECUTOR_NOT_MEMBER": "Este parceiro não é membro do projeto; adicione primeiro.",
-            "PROJECT_ARCHIVED": "O projeto está arquivado; restaure primeiro."
+            "PROJECT_ARCHIVED": "O projeto está arquivado; restaure primeiro.",
+            "AGENT_NOT_READY": "Este parceiro roda em outro computador, então não pode iniciar aqui o turno."
           },
           "unavailableState": "O estado de execução não está disponível agora; atualize para tentar de novo.",
           "hint": {
@@ -14360,7 +14361,24 @@
             },
             "modelChoicesUnavailable": "Ainda não há modelos utilizáveis para o motor desta tarefa."
           },
-          "actionNeedBot": "Escolha um parceiro para executar"
+          "actionNeedBot": "Escolha um parceiro para executar",
+          "takeOverAndRun": "Assumir aqui e executar",
+          "takeOver": {
+            "title": "Assumir “{{name}}” neste computador e executar?",
+            "desc": "O computador principal passa a ser este. Se estiver rodando no outro, espera-se o turno terminar (até cerca de 4 minutos).",
+            "confirm": "Assumir e executar",
+            "cancel": "Cancelar"
+          },
+          "takeOverFailed": {
+            "BUSY": "O parceiro está rodando no outro computador; tente quando terminar.",
+            "HOME_CONFLICT": "Outro computador já assumiu; continue lá.",
+            "OFFLINE": "Esse computador está offline; não é possível assumir agora.",
+            "NOT_ENABLED": "A sincronização na nuvem de parceiros está desligada neste computador.",
+            "HOME_OUTDATED": "O Cindy desse computador está desatualizado; atualize primeiro.",
+            "PAUSED": "Este parceiro está pausado; retome antes de assumir.",
+            "FAILED": "Não foi possível assumir. Tente mais tarde.",
+            "TARGET_UNAVAILABLE": "Esse computador está offline; não é possível assumir agora."
+          }
         },
         "automationOrigin": "Criado por uma automação",
         "automationOriginNamed": "Criado por uma automação · {{name}}",

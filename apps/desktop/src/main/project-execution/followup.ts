@@ -20,6 +20,7 @@
  *   6. 换模型失败只报真实原因：不静默回退默认模型、不换账号、不重试。
  */
 
+import { isCompanionShadowed } from '../companion-cloud/homes.js';
 import type {
   ProjectWorkItemFollowupIntent,
   ProjectWorkItemFollowupResult,
@@ -455,7 +456,7 @@ export async function requestProjectWorkItemFollowup(
     row,
     state,
     delegation,
-    unavailableReason: workItemUnavailableReason(row),
+    unavailableReason: workItemUnavailableReason(row, isCompanionShadowed),
   });
   authority.assertCurrent();
   const capability = projection.actions[intent.action];

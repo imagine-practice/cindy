@@ -14104,7 +14104,8 @@
             "ASSIGNEE_NOT_BOT": "处理人不是伙伴，不能请求执行。",
             "EXECUTOR_INACTIVE": "该伙伴已停用，恢复后才能执行。",
             "EXECUTOR_NOT_MEMBER": "该伙伴不是项目成员，先把它加进项目。",
-            "PROJECT_ARCHIVED": "项目已归档，恢复后才能执行。"
+            "PROJECT_ARCHIVED": "项目已归档，恢复后才能执行。",
+            "AGENT_NOT_READY": "这个伙伴的主力电脑是另一台电脑，本机不能启动它的回合。"
           },
           "unavailableState": "暂时读不到执行状态，刷新后重试。",
           "hint": {
@@ -14165,7 +14166,24 @@
             },
             "modelChoicesUnavailable": "这个任务的引擎暂时没有可用模型。"
           },
-          "actionNeedBot": "请指定伙伴执行"
+          "actionNeedBot": "请指定伙伴执行",
+          "takeOverAndRun": "在本机接管并执行",
+          "takeOver": {
+            "title": "在本机接管「{{name}}」并执行？",
+            "desc": "接管后这个伙伴的主力电脑会变成这台电脑。如果它正在另一台电脑上执行，会先等它结束（最长约 4 分钟）。",
+            "confirm": "接管并执行",
+            "cancel": "取消"
+          },
+          "takeOverFailed": {
+            "BUSY": "这个伙伴正在另一台电脑上执行，等它结束后再试。",
+            "HOME_CONFLICT": "它已经被另一台电脑接管了，去那台电脑继续。",
+            "OFFLINE": "那台电脑当前离线，暂时接管不了。",
+            "NOT_ENABLED": "这台电脑还没有开启伙伴云同步，无法接管。",
+            "HOME_OUTDATED": "那台电脑上的 Cindy 版本较旧，请先更新。",
+            "PAUSED": "这个伙伴已暂停，恢复后才能接管。",
+            "FAILED": "接管没有成功，请稍后重试。",
+            "TARGET_UNAVAILABLE": "那台电脑当前离线，暂时接管不了。"
+          }
         },
         "automationOrigin": "由自动化创建",
         "automationOriginNamed": "由自动化创建 · {{name}}",

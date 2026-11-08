@@ -38,6 +38,8 @@ export interface ProjectProgressViewProps {
   /** Localized outcome key of the last delivery attempt, e.g. 'requested' | 'alreadyRequested'. */
   executionNotice?: { sessionId: string; key: string } | null;
   onRequestExecution?: (sessionId: string) => void;
+  /** 伙伴的主力电脑是另一台时：在本机接管它，然后立刻重试一次执行请求。 */
+  onTakeOverAndExecute?: (sessionId: string, botId: string, botName: string) => void;
   /** 后续动作的在飞状态（每个会话同时只允许一个动作在飞）。 */
   followupBusy?: { sessionId: string; action: WorkItemFollowupAction } | null;
   followupNotice?: { sessionId: string; key: string; vars?: Record<string, string | number> } | null;
@@ -77,6 +79,7 @@ function ProgressContent({
   executionBusySessionId,
   executionNotice,
   onRequestExecution,
+  onTakeOverAndExecute,
   followupBusy,
   followupNotice,
   onFollowup,
@@ -293,6 +296,26 @@ function ProgressContent({
                     {executionHint && (
                       <p className="text-12 text-[var(--text-secondary)]">{executionHint}</p>
                     )}
+                    {executionEntry.unavailableReason === 'AGENT_NOT_READY' &&
+                      executionEntry.executor &&
+                      onTakeOverAndExecute && (
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <Button
+                            variant="secondary"
+                            className="whitespace-normal"
+                            disabled={executionBusySessionId === item.sessionId}
+                            onClick={() =>
+                              onTakeOverAndExecute(
+                                item.sessionId,
+                                executionEntry.executor!.botId,
+                                executionEntry.executor!.displayName,
+                              )
+                            }
+                          >
+                            {t(`${PREFIX}.execution.takeOverAndRun`)}
+                          </Button>
+                        </div>
+                      )}
                     {executionNotice?.sessionId === item.sessionId && (
                       <p role="status" className="text-12 text-[var(--text-secondary)]">
                         {t(`${PREFIX}.execution.notice.${executionNotice.key}`)}

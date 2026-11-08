@@ -14170,7 +14170,8 @@
             "ASSIGNEE_NOT_BOT": "The assignee is not a teammate, so it cannot execute this.",
             "EXECUTOR_INACTIVE": "This teammate is paused; resume it first.",
             "EXECUTOR_NOT_MEMBER": "This teammate is not a project member; add it first.",
-            "PROJECT_ARCHIVED": "This project is archived; restore it first."
+            "PROJECT_ARCHIVED": "This project is archived; restore it first.",
+            "AGENT_NOT_READY": "This teammate runs on another computer, so its turn cannot start here."
           },
           "unavailableState": "Execution state is unavailable right now; refresh to retry.",
           "hint": {
@@ -14231,7 +14232,24 @@
             },
             "modelChoicesUnavailable": "No usable models are available for this task's engine yet."
           },
-          "actionNeedBot": "Pick a teammate to execute"
+          "actionNeedBot": "Pick a teammate to execute",
+          "takeOverAndRun": "Take over here and run",
+          "takeOver": {
+            "title": "Take over “{{name}}” on this computer and run?",
+            "desc": "Its main computer becomes this one. If it is running on the other computer, this waits for that turn to finish (up to about 4 minutes).",
+            "confirm": "Take over and run",
+            "cancel": "Cancel"
+          },
+          "takeOverFailed": {
+            "BUSY": "The teammate is running on the other computer; try again after it finishes.",
+            "HOME_CONFLICT": "Another computer already took it over; continue there.",
+            "OFFLINE": "That computer is offline, so it cannot be taken over right now.",
+            "NOT_ENABLED": "Companion cloud sync is off on this computer.",
+            "HOME_OUTDATED": "The Cindy on that computer is outdated; update it first.",
+            "PAUSED": "This teammate is paused; resume it before taking over.",
+            "FAILED": "Take-over failed. Try again later.",
+            "TARGET_UNAVAILABLE": "That computer is offline, so it cannot be taken over right now."
+          }
         },
         "automationOrigin": "By automation",
         "automationOriginNamed": "By automation · {{name}}",
