@@ -68,16 +68,34 @@ export function createChatGroupAuthority(deps: {
       return result.data;
     };
     const me = parse(z.object({ actor }), await read('/me')).actor;
-    if (me.kind !== 'human' || me.disabled || me.externalId !== boundary.ownerId
-      || (subject.kind === 'account' && subject.id !== boundary.ownerId)) throw new Error('GROUP_ACCESS_DENIED');
+    // 拒绝要能定位：以前所有失败都只抛一个 GROUP_ACCESS_DENIED，排查时分不清是
+    // 账号身份不匹配、房间形态不对，还是没有可管理的成员。这里按条件打一行原因标记，
+    // 不记录 token/正文，只记录是哪一条判定没过。
+    const denyReason: (reason: string) => never = (reason) => {
+      console.warn('[chatGroupAuthority] denied', { reason, subjectKind: subject.kind });
+      throw new Error('GROUP_ACCESS_DENIED');
+    };
+    if (me.kind !== 'human' || me.disabled) denyReason('me-not-human');
+    if (me.externalId !== boundary.ownerId) {
+      // 只记录前缀与长度用于定位身份口径，不记录正文或凭证。
+      console.warn('[chatGroupAuthority] identity', {
+        meKind: me.kind,
+        meExternal: String(me.externalId).slice(0, 8),
+        ownerId: String(boundary.ownerId).slice(0, 8),
+        meLength: String(me.externalId).length,
+        ownerLength: String(boundary.ownerId).length,
+      });
+      denyReason('me-external-id-mismatch');
+    }
+    if (subject.kind === 'account' && subject.id !== boundary.ownerId) denyReason('subject-account-mismatch');
     const actors = parse(z.array(actor), await read('/actors'));
     const matches = subject.kind === 'bot' ? actors.filter(a => a.kind === 'bot' && a.externalId === subject.id && !a.disabled) : [];
-    if (subject.kind === 'bot' && matches.length !== 1) throw new Error('GROUP_ACCESS_DENIED');
+    if (subject.kind === 'bot' && matches.length !== 1) denyReason('bot-actor-mismatch');
     const bot = matches[0];
     roomId = z.string().uuid().parse(boundary.resolveRoom(roomId, me.id));
     const s = parse(snapshot, await read(`/conversations/${roomId}/snapshot`, bot?.id));
     if (s.room.kind !== 'group' || s.room.id !== roomId || s.room.dissolved_at
-      || (permission === 'configure' && s.room.archived)) throw new Error('GROUP_ACCESS_DENIED');
+      || (permission === 'configure' && s.room.archived)) denyReason('room-shape');
     // /actors is the authenticated owner's directory; membership must independently
     // confirm the owner of the exact actor, never equate account and bot IDs.
     const owned = s.members.filter(m => m.ownerActorId === me.id && m.state === 'joined'
@@ -85,7 +103,7 @@ export function createChatGroupAuthority(deps: {
     const selected = bot ? owned.find(m => m.kind === 'bot' && m.id === bot.id)
       : permission === 'configure' ? selectChatManagementActor(owned, me.id)
         : owned.find(m => m.id === me.id) ?? owned[0];
-    if (!selected) throw new Error('GROUP_ACCESS_DENIED');
+    if (!selected) denyReason('no-owned-actor');
     if (permission === 'configure' && !['owner', 'admin'].includes(selected.role)) throw new Error('GROUP_CONFIGURATION_REQUIRED');
     const facts = Object.freeze({ endpoint: boundary.endpoint, roomId: s.room.id, ownerId: boundary.ownerId,
       selfActorId: me.id, actorId: selected.id, role: selected.role, roomRevision: s.room.revision,
