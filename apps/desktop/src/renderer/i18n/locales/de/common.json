@@ -14186,7 +14186,17 @@
             "hostNotReady": "Der Host ist noch nicht bereit; gleich erneut versuchen.",
             "unavailable": "Ausführung kann derzeit nicht angefragt werden; zuerst den Grund oben beheben.",
             "generic": "Die Anfrage wurde nicht abgeschlossen; aktualisieren und erneut versuchen.",
-            "agentRemote": "Dieser Teammate läuft auf einem anderen Computer und kann hier nicht ausführen. Dort fortsetzen oder hier übernehmen."
+            "agentRemote": "Dieser Teammate läuft auf einem anderen Computer und kann hier nicht ausführen. Dort fortsetzen oder hier übernehmen.",
+            "takeOverFailed": {
+              "BUSY": "Der Teammate läuft auf dem anderen Computer; versuchen Sie es nach dem Ende erneut.",
+              "HOME_CONFLICT": "Ein anderer Computer hat ihn bereits übernommen; dort fortfahren.",
+              "OFFLINE": "Dieser Computer ist offline; Übernahme derzeit nicht möglich.",
+              "NOT_ENABLED": "Die Teammate-Cloud-Synchronisierung ist auf diesem Computer aus.",
+              "HOME_OUTDATED": "Das Cindy auf jenem Computer ist veraltet; bitte zuerst aktualisieren.",
+              "PAUSED": "Dieser Teammate ist pausiert; vor der Übernahme fortsetzen.",
+              "FAILED": "Übernahme nicht abgeschlossen (Inhaltswiederherstellung oder Netzwerk). Später erneut versuchen oder am ursprünglichen Computer fortfahren.",
+              "TARGET_UNAVAILABLE": "Dieser Computer ist offline; Übernahme derzeit nicht möglich."
+            }
           },
           "followup": {
             "title": "Fortsetzen",
@@ -14239,16 +14249,6 @@
             "desc": "Sein Hauptcomputer wird dieser. Läuft er auf dem anderen Computer, wird auf das Ende des Turns gewartet (bis zu ca. 4 Minuten).",
             "confirm": "Übernehmen und ausführen",
             "cancel": "Abbrechen"
-          },
-          "takeOverFailed": {
-            "BUSY": "Der Teammate läuft auf dem anderen Computer; versuchen Sie es nach dem Ende erneut.",
-            "HOME_CONFLICT": "Ein anderer Computer hat ihn bereits übernommen; dort fortfahren.",
-            "OFFLINE": "Dieser Computer ist offline; Übernahme derzeit nicht möglich.",
-            "NOT_ENABLED": "Die Teammate-Cloud-Synchronisierung ist auf diesem Computer aus.",
-            "HOME_OUTDATED": "Das Cindy auf jenem Computer ist veraltet; bitte zuerst aktualisieren.",
-            "PAUSED": "Dieser Teammate ist pausiert; vor der Übernahme fortsetzen.",
-            "FAILED": "Übernahme fehlgeschlagen. Bitte später erneut versuchen.",
-            "TARGET_UNAVAILABLE": "Dieser Computer ist offline; Übernahme derzeit nicht möglich."
           }
         },
         "automationOrigin": "Von einer Automatisierung",

@@ -14186,7 +14186,17 @@
             "hostNotReady": "The host is not ready yet; try again in a moment.",
             "unavailable": "Execution cannot be requested right now; resolve the reason above first.",
             "generic": "The request did not complete; refresh and try again.",
-            "agentRemote": "This teammate runs on another computer, so it cannot execute here. Continue there, or take it over on this computer."
+            "agentRemote": "This teammate runs on another computer, so it cannot execute here. Continue there, or take it over on this computer.",
+            "takeOverFailed": {
+              "BUSY": "The teammate is running on the other computer; try again after it finishes.",
+              "HOME_CONFLICT": "Another computer already took it over; continue there.",
+              "OFFLINE": "That computer is offline, so it cannot be taken over right now.",
+              "NOT_ENABLED": "Companion cloud sync is off on this computer.",
+              "HOME_OUTDATED": "The Cindy on that computer is outdated; update it first.",
+              "PAUSED": "This teammate is paused; resume it before taking over.",
+              "FAILED": "Take-over did not finish (content restore or network problem). Try again later, or continue on the original computer.",
+              "TARGET_UNAVAILABLE": "That computer is offline, so it cannot be taken over right now."
+            }
           },
           "followup": {
             "title": "Follow up",
@@ -14239,16 +14249,6 @@
             "desc": "Its main computer becomes this one. If it is running on the other computer, this waits for that turn to finish (up to about 4 minutes).",
             "confirm": "Take over and run",
             "cancel": "Cancel"
-          },
-          "takeOverFailed": {
-            "BUSY": "The teammate is running on the other computer; try again after it finishes.",
-            "HOME_CONFLICT": "Another computer already took it over; continue there.",
-            "OFFLINE": "That computer is offline, so it cannot be taken over right now.",
-            "NOT_ENABLED": "Companion cloud sync is off on this computer.",
-            "HOME_OUTDATED": "The Cindy on that computer is outdated; update it first.",
-            "PAUSED": "This teammate is paused; resume it before taking over.",
-            "FAILED": "Take-over failed. Try again later.",
-            "TARGET_UNAVAILABLE": "That computer is offline, so it cannot be taken over right now."
           }
         },
         "automationOrigin": "By automation",

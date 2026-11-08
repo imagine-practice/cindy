@@ -338,6 +338,19 @@ describe('project work-item execution entry', () => {
     expect(ui.onRequest).not.toHaveBeenCalled();
   });
 
+  it('renders the take-over failure notice as text, never as a raw i18n key', () => {
+    mountExecution(
+      executionEntry({
+        executor: { botId: 'bot-remote', displayName: 'Nova' },
+        unavailableReason: 'AGENT_NOT_READY',
+        canRequest: false,
+      }),
+      { sessionId: 's', key: 'takeOverFailed.FAILED' },
+    );
+    expect(screen.getByText(/Take-over did not finish/)).toBeTruthy();
+    expect(screen.queryByText(/ccAgent\.projectCore\.progress\.execution\.notice\./)).toBeNull();
+  });
+
   it('offers taking the teammate over here when it runs on another computer', () => {
     const ui = mountExecution(
       executionEntry({

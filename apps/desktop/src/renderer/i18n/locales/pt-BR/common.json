@@ -14315,7 +14315,17 @@
             "hostNotReady": "O host ainda não está pronto; tente em instantes.",
             "unavailable": "Não é possível pedir a execução agora; resolva o motivo acima primeiro.",
             "generic": "A solicitação não foi concluída; atualize e tente de novo.",
-            "agentRemote": "Este parceiro roda em outro computador, então não pode executar aqui. Continue lá ou assuma-o aqui."
+            "agentRemote": "Este parceiro roda em outro computador, então não pode executar aqui. Continue lá ou assuma-o aqui.",
+            "takeOverFailed": {
+              "BUSY": "O parceiro está rodando no outro computador; tente quando terminar.",
+              "HOME_CONFLICT": "Outro computador já assumiu; continue lá.",
+              "OFFLINE": "Esse computador está offline; não é possível assumir agora.",
+              "NOT_ENABLED": "A sincronização na nuvem de parceiros está desligada neste computador.",
+              "HOME_OUTDATED": "O Cindy desse computador está desatualizado; atualize primeiro.",
+              "PAUSED": "Este parceiro está pausado; retome antes de assumir.",
+              "FAILED": "A assunção não terminou (restauração de conteúdo ou rede). Tente mais tarde ou continue no computador original.",
+              "TARGET_UNAVAILABLE": "Esse computador está offline; não é possível assumir agora."
+            }
           },
           "followup": {
             "title": "Continuar a execução",
@@ -14368,16 +14378,6 @@
             "desc": "O computador principal passa a ser este. Se estiver rodando no outro, espera-se o turno terminar (até cerca de 4 minutos).",
             "confirm": "Assumir e executar",
             "cancel": "Cancelar"
-          },
-          "takeOverFailed": {
-            "BUSY": "O parceiro está rodando no outro computador; tente quando terminar.",
-            "HOME_CONFLICT": "Outro computador já assumiu; continue lá.",
-            "OFFLINE": "Esse computador está offline; não é possível assumir agora.",
-            "NOT_ENABLED": "A sincronização na nuvem de parceiros está desligada neste computador.",
-            "HOME_OUTDATED": "O Cindy desse computador está desatualizado; atualize primeiro.",
-            "PAUSED": "Este parceiro está pausado; retome antes de assumir.",
-            "FAILED": "Não foi possível assumir. Tente mais tarde.",
-            "TARGET_UNAVAILABLE": "Esse computador está offline; não é possível assumir agora."
           }
         },
         "automationOrigin": "Criado por uma automação",

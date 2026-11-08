@@ -14120,7 +14120,17 @@
             "hostNotReady": "宿主未備，稍後再試。",
             "unavailable": "此時不可請行，先解其因。",
             "generic": "請未成，重新整理再試。",
-            "agentRemote": "此伙伴行於他機，本機不得請行。請往彼機，或先於本機承之。"
+            "agentRemote": "此伙伴行於他機，本機不得請行。請往彼機，或先於本機承之。",
+            "takeOverFailed": {
+              "BUSY": "此伙伴正行於他機，待其訖而後試。",
+              "HOME_CONFLICT": "已為他機所承，請往彼機續之。",
+              "OFFLINE": "彼機今不在線，暫不得承。",
+              "NOT_ENABLED": "本機未啟伙伴雲同步，不得承。",
+              "HOME_OUTDATED": "彼機之 Cindy 舊矣，請先更之。",
+              "PAUSED": "此伙伴已止，復而後可承。",
+              "FAILED": "承之未竟（伙伴之文復之不成，或網有異）。稍後再試；久不成，請往原機續之。",
+              "TARGET_UNAVAILABLE": "彼機今不在線，暫不得承。"
+            }
           },
           "followup": {
             "title": "續行",
@@ -14173,16 +14183,6 @@
             "desc": "既承，則此伙伴之主機易為本機。若其正行於他機，當待其訖（至多約四刻）。",
             "confirm": "承而行之",
             "cancel": "止"
-          },
-          "takeOverFailed": {
-            "BUSY": "此伙伴正行於他機，待其訖而後試。",
-            "HOME_CONFLICT": "已為他機所承，請往彼機續之。",
-            "OFFLINE": "彼機今不在線，暫不得承。",
-            "NOT_ENABLED": "本機未啟伙伴雲同步，不得承。",
-            "HOME_OUTDATED": "彼機之 Cindy 舊矣，請先更之。",
-            "PAUSED": "此伙伴已止，復而後可承。",
-            "FAILED": "承之未成，請稍後再試。",
-            "TARGET_UNAVAILABLE": "彼機今不在線，暫不得承。"
           }
         },
         "automationOrigin": "自動化所立",

@@ -14315,7 +14315,17 @@
             "hostNotReady": "L'hôte n'est pas encore prêt ; réessayez dans un instant.",
             "unavailable": "L'exécution ne peut pas être demandée maintenant ; résolvez d'abord la raison ci-dessus.",
             "generic": "La demande n'a pas abouti ; actualisez et réessayez.",
-            "agentRemote": "Ce coéquipier s'exécute sur un autre ordinateur ; impossible de demander ici. Continuez là-bas ou reprenez-le ici."
+            "agentRemote": "Ce coéquipier s'exécute sur un autre ordinateur ; impossible de demander ici. Continuez là-bas ou reprenez-le ici.",
+            "takeOverFailed": {
+              "BUSY": "Le coéquipier s'exécute sur l'autre ordinateur ; réessayez quand il aura terminé.",
+              "HOME_CONFLICT": "Un autre ordinateur l’a déjà repris ; continuez là-bas.",
+              "OFFLINE": "Cet ordinateur est hors ligne ; reprise impossible pour l'instant.",
+              "NOT_ENABLED": "La synchronisation cloud des coéquipiers est désactivée sur cet ordinateur.",
+              "HOME_OUTDATED": "Le Cindy de cet ordinateur est ancien ; mettez-le à jour.",
+              "PAUSED": "Ce coéquipier est en pause ; reprenez-le avant de le récupérer.",
+              "FAILED": "La reprise ne s'est pas terminée (restauration du contenu ou réseau). Réessayez plus tard ou continuez sur l'ordinateur d'origine.",
+              "TARGET_UNAVAILABLE": "Cet ordinateur est hors ligne ; reprise impossible pour l'instant."
+            }
           },
           "followup": {
             "title": "Poursuivre l’exécution",
@@ -14368,16 +14378,6 @@
             "desc": "Son ordinateur principal deviendra celui-ci. S'il s'exécute sur l'autre ordinateur, on attendra la fin du tour (jusqu'à environ 4 minutes).",
             "confirm": "Reprendre et exécuter",
             "cancel": "Annuler"
-          },
-          "takeOverFailed": {
-            "BUSY": "Le coéquipier s'exécute sur l'autre ordinateur ; réessayez quand il aura terminé.",
-            "HOME_CONFLICT": "Un autre ordinateur l’a déjà repris ; continuez là-bas.",
-            "OFFLINE": "Cet ordinateur est hors ligne ; reprise impossible pour l'instant.",
-            "NOT_ENABLED": "La synchronisation cloud des coéquipiers est désactivée sur cet ordinateur.",
-            "HOME_OUTDATED": "Le Cindy de cet ordinateur est ancien ; mettez-le à jour.",
-            "PAUSED": "Ce coéquipier est en pause ; reprenez-le avant de le récupérer.",
-            "FAILED": "La reprise a échoué. Réessayez plus tard.",
-            "TARGET_UNAVAILABLE": "Cet ordinateur est hors ligne ; reprise impossible pour l'instant."
           }
         },
         "automationOrigin": "Créé par une automatisation",

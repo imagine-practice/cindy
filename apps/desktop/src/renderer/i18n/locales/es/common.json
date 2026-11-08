@@ -14315,7 +14315,17 @@
             "hostNotReady": "El host aún no está listo; inténtalo en un momento.",
             "unavailable": "Ahora no se puede pedir la ejecución; resuelve primero el motivo de arriba.",
             "generic": "La solicitud no se completó; actualiza y vuelve a intentarlo.",
-            "agentRemote": "Este compañero se ejecuta en otro equipo, así que no puede ejecutar aquí. Continúa allí o tómalo en este equipo."
+            "agentRemote": "Este compañero se ejecuta en otro equipo, así que no puede ejecutar aquí. Continúa allí o tómalo en este equipo.",
+            "takeOverFailed": {
+              "BUSY": "El compañero se está ejecutando en el otro equipo; inténtalo cuando termine.",
+              "HOME_CONFLICT": "Otro equipo ya lo asumió; continúa allí.",
+              "OFFLINE": "Ese equipo está desconectado, no se puede tomar ahora.",
+              "NOT_ENABLED": "La sincronización en la nube de compañeros está desactivada en este equipo.",
+              "HOME_OUTDATED": "El Cindy de ese equipo está desactualizado; actualízalo primero.",
+              "PAUSED": "Este compañero está en pausa; reanúdalo antes de tomarlo.",
+              "FAILED": "La toma no terminó (restauración de contenido o red). Inténtalo más tarde o continúa en el equipo original.",
+              "TARGET_UNAVAILABLE": "Ese equipo está desconectado, no se puede tomar ahora."
+            }
           },
           "followup": {
             "title": "Continuar la ejecución",
@@ -14368,16 +14378,6 @@
             "desc": "Su equipo principal pasará a ser este. Si está ejecutándose en el otro equipo, se esperará a que termine (hasta unos 4 minutos).",
             "confirm": "Tomar y ejecutar",
             "cancel": "Cancelar"
-          },
-          "takeOverFailed": {
-            "BUSY": "El compañero se está ejecutando en el otro equipo; inténtalo cuando termine.",
-            "HOME_CONFLICT": "Otro equipo ya lo asumió; continúa allí.",
-            "OFFLINE": "Ese equipo está desconectado, no se puede tomar ahora.",
-            "NOT_ENABLED": "La sincronización en la nube de compañeros está desactivada en este equipo.",
-            "HOME_OUTDATED": "El Cindy de ese equipo está desactualizado; actualízalo primero.",
-            "PAUSED": "Este compañero está en pausa; reanúdalo antes de tomarlo.",
-            "FAILED": "No se pudo tomar. Inténtalo más tarde.",
-            "TARGET_UNAVAILABLE": "Ese equipo está desconectado, no se puede tomar ahora."
           }
         },
         "automationOrigin": "Creado por una automatización",
