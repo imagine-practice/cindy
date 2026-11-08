@@ -187,7 +187,7 @@ describe('project progress projection and component', () => {
     const ui = mount(ready([item(), item({ sessionId: 'second', progress: null })]));
     fireEvent.click(screen.getAllByRole('button', { name: 'Same title' })[1]);
     expect(ui.onOpen).toHaveBeenCalledWith('second');
-    fireEvent.click(screen.getByRole('button', { name: 'Unknown · 1' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Not recorded · 1' }));
     expect(screen.getAllByRole('button', { name: 'Same title' })).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: 'Confirmed complete · 1' }));
     fireEvent.click(screen.getByRole('button', { name: 'Same title' }));
@@ -207,7 +207,7 @@ describe('project progress projection and component', () => {
   );
   it('resets filters on project change and hides a stale ready response', () => {
     const ui = mount(ready([item()]));
-    fireEvent.click(screen.getByRole('button', { name: 'Unknown · 0' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Not recorded · 0' }));
     ui.update(ready([item()]), 'q');
     expect(screen.queryByText('Same title')).toBeNull();
     ui.update(ready([item({ projectId: 'q', progress: null })], 'q'), 'q');

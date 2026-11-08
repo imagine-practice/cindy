@@ -266,14 +266,18 @@ function ProgressContent({
                         {t(`${PREFIX}.execution.notice.${executionNotice.key}`)}
                       </p>
                     )}
-                    <FollowupControls
-                      sessionId={item.sessionId}
-                      entry={executionEntry}
-                      busy={followupBusy?.sessionId === item.sessionId ? followupBusy.action : null}
-                      notice={followupNotice?.sessionId === item.sessionId ? followupNotice : null}
-                      onFollowup={onFollowup}
-                      modelChoices={modelChoices}
-                    />
+                    {/* 没有可执行处理人时，后续动作（继续/批准/排队/换模型）全都做不了：
+                        只留上面那句「先指定处理人」，不再摆一排永远不可用的按钮。 */}
+                    {executionEntry.executor && (
+                      <FollowupControls
+                        sessionId={item.sessionId}
+                        entry={executionEntry}
+                        busy={followupBusy?.sessionId === item.sessionId ? followupBusy.action : null}
+                        notice={followupNotice?.sessionId === item.sessionId ? followupNotice : null}
+                        onFollowup={onFollowup}
+                        modelChoices={modelChoices}
+                      />
+                    )}
                   </div>
                 )}
               </li>

@@ -265,7 +265,8 @@ function ProjectCard({
           className="mt-auto flex min-w-0 flex-col gap-2 text-12 text-[var(--text-secondary)]"
         >
           <span className="min-w-0 break-words">
-            {label('owner')} · {label(owner.kind)} · {subjectLabel(owner)}
+            {/* 只写名字：账号/伙伴是内部模型词，普通用户读起来是噪音。 */}
+            {label('owner')} · {subjectLabel(owner)}
           </span>
           <span className="flex flex-wrap gap-x-3 gap-y-1">
             <span>{label('memberCount', { count: project.members.length, bots })}</span>

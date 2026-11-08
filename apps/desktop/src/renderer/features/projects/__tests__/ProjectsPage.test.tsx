@@ -132,7 +132,10 @@ it('reads list once, keeps equal-name IDs distinct and navigates by their stable
   expect(api.list.mock.calls).toEqual([[]]);
   expect(api.detail).not.toHaveBeenCalled();
   expect(within(entries[0]).getByText(key('memberCount') + ' count=2 bots=1')).toBeTruthy();
-  expect(within(entries[0]).getByText(key('account'), { exact: false })).toBeTruthy();
+  // 卡片只写名字：不再出现「账号 / 伙伴」这层内部模型词。
+  expect(within(entries[0]).getByText(key('owner'), { exact: false })).toBeTruthy();
+  expect(within(entries[0]).queryByText(key('account'))).toBeNull();
+  expect(within(entries[0]).queryByText(key('bot'))).toBeNull();
   expect(screen.getAllByText(key('progressHint'))).toHaveLength(2);
   expect(entries[0].querySelector('button,a,input')).toBeNull();
 });
@@ -145,7 +148,8 @@ it('uses the unique owner member kind/id rather than creator ownerId', async () 
   ]);
   render(<ProjectsPage onOpenProject={openProject} />);
   await ready();
-  expect(screen.getByText(key('owner') + ' · ' + key('bot') + ' · Same owner')).toBeTruthy();
+  // 卡片只写名字，不再暴露「账号 / 伙伴」这种内部模型词。
+  expect(screen.getByText(key('owner') + ' · Same owner')).toBeTruthy();
 });
 it('searches both name and goal and filters active/archived without treating archive as completion', async () => {
   api.list.mockResolvedValue([
