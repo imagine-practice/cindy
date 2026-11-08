@@ -212,7 +212,7 @@ describe('materializeCompanion', () => {
     const log = { warn: vi.fn(), info: vi.fn() };
     const { state } = memoryState();
     await expect(materializeCompanion({ api, state, host: local.host, actor, roomId: async () => ROOM, log })).rejects.toThrow('RESTORE_INCOMPLETE');
-    expect(log.warn).toHaveBeenCalledWith('Companion content could not be restored', { actorId: 'actor-1', kind: 'memory', code: 'EBUSY' });
+    expect(log.warn).toHaveBeenCalledWith('Companion content could not be restored', { actorId: 'actor-1', kind: 'memory', name: 'user_bad.md', code: 'EBUSY' });
     // Not runnable, so the stale file is never uploaded over the cloud value.
     expect(state.bot('bot_mia')?.demoted).toBe(true);
     expect(state.bot('bot_mia')?.prefs['companion.memory.v1:user_ok.md']?.local).toBe(true);
@@ -225,6 +225,44 @@ describe('materializeCompanion', () => {
     expect(state.bot('bot_mia')?.demoted).toBeUndefined();
     // The never-synced copy was backed up once, not again on the retry.
     expect(backupHome).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips a memory this build rejects instead of wedging the take-over', async () => {
+    const { api } = cloud([profilePref,
+      { key: 'companion.memory.v1:user_ok.md', value: { filename: 'user_ok.md', content: 'ok' } },
+      { key: 'companion.memory.v1:user_bad.md', value: { filename: 'user_bad.md', content: 'x' } }]);
+    const local = fakeLocal();
+    vi.mocked(local.host.restoreMemory).mockImplementation(async (_bot: string, filename: string, raw: string) => {
+      // What an IPC validation failure looks like once it reaches the restore path.
+      if (filename === 'user_bad.md') throw new Error('[INVALID_PARAMS] Invalid memory');
+      local.memories.set(filename, raw);
+    });
+    local.setProfile({ status: 'active', displayName: 'Old', description: '' });
+    local.memories.set('user_bad.md', 'kept-locally');
+    const log = { warn: vi.fn(), info: vi.fn() };
+    const { state } = memoryState();
+    const result = await materializeCompanion({ api, state, host: local.host, actor, roomId: async () => ROOM, log });
+    // The rest is restored and the copy becomes runnable; the rejected one stays as it was.
+    expect(result.created).toBe(false);
+    expect(local.memories.get('user_ok.md')).toBe('ok');
+    expect(local.memories.get('user_bad.md')).toBe('kept-locally');
+    expect(state.bot('bot_mia')?.demoted).toBeUndefined();
+    expect(state.bot('bot_mia')?.prefs['companion.memory.v1:user_ok.md']).toMatchObject({ local: true });
+    expect(state.bot('bot_mia')?.prefs['companion.memory.v1:user_bad.md']).toBeUndefined();
+    expect(log.warn).toHaveBeenCalledWith('Companion content skipped', { actorId: 'actor-1', kind: 'memory', name: 'user_bad.md', code: '[INVALID_PARAMS] Invalid memory' });
+    expect(log.info).toHaveBeenCalledWith('Companion content skipped as a whole', { actorId: 'actor-1', skipped: 1 });
+  });
+
+  it('ignores the index and user files an older home still uploads as memories', async () => {
+    const { api } = cloud([profilePref,
+      { key: 'companion.memory.v1:MEMORY.md', value: { filename: 'MEMORY.md', content: '# index' } },
+      { key: 'companion.memory.v1:USER.md', value: { filename: 'USER.md', content: '# user' } }]);
+    const local = fakeLocal();
+    local.setProfile({ status: 'active', displayName: 'Old', description: '' });
+    const result = await materializeCompanion({ api, state: memoryState().state, host: local.host, actor, roomId: async () => ROOM });
+    // Both are derived locally (rebuilt index, profile user context): nothing to restore.
+    expect(local.host.restoreMemory).not.toHaveBeenCalled();
+    expect(result.created).toBe(false);
   });
 
   it('stays demoted when the cloud avatar cannot be restored, and backs the copy up only once', async () => {
