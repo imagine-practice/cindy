@@ -542,6 +542,7 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
                     key={item.sessionId}
                     item={item}
                     members={members}
+                    labelOf={subjectLabel}
                     busy={busyKey !== null}
                     onOpen={() => navigate(`/cc-agent/${item.sessionId}`)}
                     onOpenMaterials={() =>
@@ -680,6 +681,7 @@ function MemberRow({
 function WorkItemRow({
   item,
   members,
+  labelOf,
   busy,
   onOpen,
   onOpenMaterials,
@@ -687,6 +689,8 @@ function WorkItemRow({
 }: {
   item: ProjectWorkItem;
   members: readonly ProjectMember[];
+  /** 主体展示名：账号昵称只在 renderer 登录态里，main 侧为 null。 */
+  labelOf: (subject: ProjectSubject | null) => string;
   busy: boolean;
   onOpen: () => void;
   onOpenMaterials: () => void;
@@ -696,7 +700,7 @@ function WorkItemRow({
   const options = [
     { value: UNASSIGNED, label: t('ccAgent.projectCore.detail.unassigned') },
     ...members.map((member) => {
-      const name = member.subject.displayName ?? member.subject.id;
+      const name = labelOf(member.subject);
       return {
         value: projectSubjectKey(member.subject),
         label: name,
@@ -732,10 +736,7 @@ function WorkItemRow({
         triggerAdornment={
           item.assignee ? (
             <ProjectSubjectAvatar
-              subject={projectSubjectVisual(
-                item.assignee,
-                item.assignee.displayName ?? item.assignee.id,
-              )}
+              subject={projectSubjectVisual(item.assignee, labelOf(item.assignee))}
             />
           ) : null
         }

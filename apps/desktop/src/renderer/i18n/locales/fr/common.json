@@ -14210,7 +14210,7 @@
         "dirs": "Dossiers du projet",
         "dirsHint": "Les nouvelles tâches de ces dossiers sont rattachées à ce projet par défaut. Un dossier ne peut appartenir qu'à un seul projet.",
         "addDir": "Ajouter un dossier",
-        "noDirs": "Aucun dossier pour l'instant. Les tâches restent regroupées par dossier de travail et ne font pas partie de ce projet.",
+        "noDirs": "Pas encore de dossier. Choisissez-en un : les nouvelles tâches créées dedans rejoindront ce projet.",
         "removeDir": "Retirer",
         "changeDir": "Changer",
         "createFirstTask": "Créer la première tâche",

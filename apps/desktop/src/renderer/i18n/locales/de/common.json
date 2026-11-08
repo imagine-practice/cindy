@@ -14081,7 +14081,7 @@
         "dirs": "Projektordner",
         "dirsHint": "Neue Aufgaben in diesen Ordnern gehören standardmäßig zu diesem Projekt. Ein Ordner kann nur zu einem Projekt gehören.",
         "addDir": "Ordner hinzufügen",
-        "noDirs": "Noch keine Ordner. Aufgaben bleiben nach Arbeitsordner gruppiert und gehören nicht zu diesem Projekt.",
+        "noDirs": "Noch kein Ordner. Wählen Sie einen – neue Aufgaben darin gehören zu diesem Projekt.",
         "removeDir": "Entfernen",
         "changeDir": "Ändern",
         "createFirstTask": "Erste Aufgabe erstellen",

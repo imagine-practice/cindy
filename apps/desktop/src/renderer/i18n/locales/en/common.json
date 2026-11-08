@@ -14081,7 +14081,7 @@
         "dirs": "Project folders",
         "dirsHint": "New tasks in these folders default to this project. A folder can belong to only one project.",
         "addDir": "Add folder",
-        "noDirs": "No folders yet. Tasks stay grouped by working folder and are not part of this project.",
+        "noDirs": "No folder yet. Pick one and new tasks created inside it will join this project automatically.",
         "removeDir": "Remove",
         "changeDir": "Change",
         "createFirstTask": "Create the first task",

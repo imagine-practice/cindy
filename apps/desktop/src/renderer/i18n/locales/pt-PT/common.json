@@ -14210,7 +14210,7 @@
         "dirs": "Pastas do projeto",
         "dirsHint": "As novas tarefas nestas pastas ficam neste projeto por predefinição. Uma pasta só pode pertencer a um projeto.",
         "addDir": "Adicionar pasta",
-        "noDirs": "Ainda não há pastas. As tarefas continuam agrupadas por pasta de trabalho e não pertencem a este projeto.",
+        "noDirs": "Ainda sem pasta. Escolha uma: as tarefas novas criadas lá passam a pertencer a este projeto.",
         "removeDir": "Remover",
         "changeDir": "Alterar",
         "createFirstTask": "Criar a primeira tarefa",

@@ -14210,7 +14210,7 @@
         "dirs": "Carpetas del proyecto",
         "dirsHint": "Las tareas nuevas en estas carpetas se asignan a este proyecto por defecto. Una carpeta solo puede pertenecer a un proyecto.",
         "addDir": "Añadir carpeta",
-        "noDirs": "Aún no hay carpetas. Las tareas siguen agrupadas por carpeta de trabajo y no forman parte de este proyecto.",
+        "noDirs": "Aún no hay carpeta. Elige una y las tareas nuevas creadas dentro se añadirán a este proyecto.",
         "removeDir": "Quitar",
         "changeDir": "Cambiar",
         "createFirstTask": "Crear la primera tarea",
