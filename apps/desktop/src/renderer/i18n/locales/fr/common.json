@@ -10234,7 +10234,8 @@
       "sectionExpand": "Développer les coéquipiers",
       "showLess": "Afficher moins",
       "sectionCollapse": "Réduire les coéquipiers",
-      "noResults": "Aucun coéquipier ni groupe correspondant"
+      "noResults": "Aucun coéquipier ni groupe correspondant",
+      "groupSection": "Discussions de groupe"
     },
     "cancel": "Annuler",
     "save": "Enregistrer",
@@ -14360,7 +14361,9 @@
           }
         },
         "automationOrigin": "Créé par une automatisation",
-        "automationOriginNamed": "Créé par une automatisation · {{name}}"
+        "automationOriginNamed": "Créé par une automatisation · {{name}}",
+        "expandActions": "Afficher les actions",
+        "collapseActions": "Masquer les actions"
       },
       "progressEdit": {
         "title": "Consigner la progression",
@@ -15649,7 +15652,8 @@
         "stateSuperseded": "Remplacé",
         "stateCancelled": "Annulé",
         "remoteBlocked": "Le matériel ne peut être envoyé que depuis l'ordinateur où il se trouve. Cette tâche s'exécute sur un autre ordinateur."
-      }
+      },
+      "help": "À propos des matériaux"
     }
   },
   "effortLevels": {

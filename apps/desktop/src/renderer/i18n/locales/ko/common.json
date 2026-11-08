@@ -10110,7 +10110,8 @@
       "sectionExpand": "동료 펼치기",
       "showLess": "접기",
       "sectionCollapse": "동료 접기",
-      "noResults": "검색과 일치하는 파트너나 그룹이 없어요"
+      "noResults": "검색과 일치하는 파트너나 그룹이 없어요",
+      "groupSection": "그룹 채팅"
     },
     "cancel": "취소",
     "save": "저장",
@@ -14165,7 +14166,9 @@
           }
         },
         "automationOrigin": "자동화로 생성됨",
-        "automationOriginNamed": "자동화로 생성됨 · {{name}}"
+        "automationOriginNamed": "자동화로 생성됨 · {{name}}",
+        "expandActions": "작업 펼치기",
+        "collapseActions": "작업 접기"
       },
       "progressEdit": {
         "title": "작업 진행 기록",
@@ -15440,7 +15443,8 @@
         "stateSuperseded": "대체됨",
         "stateCancelled": "취소됨",
         "remoteBlocked": "자료는 자료가 있는 이 컴퓨터에서만 보낼 수 있습니다. 이 작업은 다른 컴퓨터에서 실행 중입니다."
-      }
+      },
+      "help": "재료 설명"
     }
   },
   "effortLevels": {

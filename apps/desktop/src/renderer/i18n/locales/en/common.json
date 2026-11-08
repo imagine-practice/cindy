@@ -10155,7 +10155,8 @@
       "sectionExpand": "Expand teammates",
       "showLess": "Show less",
       "sectionCollapse": "Collapse teammates",
-      "noResults": "No matching teammates or groups"
+      "noResults": "No matching teammates or groups",
+      "groupSection": "Group chats"
     },
     "cancel": "Cancel",
     "save": "Save",
@@ -14231,7 +14232,9 @@
           }
         },
         "automationOrigin": "By automation",
-        "automationOriginNamed": "By automation · {{name}}"
+        "automationOriginNamed": "By automation · {{name}}",
+        "expandActions": "Show actions",
+        "collapseActions": "Hide actions"
       },
       "progressEdit": {
         "title": "Record work progress",
@@ -15506,7 +15509,8 @@
         "stateSuperseded": "Replaced",
         "stateCancelled": "Cancelled",
         "remoteBlocked": "Material can only be sent from the computer that owns it. This task runs on another computer."
-      }
+      },
+      "help": "About materials"
     }
   },
   "effortLevels": {

@@ -589,9 +589,15 @@ function MaterialsPanelScope({
           >
             {t('ccAgent.materials.sectionTitle')}
           </h2>
-          <p className="mt-1 max-w-[560px] text-12 leading-normal text-[var(--settings-section-desc)]">
-            {t('ccAgent.materials.sectionDesc')}
-          </p>
+          {/* 说明收进标题旁的「?」：这块的主要动作是添加文件，长段解释不该占首屏。 */}
+          <span
+            role="img"
+            aria-label={t('ccAgent.materials.help')}
+            title={t('ccAgent.materials.sectionDesc')}
+            className="mt-1 inline-flex size-4 cursor-help items-center justify-center rounded-full border border-[var(--border-default)] text-11 leading-none text-[var(--settings-section-desc)]"
+          >
+            ?
+          </span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <input
@@ -696,9 +702,6 @@ function MaterialsPanelScope({
               />
               <p className="text-13 font-medium text-[var(--text-primary)]">
                 {t('ccAgent.materials.emptyTitle')}
-              </p>
-              <p className="max-w-[420px] text-12 leading-normal text-[var(--text-secondary)]">
-                {t('ccAgent.materials.emptyDesc')}
               </p>
               <Button
                 variant="secondary"

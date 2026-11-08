@@ -10234,7 +10234,8 @@
       "sectionExpand": "Expandir colegas",
       "showLess": "Mostrar menos",
       "sectionCollapse": "Recolher colegas",
-      "noResults": "Nenhum colega ou grupo correspondente"
+      "noResults": "Nenhum colega ou grupo correspondente",
+      "groupSection": "Conversas de grupo"
     },
     "cancel": "Cancelar",
     "save": "Guardar",
@@ -14360,7 +14361,9 @@
           }
         },
         "automationOrigin": "Criado por uma automatização",
-        "automationOriginNamed": "Criado por uma automatização · {{name}}"
+        "automationOriginNamed": "Criado por uma automatização · {{name}}",
+        "expandActions": "Mostrar ações",
+        "collapseActions": "Ocultar ações"
       },
       "progressEdit": {
         "title": "Registar progresso",
@@ -15649,7 +15652,8 @@
         "stateSuperseded": "Substituído",
         "stateCancelled": "Cancelado",
         "remoteBlocked": "O material só pode ser enviado do computador onde está guardado. Esta tarefa é executada noutro computador."
-      }
+      },
+      "help": "Sobre os materiais"
     }
   },
   "effortLevels": {

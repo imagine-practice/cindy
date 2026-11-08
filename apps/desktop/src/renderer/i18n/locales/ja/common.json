@@ -10110,7 +10110,8 @@
       "sectionExpand": "仲間を展開",
       "showLess": "折りたたむ",
       "sectionCollapse": "仲間を折りたたむ",
-      "noResults": "一致するパートナーやグループはありません"
+      "noResults": "一致するパートナーやグループはありません",
+      "groupSection": "グループチャット"
     },
     "cancel": "キャンセル",
     "save": "保存",
@@ -14165,7 +14166,9 @@
           }
         },
         "automationOrigin": "自動化による作成",
-        "automationOriginNamed": "自動化による作成 · {{name}}"
+        "automationOriginNamed": "自動化による作成 · {{name}}",
+        "expandActions": "操作を表示",
+        "collapseActions": "操作を閉じる"
       },
       "progressEdit": {
         "title": "作業の進捗を記録",
@@ -15440,7 +15443,8 @@
         "stateSuperseded": "置き換え済み",
         "stateCancelled": "取り消し済み",
         "remoteBlocked": "素材はそれが保存されているこのコンピューターからのみ送信できます。このタスクは別のコンピューターで実行されています。"
-      }
+      },
+      "help": "材料の説明"
     }
   },
   "effortLevels": {

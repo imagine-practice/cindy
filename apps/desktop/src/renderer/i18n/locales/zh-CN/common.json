@@ -10110,7 +10110,8 @@
       "sectionExpand": "展开伙伴",
       "showLess": "收起",
       "sectionCollapse": "收起伙伴",
-      "noResults": "没有匹配的伙伴或群聊"
+      "noResults": "没有匹配的伙伴或群聊",
+      "groupSection": "群聊"
     },
     "cancel": "取消",
     "save": "保存",
@@ -14165,7 +14166,9 @@
           }
         },
         "automationOrigin": "由自动化创建",
-        "automationOriginNamed": "由自动化创建 · {{name}}"
+        "automationOriginNamed": "由自动化创建 · {{name}}",
+        "expandActions": "展开操作",
+        "collapseActions": "收起"
       },
       "progressEdit": {
         "title": "记录工作进度",
@@ -15440,7 +15443,8 @@
         "stateSuperseded": "已被替换",
         "stateCancelled": "已取消",
         "remoteBlocked": "材料只能从材料所在的这台电脑发送；这个任务在另一台电脑上运行。"
-      }
+      },
+      "help": "材料说明"
     }
   },
   "effortLevels": {

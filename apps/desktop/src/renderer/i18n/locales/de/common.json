@@ -10155,7 +10155,8 @@
       "sectionExpand": "Teammitglieder ausklappen",
       "showLess": "Weniger anzeigen",
       "sectionCollapse": "Teammitglieder einklappen",
-      "noResults": "Keine passenden Teammitglieder oder Gruppen"
+      "noResults": "Keine passenden Teammitglieder oder Gruppen",
+      "groupSection": "Gruppenchats"
     },
     "cancel": "Abbrechen",
     "save": "Speichern",
@@ -14231,7 +14232,9 @@
           }
         },
         "automationOrigin": "Von einer Automatisierung",
-        "automationOriginNamed": "Von einer Automatisierung · {{name}}"
+        "automationOriginNamed": "Von einer Automatisierung · {{name}}",
+        "expandActions": "Aktionen anzeigen",
+        "collapseActions": "Aktionen ausblenden"
       },
       "progressEdit": {
         "title": "Arbeitsfortschritt erfassen",
@@ -15506,7 +15509,8 @@
         "stateSuperseded": "Ersetzt",
         "stateCancelled": "Abgebrochen",
         "remoteBlocked": "Material kann nur von dem Computer gesendet werden, auf dem es liegt. Diese Aufgabe läuft auf einem anderen Computer."
-      }
+      },
+      "help": "Hinweise zu Materialien"
     }
   },
   "effortLevels": {

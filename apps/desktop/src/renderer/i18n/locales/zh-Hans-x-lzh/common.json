@@ -10110,7 +10110,8 @@
       "sectionExpand": "展同僚",
       "showLess": "收",
       "sectionCollapse": "收同僚",
-      "noResults": "未得相符之同僚或群议"
+      "noResults": "未得相符之同僚或群议",
+      "groupSection": "群议"
     },
     "cancel": "罢",
     "save": "存之",
@@ -14165,7 +14166,9 @@
           }
         },
         "automationOrigin": "自动化所立",
-        "automationOriginNamed": "自动化所立 · {{name}}"
+        "automationOriginNamed": "自动化所立 · {{name}}",
+        "expandActions": "启其行",
+        "collapseActions": "敛"
       },
       "progressEdit": {
         "title": "记工作进度",
@@ -15440,7 +15443,8 @@
         "stateSuperseded": "已易",
         "stateCancelled": "已罷",
         "remoteBlocked": "材惟自所藏之機而發；此務行於他機。"
-      }
+      },
+      "help": "材之说明"
     }
   },
   "effortLevels": {

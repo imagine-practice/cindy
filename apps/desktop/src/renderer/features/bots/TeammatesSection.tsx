@@ -4,7 +4,7 @@ import { aggregateTeammateStatus } from '@cindy/maker-shared/teammate-status';
 import { localTeammateStatus, remoteTeammateStatus, groupTeammateStatus } from './teammateRosterStatus';
 import { BotGenerationLabel } from './BotGenerationLabel';
 import { botRosterLabel } from '../../../shared/botCreation';
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
 import {
   AlertTriangle,
   Archive,
@@ -345,6 +345,15 @@ export function TeammatesSection() {
     previewChats[CHAT_PREVIEW_LIMIT - 1] = selectedChat;
   }
   const displayedChats = showAllChats ? visibleChats : previewChats;
+  /**
+   * 伙伴与群聊在同一段里混排时，群行看起来和伙伴一模一样。这里把群排到后面，
+   * 并在第一行群之前插一个小标题，读者一眼能分清"这是伙伴、那是群聊"。
+   */
+  const orderedChats = [
+    ...displayedChats.filter(entry => entry.kind !== 'group'),
+    ...displayedChats.filter(entry => entry.kind === 'group'),
+  ];
+  const firstGroupId = orderedChats.find(entry => entry.kind === 'group')?.group.id ?? null;
 
   useEffect(() => {
     if (roster.visible.length + remoteBots.length + groups.length === 0) return;
@@ -613,8 +622,19 @@ export function TeammatesSection() {
           </div>
         ) : (
           <div className="flex flex-col gap-1">
-            {displayedChats.map(entry => {
-              if (entry.kind === 'group') return renderGroupRow(entry.group);
+            {orderedChats.map(entry => {
+              if (entry.kind === 'group') {
+                return (
+                  <Fragment key={'group-section:' + entry.group.id}>
+                    {entry.group.id === firstGroupId && (
+                      <div className="mt-2 px-2.5 pb-1 text-11 font-medium tracking-wide text-[var(--sidebar-list-muted)]">
+                        {t('bots.list.groupSection')}
+                      </div>
+                    )}
+                    {renderGroupRow(entry.group)}
+                  </Fragment>
+                );
+              }
               if (entry.kind === 'cindy') {
                 if (!currentCindy) return null;
                 const bot = currentCindy.bot;

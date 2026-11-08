@@ -10110,7 +10110,8 @@
       "sectionExpand": "展開夥伴",
       "showLess": "收起",
       "sectionCollapse": "收起夥伴",
-      "noResults": "找不到符合的夥伴或群組"
+      "noResults": "找不到符合的夥伴或群組",
+      "groupSection": "群聊"
     },
     "cancel": "取消",
     "save": "儲存",
@@ -14165,7 +14166,9 @@
           }
         },
         "automationOrigin": "由自動化建立",
-        "automationOriginNamed": "由自動化建立 · {{name}}"
+        "automationOriginNamed": "由自動化建立 · {{name}}",
+        "expandActions": "展開操作",
+        "collapseActions": "收合"
       },
       "progressEdit": {
         "title": "記錄工作進度",
@@ -15440,7 +15443,8 @@
         "stateSuperseded": "已被取代",
         "stateCancelled": "已取消",
         "remoteBlocked": "材料只能從材料所在的這台電腦傳送；這個任務在另一台電腦上執行。"
-      }
+      },
+      "help": "材料說明"
     }
   },
   "effortLevels": {

@@ -85,6 +85,13 @@ function ProgressContent({
   const { t, i18n } = useTranslation();
   const label = (key: string) => t(`${PREFIX}.${key}`);
   const [filter, setFilter] = useState<'all' | 'unknown' | WorkItemStatus>('all');
+  /**
+   * 执行动作默认收起：标题/状态一眼可见，动作点开再给。
+   * 任务不多（≤4）时不折——为了省两行而多点一次反而不友好。
+   */
+  const [openOverride, setOpenOverride] = useState<ReadonlyMap<string, boolean>>(() => new Map());
+  const actionsOpen = (sessionId: string, total: number): boolean =>
+    openOverride.get(sessionId) ?? total <= 4;
   const [expanded, setExpanded] = useState(false);
   if (state.status !== 'ready' || state.projectId !== projectId) {
     const status = state.status === 'ready' ? 'loading' : state.status;
@@ -218,6 +225,26 @@ function ProgressContent({
                   <span className="text-12 text-[var(--text-secondary)]">
                     {label(item.status ?? 'unknown')}
                   </span>
+                  {executionEntry && (
+                    <Button
+                      variant="secondary"
+                      tone="quiet"
+                      size="xs"
+                      compact
+                      aria-expanded={actionsOpen(item.sessionId, view.items.length)}
+                      onClick={() =>
+                        setOpenOverride((current) => {
+                          const next = new Map(current);
+                          next.set(item.sessionId, !actionsOpen(item.sessionId, view.items.length));
+                          return next;
+                        })
+                      }
+                    >
+                      {actionsOpen(item.sessionId, view.items.length)
+                        ? t(`${PREFIX}.collapseActions`)
+                        : t(`${PREFIX}.expandActions`)}
+                    </Button>
+                  )}
                 </div>
                 {item.status === 'blocked' && (
                   <dl className="flex min-w-0 flex-col gap-1 pl-3">
@@ -227,7 +254,7 @@ function ProgressContent({
                     <dd className={detailClass}>{missing(item.unblockCondition)}</dd>
                   </dl>
                 )}
-                {executionEntry && (
+                {executionEntry && actionsOpen(item.sessionId, view.items.length) && (
                   <div className="flex min-w-0 flex-col gap-2 pl-3">
                     <p className="text-12 text-[var(--text-secondary)]">
                       {label(`execution.state.${executionEntry.state}`)}
