@@ -40,6 +40,32 @@ export function selectChatManagementActor<T extends { id: string; ownerActorId: 
   return eligible.find(m => m.role === 'owner') ?? eligible.find(m => m.id === self) ?? eligible[0];
 }
 
+
+/**
+ * 聊天侧 `externalId` 与 Cindy 账号 id 的比对口径。
+ *
+ * 账号本来按纯 id 传递，但国内认证域返回的是 **realm 限定形式**：
+ * `https://auth.cindy.com.cn#cmvt459dj…`。直接字符串相等会把所有国内账号判成
+ * 「不是本人」，群↔项目关联永远建不起来。这里只接受两种可信形态：
+ *   1. 纯 id 完全相等；
+ *   2. URL 的 fragment 或末段路径就是该账号 id。
+ * 其它形态（别人的 URL、别的前缀）一律不相等。
+ */
+export function externalIdMatchesAccount(externalId: string, accountId: string): boolean {
+  if (!externalId || !accountId) return false;
+  if (externalId === accountId) return true;
+  const hash = externalId.lastIndexOf('#');
+  if (hash >= 0 && externalId.slice(hash + 1) === accountId) return true;
+  try {
+    const url = new URL(externalId);
+    if (url.hash.replace(/^#/, '') === accountId) return true;
+    const segments = url.pathname.split('/').filter(Boolean);
+    return segments.length > 0 && segments[segments.length - 1] === accountId;
+  } catch {
+    return false;
+  }
+}
+
 /** Native transport supplies a captured authenticated GET and its strict lifetime fence.
  * No registration, mutation probes, caches, device IDs or renderer claims participate. */
 export function createChatGroupAuthority(deps: {
@@ -76,14 +102,13 @@ export function createChatGroupAuthority(deps: {
       throw new Error('GROUP_ACCESS_DENIED');
     };
     if (me.kind !== 'human' || me.disabled) denyReason('me-not-human');
-    if (me.externalId !== boundary.ownerId) {
+    if (!externalIdMatchesAccount(String(me.externalId), boundary.ownerId)) {
       // 只记录前缀与长度用于定位身份口径，不记录正文或凭证。
       console.warn('[chatGroupAuthority] identity', {
         meKind: me.kind,
-        meExternal: String(me.externalId).slice(0, 8),
-        ownerId: String(boundary.ownerId).slice(0, 8),
-        meLength: String(me.externalId).length,
-        ownerLength: String(boundary.ownerId).length,
+        meId: me.id,
+        meExternal: String(me.externalId),
+        ownerId: String(boundary.ownerId),
       });
       denyReason('me-external-id-mismatch');
     }
