@@ -224,6 +224,8 @@ it('lists the groups that link this project through the by-project channel and o
   expect(env.navigate).toHaveBeenCalledWith(`/bots/groups/${ROOM}`);
   expect(env.listProject).toHaveBeenCalledWith({ action: 'list-project', projectId: 'p1' });
   expect(env.list).not.toHaveBeenCalled();
+  // 已有群时不再显示「关联后会显示在这里」的引导，否则读起来像关联没生效。
+  expect(screen.queryByText('projectGroupLinks.projectHint')).toBeNull();
 });
 
 it("says the project's linked groups could not be read instead of showing an empty list", async () => {

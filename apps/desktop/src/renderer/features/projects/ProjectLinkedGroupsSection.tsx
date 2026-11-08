@@ -60,6 +60,9 @@ export function ProjectLinkedGroupsSection({ projectId }: { projectId: string })
     {result.status === 'ready' && result.truncated && <p role="status" className="text-12 leading-[1.42] text-[var(--text-secondary)]">
       {t('projectGroupLinks.projectPartial')}
     </p>}
-    <p className="text-12 leading-[1.42] text-[var(--settings-section-desc)]">{t('projectGroupLinks.projectHint')}</p>
+    {/* 这句是"还没有关联"的引导；已经有群时再显示，会让人以为关联没生效。 */}
+    {result.status === 'ready' && result.groups.length === 0 && (
+      <p className="text-12 leading-[1.42] text-[var(--settings-section-desc)]">{t('projectGroupLinks.projectHint')}</p>
+    )}
   </section>;
 }
