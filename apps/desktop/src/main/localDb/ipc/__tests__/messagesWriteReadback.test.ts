@@ -9,8 +9,14 @@
  *      createMessage happy path 在 INSERT 之后没有任何 SELECT。
  */
 import Database from 'better-sqlite3';
+import path from 'node:path';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createBetterSqliteDatabase } from '../../betterSqliteFactory';
+import { runMigrationReplay } from '../../migrationRunner';
+import { createMaterialDispatchQueue } from '../../materialDispatchQueue';
+import type { DbClient } from '../../client/DbClient';
+import * as fullSchema from '../../schema';
 
 import { messages, sessions } from '../../schema';
 import { tx as runInprocTx } from '../../worker/opHandlers/tx';
@@ -77,6 +83,9 @@ function setupDb(): void {
       list_preview TEXT,
       list_preview_role TEXT,
       list_message_count INTEGER,
+      project_id TEXT,
+      assignee_kind TEXT,
+      assignee_id TEXT,
       cleared_at INTEGER,
       status TEXT NOT NULL DEFAULT 'active'
     );
@@ -379,5 +388,125 @@ describe('message write paths avoid large-content readback', () => {
         .get('u3') as { content: string };
       expect(JSON.parse(stored.content)).toEqual({ status: 'answered', answers: { q: 'a' } });
     });
+  });
+});
+
+// Integration/DB: real queue authority -> original createMessage -> original writer ->
+// generated SQLite. Gap: row-exists fallback can hide failed attach/lost ACK, and an
+// owner switch across await can return old private data. No provider/IPC/Host claim.
+describe('material queue authority and original message writer', () => {
+  let native: Database.Database;
+  let client: DbClient;
+  let epoch = 1;
+  let onTx: ((name: string) => void) | undefined;
+  const actor = { kind: 'account' as const, id: 'owner' };
+  const key = { sessionId: 'task', clientId: 'input' };
+  const selector = { contextId: 'context', projectId: 'p', workItemId: 'task', bindingRevision: 1, purpose: 'reference' };
+  const content = { text: 'authored user body' };
+  const serialized = JSON.stringify(content);
+  const authority = (subject: { kind: 'account' | 'bot'; id: string } = actor) => {
+    const captured = epoch;
+    return { client, actor: subject, assertCurrent: () => { if (epoch !== captured) throw Error('OWNER_SCOPE_CHANGED'); } };
+  };
+  const counts = () => native.prepare('SELECT (SELECT count(*) FROM messages) messages,(SELECT count(*) FROM material_dispatch_messages) intents').get();
+  beforeAll(() => {
+    native = createBetterSqliteDatabase(':memory:');
+    const root = path.resolve(__dirname, '../../../../..');
+    native.loadExtension(path.join(root, 'native/sqlite-vec', `${process.platform}-${process.arch}`, process.platform === 'win32' ? 'vec0.dll' : 'vec0.dylib'));
+    runMigrationReplay(native, { drizzleDir: path.join(root, 'drizzle') });
+  });
+  beforeEach(() => {
+    epoch = 1; onTx = undefined; h.sqlite = null;
+    native.exec(`BEGIN;
+      INSERT INTO projects(id,name,owner_id,status,created_at,updated_at) VALUES ('p','fixture','owner','active',1,1);
+      INSERT INTO project_members VALUES ('p','account','owner','owner',1);
+      INSERT INTO sessions(id,title,created_at,updated_at,project_id,project_binding_revision) VALUES ('task','fixture',1,1,'p',1);
+      INSERT INTO material_contexts(id,work_item_id,purpose,refs_json,created_at,project_id,binding_revision,created_by_kind,created_by_id) VALUES ('context','task','reference','[]',1,'p',1,'account','owner');`);
+    client = {
+      drizzle: drizzle(native, { schema: fullSchema }), vecAvailable: true, dispose: async () => {},
+      query: async <T>(sql: string, params: unknown[] = []) => native.prepare(sql).all(...params) as T[],
+      queryOne: async <T>(sql: string, params: unknown[] = []) => native.prepare(sql).get(...params) as T | undefined,
+      exec: async (sql: string, params: unknown[] = []) => native.prepare(sql).run(...params),
+      tx: async <R>(name: string, args: unknown): Promise<R> => {
+        const result = runInprocTx(native, { name, args }); onTx?.(name); return result as R;
+      },
+    };
+    h.client = client;
+  });
+  afterEach(() => native.exec('ROLLBACK'));
+  afterAll(() => native.close());
+
+  it('rejects absent authority and forged selector identity without a durable write', async () => {
+    expect(() => Reflect.apply(createMaterialDispatchQueue, undefined, [])).toThrow('[FORBIDDEN]');
+    const store = createMaterialDispatchQueue(authority());
+    for (const raw of [{ ...selector, actor }, { ...selector, host: { actor } }, { ...selector, preparedBody: 'fake' }, { ...selector, bindingRevision: undefined }]) {
+      await expect(store.queue(key, raw, serialized, 0)).rejects.toThrow('[INVALID_PARAMS]');
+    }
+    await expect(Reflect.apply(store.queue, store, [key, selector, serialized, undefined])).rejects.toThrow('[INVALID_PARAMS]');
+    expect(counts()).toEqual({ messages: 0, intents: 0 });
+  });
+
+  it('requires independent bot/account authority and captures immutable actor identity', async () => {
+    await expect(createMaterialDispatchQueue(authority({ kind: 'bot', id: 'owner' })).queue(key, selector, serialized, 0)).rejects.toThrow('[FORBIDDEN]');
+    const mutable = { kind: 'account' as const, id: 'owner' };
+    const store = createMaterialDispatchQueue(authority(mutable)); mutable.id = 'outsider';
+    expect(await store.queue(key, selector, serialized, 0)).toMatchObject({ revision: 1 });
+    native.exec("INSERT INTO project_members VALUES ('p','bot','owner','member',1)");
+    expect(await createMaterialDispatchQueue(authority({ kind: 'bot', id: 'owner' })).recover(key)).toMatchObject({ currentRevision: 1 });
+  });
+
+  it('recovers exact selector by original key after queue ACK loss and service reconstruction', async () => {
+    const store = createMaterialDispatchQueue(authority());
+    onTx = () => { throw Error('DB_TRANSPORT_OUTCOME_UNKNOWN'); };
+    await expect(store.queue(key, selector, serialized, 0)).rejects.toThrow('DB_TRANSPORT_OUTCOME_UNKNOWN');
+    onTx = undefined;
+    const restored = createMaterialDispatchQueue(authority());
+    expect(await restored.recover(key)).toMatchObject({ key, messageId: null, revisions: [{ selector, contentSha256: expect.any(String), state: 'queued' }] });
+    expect(await restored.queue(key, selector, serialized, 0)).toEqual({ revision: 1, replayed: true });
+    expect(counts()).toEqual({ messages: 0, intents: 1 });
+    await expect(restored.messageAuthority(key, serialized, 2)).rejects.toThrow('[REVISION_CONFLICT]');
+    await expect(restored.messageAuthority(key, 'changed body', 1)).rejects.toThrow('[MESSAGE_MISMATCH]');
+  });
+
+  it('passes trusted context through real createMessage and atomically attaches, preserving lost ACK as unknown', async () => {
+    const store = createMaterialDispatchQueue(authority());
+    await store.queue(key, selector, serialized, 0);
+    const context = await store.messageAuthority(key, serialized, 1);
+    await expect(createMessage('task', { clientId: 'different-key', role: 'user', content }, { materialDispatch: context })).rejects.toThrow('[INVALID_PARAMS]');
+    expect(counts()).toEqual({ messages: 0, intents: 1 });
+    onTx = name => { if (name === 'message.insert') throw Error('DB_TRANSPORT_OUTCOME_UNKNOWN'); };
+    await expect(createMessage('task', { clientId: key.clientId, role: 'user', content }, { materialDispatch: context, shouldBroadcast: () => false })).rejects.toThrow('DB_TRANSPORT_OUTCOME_UNKNOWN');
+    onTx = undefined;
+    expect(await store.recover(key)).toMatchObject({ messageId: expect.any(String), revisions: [{ state: 'attached', attempts: [] }] });
+    const result = await createMessage('task', { clientId: key.clientId, role: 'user', content }, { materialDispatch: context, shouldBroadcast: () => false });
+    expect(result.content).toEqual(content); expect(counts()).toEqual({ messages: 1, intents: 1 });
+  });
+
+  it('does not let the ordinary existing-row fallback conceal revoke or changed body', async () => {
+    const store = createMaterialDispatchQueue(authority());
+    await store.queue(key, selector, serialized, 0);
+    const context = await store.messageAuthority(key, serialized, 1);
+    await createMessage('task', { clientId: key.clientId, role: 'user', content }, { materialDispatch: context, shouldBroadcast: () => false });
+    await expect(createMessage('task', { clientId: key.clientId, role: 'user', content: { text: 'changed' } }, { materialDispatch: context, shouldBroadcast: () => false })).rejects.toThrow('[MESSAGE_MISMATCH]');
+    native.exec('DELETE FROM project_members');
+    await expect(createMessage('task', { clientId: key.clientId, role: 'user', content }, { materialDispatch: context, shouldBroadcast: () => false })).rejects.toThrow('[FORBIDDEN]');
+    expect(counts()).toEqual({ messages: 1, intents: 1 });
+  });
+
+  it('drops old-owner queue/read/write replies without claiming committed rows rolled back', async () => {
+    const store = createMaterialDispatchQueue(authority());
+    onTx = () => { epoch += 1; };
+    await expect(store.queue(key, selector, serialized, 0)).rejects.toThrow('OWNER_SCOPE_CHANGED');
+    onTx = undefined;
+    expect(counts()).toEqual({ messages: 0, intents: 1 });
+    const fresh = createMaterialDispatchQueue(authority());
+    onTx = () => { epoch += 1; };
+    await expect(fresh.recover(key)).rejects.toThrow('OWNER_SCOPE_CHANGED');
+    onTx = undefined;
+    const resumed = createMaterialDispatchQueue(authority());
+    const context = await resumed.messageAuthority(key, serialized, 1);
+    onTx = name => { if (name === 'message.insert') epoch += 1; };
+    await expect(createMessage('task', { clientId: key.clientId, role: 'user', content }, { materialDispatch: context })).rejects.toThrow('OWNER_SCOPE_CHANGED');
+    expect(counts()).toEqual({ messages: 1, intents: 1 });
   });
 });

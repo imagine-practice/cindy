@@ -54,6 +54,7 @@ import { Readable } from 'node:stream';
 
 import { getSensitiveMediaBlocklist, isPathAllowedAgainst } from './filePathPolicy';
 import { createLogger } from './logger';
+import { readMaterialPreview } from './materialPreviewAccess';
 
 const log = createLogger('localFileProtocol');
 
@@ -114,6 +115,16 @@ const MIME_BY_EXT: Record<string, string> = {
 const WIN_ABS_RE = /^[A-Za-z]:[\\/]/;
 
 /**
+ * 该路径能否由 `xdt-file://` 供片（扩展名白名单）。
+ *
+ * 材料（M2）的 `file` 形态不复制字节，预览时把原文件交给这个既有受控通道；
+ * 扩展名不在白名单里（如 .txt / .docx）就不给地址，由调用方如实标「不支持正文」。
+ */
+export function isLocalFilePreviewPathSupported(absPath: string): boolean {
+  return MEDIA_EXT_WHITELIST.has(path.extname(absPath).toLowerCase());
+}
+
+/**
  * 解析单段 Range 头(bytes=start-end / bytes=start- / bytes=-suffix)。
  * 三态语义与 audioFileProtocol 对齐:
  *   - null            = 头缺失 / 格式非法 → 调用方按无 Range 回 200 全量(RFC:
@@ -171,6 +182,7 @@ export function registerLocalFileProtocolHandler(): void {
   protocol.handle(SCHEME, async (request) => {
     try {
       const url = new URL(request.url);
+      if (url.hostname === 'material') return readMaterialPreview(request, parseRangeHeader);
       // URLSearchParams.get() already percent-decodes once. Do NOT call
       // decodeURIComponent again here — it throws URIError on filenames
       // containing a literal `%` (e.g. "100% done.png") → 500.

@@ -69,13 +69,16 @@ const PDF_PAGE_PLACEHOLDER_SIZE = { width: 612, height: 792 };
 /** 离视口 400px 预取,滚动到下一页时不需要等到完全进入才开始绘制。 */
 const PDF_PAGE_ROOT_MARGIN = '400px 0px 400px 0px';
 
-export interface PdfPreviewProps {
-  workdir: string;
-  /** workdir-relative POSIX path */
-  relPath: string;
-  size: number;
-  mtimeMs: number;
+export interface ProtectedPdfSource {
+  kind: 'protected';
+  key: string;
+  readBytes: () => Promise<Uint8Array>;
+  assertCurrent: () => void;
 }
+export type PdfPreviewProps = { size: number; mtimeMs: number } & (
+  | { workdir: string; relPath: string; source?: never; name?: never }
+  | { source: ProtectedPdfSource; name: string; workdir?: never; relPath?: never }
+);
 
 type RenderState =
   | { kind: 'loading' }
@@ -309,7 +312,10 @@ function PdfPage({
   );
 }
 
-export function PdfPreview({ workdir, relPath, size, mtimeMs }: PdfPreviewProps) {
+export function PdfPreview(props: PdfPreviewProps) {
+  const { size, mtimeMs, source } = props;
+  const workdir = props.workdir ?? '';
+  const relPath = props.relPath ?? props.name;
   const { t } = useTranslation();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const pagesHostRef = useRef<HTMLDivElement>(null);
@@ -510,7 +516,8 @@ export function PdfPreview({ workdir, relPath, size, mtimeMs }: PdfPreviewProps)
         // url }) 让渲染进程 fetch xdt-file://(那需要放开 CSP connect-src)。
         // 越权 / 超上限 / 读失败时 IPC 以 IpcError reject,由下方 catch 落
         // 占位卡。详见文件头注释。
-        const { bytes } = await window.electronAPI.readFileBytes({ filePath: absPath });
+        const bytes = source ? await source.readBytes() : (await window.electronAPI.readFileBytes({ filePath: absPath })).bytes;
+        source?.assertCurrent();
         if (cancelled) return;
         loadingTask = pdfjs.getDocument({
           data: bytes,
@@ -534,12 +541,13 @@ export function PdfPreview({ workdir, relPath, size, mtimeMs }: PdfPreviewProps)
         if (cancelled) return;
         const viewport = first.getViewport({ scale: 1 });
         setPageSizes({ 1: { width: viewport.width, height: viewport.height } });
+        source?.assertCurrent();
         setPdfDoc(pdf);
         setPageCount(pdf.numPages);
         setState({ kind: 'rendered', pageCount: pdf.numPages });
       } catch (err) {
         if (cancelled) return;
-        log.warn('pdf render failed', { relPath, error: String(err) });
+        if (!source) log.warn('pdf render failed', { relPath, error: String(err) });
         setPdfDoc(null);
         setPageCount(0);
         setState({ kind: 'error', message: String(err) });
@@ -559,7 +567,7 @@ export function PdfPreview({ workdir, relPath, size, mtimeMs }: PdfPreviewProps)
     // size/mtimeMs 进依赖:同一路径的文件被就地改写(agent 重生成 PDF 等)时
     // relPath 不变但 mtimeMs/size 变,需要重新读字节 + 重渲染,否则预览会停在
     // 旧内容直到用户切走再切回。FileBodyView 正是为此把 size/mtimeMs 传进来。
-  }, [workdir, relPath, size, mtimeMs, retry]);
+  }, [workdir, relPath, size, mtimeMs, retry, source]);
 
   useEffect(() => {
     const host = pagesHostRef.current;
@@ -636,12 +644,12 @@ export function PdfPreview({ workdir, relPath, size, mtimeMs }: PdfPreviewProps)
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3">
         <PreviewFooter collectionOnly />
-        <UnrenderablePlaceholder
+        {source ? <p role="alert" className="text-13 text-[var(--error-fg)]">{t('ccAgent.materials.error.notReadable')}</p> : <UnrenderablePlaceholder
           workdir={workdir}
           relPath={relPath}
           size={size}
           mtimeMs={mtimeMs}
-        />
+        />}
         <button type="button" onClick={() => setRetry((value) => value + 1)}>
           {t('attachmentPreview.retry')}
         </button>

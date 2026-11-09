@@ -21,6 +21,9 @@ import {
   COMPANION_WORKBENCH_KEY, TOMBSTONE_HASH, isCompanionProfileSnapshot, valueHash,
 } from './uploader.js';
 
+/** Memory files that are rebuilt locally instead of copied from the cloud copy. */
+const SKIPPED_MEMORY_PREFS = new Set(['USER.md', 'MEMORY.md']);
+
 export interface CompanionLocalProfile { status: string; displayName: string; description: string }
 
 /** The owner that started the operation; every host write checks it and aborts on change. */
@@ -202,11 +205,22 @@ export async function materializeCompanion(input: {
   const profileRow = prefs.get(COMPANION_PROFILE_KEY);
   if (profileRow && profile) applied.set(COMPANION_PROFILE_KEY, { hash: valueHash(profileRow.value), revision: profileRow.revision });
   let failures = 0;
-  const apply = async (kind: string, run: () => Promise<void>) => {
+  let skipped = 0;
+  /** An item this build cannot accept (bad content) must not wedge the take-over forever: skip it. */
+  const isSkippableItem = (kind: string, code: string) =>
+    (kind === 'memory' || kind === 'skill') && code.startsWith('[INVALID_PARAMS]');
+  const apply = async (kind: string, run: () => Promise<void>, name?: string) => {
     try { await run(); } catch (error) {
-      if (errorCode(error) === 'OWNER_CHANGED') throw error;
+      const code = errorCode(error);
+      if (code === 'OWNER_CHANGED') throw error;
+      if (isSkippableItem(kind, code)) {
+        // Content this build cannot accept (an older type, a bad frontmatter): keep the rest.
+        skipped += 1;
+        log?.warn('Companion content skipped', { actorId: actor.id, kind, ...(name ? { name } : {}), code });
+        return;
+      }
       failures += 1;
-      log?.warn('Companion content could not be restored', { actorId: actor.id, kind, code: errorCode(error) });
+      log?.warn('Companion content could not be restored', { actorId: actor.id, kind, ...(name ? { name } : {}), code });
     }
   };
   // The cloud copy wins: a tombstone deletes the local file (the copy was backed up above), so
@@ -215,6 +229,9 @@ export async function materializeCompanion(input: {
     const value = row.value;
     if (key.startsWith(COMPANION_MEMORY_PREFIX)) {
       const filename = key.slice(COMPANION_MEMORY_PREFIX.length);
+      // Derived files an older home still uploads: USER.md travels inside the profile and MEMORY.md
+      // is a rebuilt index, so neither is a typed memory this copy could store.
+      if (SKIPPED_MEMORY_PREFS.has(filename)) continue;
       const content = text(record(value)?.content);
       await apply('memory', async () => {
         const current = await host.readMemory(botId, filename);
@@ -226,7 +243,7 @@ export async function materializeCompanion(input: {
         if (content === undefined) return;
         if (content !== current) await step(() => host.restoreMemory(botId, filename, content, fence));
         applied.set(key, { hash: valueHash(value), revision: row.revision });
-      });
+      }, filename);
     } else if (key.startsWith(COMPANION_SKILL_PREFIX)) {
       const slug = key.slice(COMPANION_SKILL_PREFIX.length);
       const content = text(record(value)?.content);
@@ -241,7 +258,7 @@ export async function materializeCompanion(input: {
         // Always written: also sets the cloud's enabled state, even when the body is unchanged.
         await step(() => host.saveSkill(botId, slug, content, record(value)?.enabled !== false, fence));
         applied.set(key, { hash: valueHash(value), revision: row.revision });
-      });
+      }, slug);
     }
   }
 
@@ -317,6 +334,7 @@ export async function materializeCompanion(input: {
     });
   }
 
+  if (skipped > 0) log?.info?.('Companion content skipped as a whole', { actorId: actor.id, skipped });
   if (failures > 0) {
     // Keep what was restored (so the retry does not back the copy up again) and stay demoted.
     state.update(botId, actor.id, entry => {

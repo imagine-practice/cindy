@@ -130,6 +130,9 @@ test('extractRouterFacts: 真实 router.tsx 的三类去向逐条钉死', () => 
     '/cc-agent/files/:sessionId WorkdirBrowseRoute',
     '/cc-agent/new NewMakerDraftRoute',
     '/cc-agent/orca/:sessionId OrcaWorkflowRoute',
+    '/cc-agent/projects ProjectsIndexRoute',
+    '/cc-agent/projects/:projectId ProjectDetailPage',
+    '/cc-agent/projects/:projectId/items/:sessionId WorkItemMaterialsPage',
     '/cc-agent/scheduled SchedulerPage',
     '/issues IssueTrackerFeatureLayout',
     '/login LoginPage',
@@ -311,6 +314,10 @@ test('router.tsx 每条生产路由都能映射到 surface,布局壳在排除清
     `catalog 已失效路由: ${coverage.stale.join(', ')}`,
   );
   const mappedPaths = coverage.mapped.map((row) => row.path);
+  // These actual pages must remain surfaces, not layout exclusions or redirects.
+  assert.ok(mappedPaths.includes('/cc-agent/projects'));
+  assert.ok(mappedPaths.includes('/cc-agent/projects/:projectId'));
+  assert.ok(mappedPaths.includes('/cc-agent/projects/:projectId/items/:sessionId'));
   assert.ok(mappedPaths.includes('/issues'));
   assert.ok(mappedPaths.includes('/login'));
   // Unlike the pure feature shell, the retained layout renders the catalog itself.

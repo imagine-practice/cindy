@@ -44,6 +44,8 @@ export interface ProvisionalDraftCreateArgs {
   planModeEnabled?: boolean;
   workingDir?: string;
   workspaceKind: 'project' | 'dialogue';
+  /** Explicit project ownership; directories never imply a project. */
+  projectId?: string | null;
   extraDirs?: string[];
   writableDirs?: string[];
   remoteHostId?: string;
@@ -87,6 +89,7 @@ export function provisionalDraftArgsKey(args: ProvisionalDraftCreateArgs): strin
     args.planModeEnabled ?? false,
     args.workingDir || '',
     args.workspaceKind,
+    args.projectId ?? null,
     list(args.extraDirs),
     list(args.writableDirs),
     args.remoteHostId || '',

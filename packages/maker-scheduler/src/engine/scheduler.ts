@@ -210,6 +210,17 @@ export interface SchedulerOptions {
     selection: Pick<Schedule, 'modelAgentKind' | 'modelAgentDeviceId'>,
   ) => Promise<void>;
   /**
+   * Host-owned validation for the project entity an automation writes into. The
+   * scheduler calls it before CRUD persistence so every create/update entry point
+   * (GUI, MCP tools, repository automations) shares one gate: the caller must be a
+   * project member and the project must not be archived. Runtime re-validation
+   * lives in the runner (a project can be archived after saving).
+   */
+  validateProjectBinding?: (
+    projectId: string,
+    operation: 'create' | 'update',
+  ) => Promise<void>;
+  /**
    * 被动模式:本实例不参与自动触发 —— start() 不装 tick 时钟、不做僵尸 run 清理
    * (那是活跃实例的 in-flight,不能被本实例误标 interrupted)。CRUD / runNow /
    * 事件广播全部照常。用途:同一台机器 dev / release 双开共用同一 DB 时,给其中
@@ -447,6 +458,7 @@ export class Scheduler extends EventEmitter {
   private readonly isManagedWorkspaceDir?: (dir: string) => boolean;
   private readonly resolvePreRunPlugin?: (pluginId: string) => string;
   private readonly validateTargetSession?: SchedulerOptions['validateTargetSession'];
+  private readonly validateProjectBinding?: SchedulerOptions['validateProjectBinding'];
   private readonly passive: boolean;
   private lastDbSyncAt = 0;
 
@@ -497,6 +509,7 @@ export class Scheduler extends EventEmitter {
     this.isManagedWorkspaceDir = opts.isManagedWorkspaceDir;
     this.resolvePreRunPlugin = opts.resolvePreRunPlugin;
     this.validateTargetSession = opts.validateTargetSession;
+    this.validateProjectBinding = opts.validateProjectBinding;
     this.notifyForcedFailureHook = opts.notifyForcedFailure;
     this.passive = opts.passive ?? false;
     this.maxConcurrentRuns = Math.max(1, opts.maxConcurrentRuns ?? DEFAULT_MAX_CONCURRENT_RUNS);
@@ -1650,6 +1663,9 @@ export class Scheduler extends EventEmitter {
     if (schedule.targetSessionId) {
       await this.validateTargetSession?.(schedule.targetSessionId, 'create', schedule);
     }
+    if (schedule.projectId) {
+      await this.validateProjectBinding?.(schedule.projectId, 'create');
+    }
     const inserted = await this.storage.insert(schedule);
     if (inserted.status === 'active') this.activeSchedules.set(id, inserted);
     this.emitEvent({ type: 'changed', scheduleId: id });
@@ -1774,6 +1790,9 @@ export class Scheduler extends EventEmitter {
     );
     if (candidate.targetSessionId) {
       await this.validateTargetSession?.(candidate.targetSessionId, 'update', candidate);
+    }
+    if (candidate.projectId) {
+      await this.validateProjectBinding?.(candidate.projectId, 'update');
     }
     // 到期但尚未执行的 Once 可以通过修改截止时间恢复；已经消费的 Once 保持终态。
     // 改成循环任务也可恢复。状态恢复集中在引擎层，让各调用方共享相同语义。

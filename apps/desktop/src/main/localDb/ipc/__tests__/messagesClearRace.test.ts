@@ -64,6 +64,9 @@ function createDb(): Database.Database {
       list_preview TEXT,
       list_preview_role TEXT,
       list_message_count INTEGER,
+      project_id TEXT,
+      assignee_kind TEXT,
+      assignee_id TEXT,
       cleared_at INTEGER,
       status TEXT NOT NULL DEFAULT 'active'
     );

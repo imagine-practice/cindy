@@ -242,6 +242,67 @@ describe('provisional draft task', () => {
     expect(canOpenProvisionalDraftTask(args({ workingDir: undefined }))).toBe(false);
   });
 
+  // Bug: project-only changes shared a fingerprint and handed p1's unsent row to p2.
+  // Existing tests changed model/effort but never explicit ownership. Unit, real ensure/take -> service spy.
+  it.each([
+    ['p1', 'p2'],
+    ['p1', null],
+    [null, 'p2'],
+  ])('replaces explicit project %s -> %s in the same directory', async (from, to) => {
+    const before = { ...args(), projectId: from };
+    const after = { ...args(), projectId: to };
+    mocks.create.mockImplementation(async (body) => ({ ...body }));
+    await ensureProvisionalDraftTask(before);
+    await ensureProvisionalDraftTask(after);
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    expect(mocks.discard).toHaveBeenCalledWith('draft-1');
+    expect(mocks.create.mock.calls[1][0].projectId).toBe(to);
+    const taken = await takeProvisionalDraftTask(after);
+    expect((taken as Session & { projectId: string | null })?.projectId).toBe(to);
+    expect(mocks.commit).toHaveBeenCalledTimes(1);
+  });
+  it('send does not reuse a provisional row from another explicit project', async () => {
+    await ensureProvisionalDraftTask({ ...args(), projectId: 'p1' });
+    expect(await takeProvisionalDraftTask({ ...args(), projectId: 'p2' })).toBeNull();
+    expect(mocks.commit).not.toHaveBeenCalled();
+    expect(mocks.discard).toHaveBeenCalledTimes(1);
+    await mocks.create({ ...args(), projectId: 'p2' }); // ordinary fallback creation after null handoff
+    expect(mocks.create.mock.calls[1][0].projectId).toBe('p2');
+  });
+  it('serializes project replacement and send after an in-flight create', async () => {
+    let release!: (row: unknown) => void;
+    const pending = new Promise((resolve) => {
+      release = resolve;
+    });
+    mocks.create
+      .mockImplementationOnce(() => pending)
+      .mockImplementation(async (body) => ({ ...body }));
+    const a = ensureProvisionalDraftTask({ ...args(), projectId: 'p1' });
+    await Promise.resolve();
+    await Promise.resolve();
+    const b = ensureProvisionalDraftTask({ ...args(), projectId: 'p2' });
+    const send = takeProvisionalDraftTask({ ...args(), projectId: 'p2' });
+    release({ ...args(), projectId: 'p1' });
+    await a;
+    await b;
+    expect(((await send) as Session & { projectId: string })?.projectId).toBe('p2');
+    expect(mocks.create.mock.calls.map(([body]) => body.projectId)).toEqual(['p1', 'p2']);
+    expect(mocks.discard.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.create.mock.invocationCallOrder[1],
+    );
+    expect(mocks.create.mock.invocationCallOrder[1]).toBeLessThan(
+      mocks.commit.mock.invocationCallOrder[0],
+    );
+  });
+  it('clearing after a project switch removes the current unsent row without committing it', async () => {
+    await ensureProvisionalDraftTask({ ...args(), projectId: 'p1' });
+    await ensureProvisionalDraftTask({ ...args(), projectId: 'p2' });
+    await discardProvisionalDraftTask();
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    expect(mocks.discard).toHaveBeenCalledTimes(2);
+    expect(mocks.commit).not.toHaveBeenCalled();
+    expect(provisionalDraftTaskId()).toBeNull();
+  });
   it('reads the composer text for the title preview', () => {
     expect(
       composerDocPlainText({

@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -65,6 +65,21 @@ function seedExactHistory(db: Database.Database, drizzleDir: string): void {
 }
 
 describe('checkMigrationCompatibility', () => {
+  // Migration tier: both preview and canonical used 0146. SQL history must
+  // reject the preview before a missing companion sidecar is bootstrapped.
+  it('rejects preview history without creating a canonical sidecar', () => {
+    const drizzleDir = createDrizzleDir();
+    writeFileSync(path.join(drizzleDir, '0146_canonical.sql'), 'CREATE TABLE receipt (id TEXT);\n');
+    const dbFilePath = path.join(drizzleDir, 'preview.db');
+    const db = createDb(146);
+    try {
+      db.prepare('INSERT INTO migration_history VALUES (?, ?, ?, ?)').run(146, '0146_silky_hardball.sql', 'preview-hash', 1);
+      const before = db.prepare('SELECT * FROM migration_history').all();
+      expect(() => prepareMigrationRuntimeManifest(dbFilePath, drizzleDir, 146, db)).toThrow(/Unsupported migration lineage at seq 146/);
+      expect(existsSync(`${dbFilePath}.migration-runtime.json`)).toBe(false);
+      expect(db.prepare('SELECT * FROM migration_history').all()).toEqual(before);
+    } finally { db.close(); }
+  });
   it('accepts an exact schema version and migration history match', () => {
     const drizzleDir = createDrizzleDir();
     const db = createDb(1);

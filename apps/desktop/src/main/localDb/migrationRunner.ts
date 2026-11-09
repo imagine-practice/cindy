@@ -244,11 +244,28 @@ export function prepareMigrationRuntimeManifest(
   dbFilePath: string,
   drizzleDir: string,
   databaseVersion: number,
+  database?: Database.Database,
 ): { bootstrappedLegacyBaseline: boolean } {
   if (!Number.isSafeInteger(databaseVersion) || databaseVersion < -1) {
     throw new Error(`invalid database schema_version for runtime manifest: ${databaseVersion}`);
   }
   const expected = createMigrationRuntimeManifest(drizzleDir);
+  // Preview project databases and canonical releases diverged at 0146.
+  // Check persisted SQL identities before a missing sidecar can bootstrap a
+  // different lineage. Unknown histories stay closed; no records are rewritten.
+  if (database && databaseVersion >= 146) {
+    const rows = database.prepare(
+      'SELECT seq, file_name, content_hash FROM migration_history WHERE seq >= 146 AND seq <= ? ORDER BY seq',
+    ).all(databaseVersion) as Array<{ seq: number; file_name: string; content_hash: string }>;
+    if (rows.length !== databaseVersion - 145) throw new Error('Unsupported migration lineage: incomplete history from 0146');
+    const bySeq = new Map(expected.migrations.map(migration => [migration.seq, migration]));
+    for (const row of rows) {
+      const canonical = bySeq.get(row.seq);
+      if (!canonical || row.file_name !== canonical.fileName || row.content_hash !== canonical.sqlHash) {
+        throw new Error(`Unsupported migration lineage at seq ${row.seq}: ${row.file_name}`);
+      }
+    }
+  }
   const existing = readMigrationRuntimeManifest(dbFilePath);
   if (existing) {
     const expectedBySeq = new Map(expected.migrations.map((identity) => [identity.seq, identity]));

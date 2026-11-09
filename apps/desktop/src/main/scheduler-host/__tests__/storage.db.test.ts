@@ -136,6 +136,7 @@ const SCHEDULER_DDL = [
       webhook_trigger TEXT,
       source TEXT DEFAULT 'user',
       project_config_id TEXT,
+      project_id TEXT,
       legacy_session_fallback INTEGER NOT NULL DEFAULT 0,
       kind TEXT NOT NULL DEFAULT 'cron',
       cron_expr TEXT NOT NULL,

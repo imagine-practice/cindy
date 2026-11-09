@@ -20,6 +20,7 @@ const compiled = transpileModule(`return (${handler});`, {
 }).outputText;
 
 export function createInputEnqueueHarness(coordinator: AgentInputCoordinator, options: {
+  materialInputAdmission?: ReturnType<typeof import('../materialInputAdmission.js').createMaterialInputAdmission>;
   remote?: boolean;
   mobile?: boolean;
   resumeInterruptedScheduleRun?: typeof import('../../scheduler-host/index.js').resumeInterruptedScheduleRun;
@@ -33,6 +34,7 @@ export function createInputEnqueueHarness(coordinator: AgentInputCoordinator, op
   const preparations = new Map<string, Pick<SchedulerQueuedPromptRequest, 'onPreparing' | 'onPreparationFailed'>>();
   const bindings = {
     inputCoordinator: coordinator,
+    materialInputAdmission: options.materialInputAdmission ?? { admit: async () => undefined },
     CONTINUE_AFTER_APP_EXIT_PROMPT,
     markManualSchedulerContinuation,
     resumeInterruptedScheduleRun,

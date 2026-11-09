@@ -78,6 +78,8 @@ function toDesktopScheduleFormState(schedule: RemoteSchedule): ScheduleFormState
     workspaceKind: schedule.workspaceKind ?? (schedule.workingDir ? 'project' : 'dialogue'),
     workingDir: schedule.workingDir ?? '',
     useWorktree: !!schedule.useWorktree,
+    // RemoteSchedule 还没有项目实体绑定通道;桌面空默认 = 不归属项目。
+    projectId: '',
     targetSessionId: schedule.targetSessionId ?? '',
     persistentSession: !!schedule.persistentSession,
     // 与共享侧 createMobileScheduleDraft 同口径(scheduleForm.ts),保证 parity 取值一致

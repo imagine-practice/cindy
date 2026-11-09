@@ -31,6 +31,7 @@ export * from './ssh/index.js';
 
 export * from './lizi_xdtHelperMcpServer.js';
 export * from './lizi_xdtHelperToolRegistry.js';
+export type { EntityProjectCallbacks, EntityProject, EntityProjectDetail, EntityProjectProgress } from './xdt-helper/entity_projects.js';
 export * from './xdt-helper/index.js';
 
 export { createCindyDocsMcpServer } from './cindy_docsMcpServer.js';
@@ -56,3 +57,6 @@ export {
 } from './xdt-helper/teammate_skills.js';
 
 export type { AppModelsRequest } from './xdt-helper/app_models.js';
+
+export type { ProjectWorkItemExecuteIntent, ProjectWorkItemExecuteResult, ProjectWorkItemExecuteCallback } from './xdt-helper/execute_project_work_item.js';
+export type { EntityProjectMutationIntent, EntityProjectMutationResult, EntityProjectMutationCallback } from './xdt-helper/entity_project_mutations.js';

@@ -2277,5 +2277,7 @@ export type BotGroupTaskPostResult =
   | { ok: false; errorCode: string; retryable: boolean };
 
 export type BotGroupChatService = ReturnType<typeof createBotGroupChatService> & {
+  /** Main-only native authority; never attach to the public ChatServerApi/IPC surface. */
+  groupAuthority?: import('./chatGroupAuthority.js').ChatGroupAuthorityService;
   chatServer?: import('../../shared/botGroupChat.js').ChatServerApi;
 };

@@ -1,3 +1,4 @@
+import { persistAuthorizedSession } from '../authorizedSessionPersistence';
 import { captureSessionCreationCancellation } from '../sessionRuntimeCleanup.js';
 import { pagePermissionSessionChanged } from '../../mcp-apps/pagePermissions.js';
 import { removeSessionModelInterface } from '../../maker-host/session-model-interface.js';
@@ -85,6 +86,8 @@ import * as imageCacheStore from '../../imageCacheStore';
 import { removeSessionRefsIfDeleted as removeDeletedSessionMediaRefs } from '../../cindy-media/ledger';
 import { imAttachmentsRoot, removeImSessionAttachmentDirs } from '../../im/shared/inboundFileStaging';
 import { upsertRecentWorkdir } from './recentWorkdirs';
+import { resolveDefaultProjectId } from '../projectDirBinding';
+import { assertProjectBindable, resolveProjectActor } from './projects';
 import { createLogger } from '../../logger';
 import {
   DESKTOP_VISIBLE_SESSION_SOURCES,
@@ -1701,7 +1704,15 @@ export function registerSessionIpc(
 
   ipcMain.handle('local-db:sessions:create', async (event, body) => {
     assertTrustedAppRendererEvent(event);
-    const db = getDbClient().drizzle;
+    const client = getDbClient();
+    const db = client.drizzle;
+    const actor = resolveProjectActor();
+    const ownerScope = captureOwnerScope();
+    const assertCreateOwnerCurrent = () => {
+      if (getDbClient() !== client || !isOwnerScopeCurrent(ownerScope)) {
+        throwIpcError('PRECONDITION_FAILED', 'Active account changed during session creation');
+      }
+    };
     const now = Date.now();
     const bodyObj = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
     const id = resolveBusinessSessionId(bodyObj.id);
@@ -1726,6 +1737,26 @@ export function registerSessionIpc(
       (typeof bodyObj.title !== 'string' || bodyObj.title.length > 200)
     ) {
       throwIpcError('INVALID_PARAMS', 'title must be a string no longer than 200 characters');
+    }
+    // 实体项目绑定：只接受项目 id 形态，且项目必须存在（不写悬挂绑定）。
+    if (
+      bodyObj.projectId !== undefined &&
+      bodyObj.projectId !== null &&
+      (typeof bodyObj.projectId !== 'string' || bodyObj.projectId.length === 0 || bodyObj.projectId.length > 200)
+    ) {
+      throwIpcError('INVALID_PARAMS', 'projectId must be a project id');
+    }
+    // 项目绑定闸门：成员资格与归档状态只对「发起这次创建的那个账号」成立，所以账号 epoch
+    // 是外层围栏。判定期间账号换人时，读出来的成员结论属于旧账号，必须报「账号已变化」
+    // 而不是「非成员」——后者会让用户以为项目权限被撤销，实际只是换了账号。
+    if (typeof bodyObj.projectId === 'string') {
+      try {
+        await assertProjectBindable(bodyObj.projectId, actor, client);
+      } catch (error) {
+        assertCreateOwnerCurrent();
+        throw error;
+      }
+      assertCreateOwnerCurrent();
     }
     const ALLOWED_WORKSPACE_KINDS = new Set<string>(['project', 'dialogue']);
     if (
@@ -1766,6 +1797,25 @@ export function registerSessionIpc(
       workspaceKind === 'dialogue' && !explicitWorkingDir
         ? ensureDialogueWorkspaceDir(id, now)
         : explicitWorkingDir;
+    // 项目目录的默认归属：只有「没显式指定项目 + 真在工作目录里建任务」才生效。
+    // 成员资格已在 resolveDefaultProjectId 内判定；不满足就当没有归属，不报错。
+    let defaultProjectId: string | null = null;
+    if (!bodyObj.projectId && workspaceKind === 'project' && explicitWorkingDir) {
+      try {
+        defaultProjectId = await resolveDefaultProjectId(
+          client,
+          {
+            workingDir: explicitWorkingDir,
+            remoteHostId: normalizeRemoteHostId(createBody?.remoteHostId),
+            agentDeviceId: normalizeRemoteHostId(createBody?.agentDeviceId),
+          },
+          actor,
+        );
+      } catch {
+        defaultProjectId = null;
+      }
+      assertCreateOwnerCurrent();
+    }
     if (workspaceKind === 'dialogue' && !explicitWorkingDir) {
       log.info('[localDb] allocated dialogue workspace', { sessionId: id, workingDir });
     }
@@ -1809,12 +1859,21 @@ export function registerSessionIpc(
     let row: typeof sessions.$inferSelect | undefined;
     try {
       ({ row: insertRow } = await openSession({ id, now,
-        body: { ...createBody, workspaceKind, workingDir },
+        assertCurrent: assertCreateOwnerCurrent,
+        body: { ...createBody, workspaceKind, workingDir,
+          ...(defaultProjectId ? { projectId: defaultProjectId } : {}) },
         ...(provisional ? { deferGitInit: true } : {}),
       }, async (prepared, assertCurrent) => {
         const resource = !prepared.remoteHostId && prepared.workingDir
           ? managedWorktreeRoot(prepared.workingDir) : null;
-        const insert = async () => { assertCurrent(); await db.insert(sessions).values(prepared); };
+        const insert = async () => {
+          assertCurrent();
+          if (prepared.projectId) {
+            await persistAuthorizedSession(client, prepared, { actor, assertCurrent });
+          } else {
+            await db.insert(sessions).values(prepared);
+          }
+        };
         if (resource) await withWorktreeMutation([resource], insert);
         else await insert();
       }));

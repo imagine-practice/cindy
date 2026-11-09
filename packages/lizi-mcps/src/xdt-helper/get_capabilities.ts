@@ -123,6 +123,21 @@ export function registerGetCapabilitiesTool(
         };
       }
 
+      // Product prose is shared across hosts; registration depends on injected callbacks.
+      // This reports definitions, not database authorization or current surface permission.
+      const entityProjects = key === 'self-management' ? {
+        registered: ['list_project_entities', 'get_project_entity', 'get_project_progress'].every(name => registry.has(name)),
+        scope: 'host-local',
+        mutationRegistered: registry.has('mutate_project_entity'),
+        workItemExecutionRegistered: registry.has('execute_project_work_item'),
+        mutationNote: registry.has('mutate_project_entity')
+          ? 'Local entity writes registered via host callback; live authorization still required. No task dispatch or remote writes.'
+          : 'Entity writes unavailable: host callback absent. Existing read and directory tools retain their semantics.',
+        note: registry.has('list_project_entities')
+          ? '当前宿主已提供实体项目查询回调并注册定义；当前调用资格仍以 list_tools/control 与实际调用为准。SSH/远端执行不降级本机；不证明生产数据库适配或跨端同权已启用。'
+          : '当前宿主未提供实体项目查询回调，新三工具未注册、不可调用；旧目录项目工具语义不变。',
+      } : undefined;
+
       return {
         content: [
           {
@@ -130,6 +145,7 @@ export function registerGetCapabilitiesTool(
             text: JSON.stringify({
               ok: true,
               capability: entry,
+              ...(entityProjects ? { entityProjects } : {}),
             }),
           },
         ],

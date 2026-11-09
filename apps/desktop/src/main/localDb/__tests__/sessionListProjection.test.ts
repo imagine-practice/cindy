@@ -17,7 +17,10 @@ function openPreviewDb() {
       cleared_at INTEGER,
       list_preview TEXT,
       list_preview_role TEXT,
-      list_message_count INTEGER
+      list_message_count INTEGER,
+      project_id TEXT,
+      assignee_kind TEXT,
+      assignee_id TEXT
     );
     CREATE TABLE messages (
       id TEXT PRIMARY KEY,

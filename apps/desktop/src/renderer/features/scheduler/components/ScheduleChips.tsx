@@ -102,7 +102,7 @@ export const ChipButton = React.forwardRef<HTMLButtonElement, ChipButtonProps>(f
       {...rest}
     >
       {icon && <span className="shrink-0 -translate-y-px">{icon}</span>}
-      {label && <span className="truncate text-center text-13 font-normal leading-[1.33]">{label}</span>}
+      {label && <span title={label} className="truncate text-center text-13 font-normal leading-[1.33]">{label}</span>}
       <ChevronDown size={13} className="shrink-0 opacity-60" />
     </button>
   );

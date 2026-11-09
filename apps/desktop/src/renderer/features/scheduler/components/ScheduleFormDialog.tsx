@@ -65,6 +65,8 @@ import {
 } from '../lib/scheduleFormLogic';
 import type { RunMode, ScheduleFormState } from '../hooks/useScheduleForm';
 import { BoundSessionCard } from './BoundSessionCard';
+import { ScheduleProjectBindingSelect } from './ScheduleProjectBindingSelect';
+import { scheduleProjectErrorKey } from '../lib/scheduleProjectErrors';
 import { TemplateGallery } from './TemplateGallery';
 import { TemplateParamForm } from './TemplateParamForm';
 import {
@@ -226,6 +228,14 @@ export function ScheduleFormDialog({
   useEffect(() => { setSubmitError(null); }, [open, initial]);
   const showSubmitError = (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
+    // 项目绑定被拒（非成员 / 已归档 / 项目已不存在）有专门的本地化文案，
+    // 不要退化成一句英文运维报错。
+    const projectKey = scheduleProjectErrorKey(error);
+    if (projectKey) {
+      setSubmitError(t(projectKey));
+      toast.error(t(projectKey));
+      return;
+    }
     const code = parseAgentErrorCode(message)?.code;
     if (code && i18n.exists(`chat.remoteError.${code}`)) {
       setSubmitError(message);
@@ -286,6 +296,9 @@ export function ScheduleFormDialog({
   // 仅编辑已存在的 project schedule 时才进入"项目自动化"模式（写 schedules.json + 锁项目 + 隐藏模板）；
   // 普通新建（包括项目分组"+"带 workingDir 预填）一律走用户级路径，UI 与顶部"新建自动化"对齐。
   const isProjectAutomationMode = editProjectSchedule;
+  // 归属项目只在“本次运行会新建会话”时有意义：绑定已有会话、以及项目自动化
+  // （schedules.json 没有 projectId 字段）都不展示，不留一个改了也不生效的控件。
+  const hideProjectBinding = hideWorkspaceFields || isProjectAutomationMode;
   const projectWorkingDir = editProjectSchedule ? (initial?.workingDir ?? null) : null;
   const isTemplateMode = mode === 'gallery' || !!selectedTemplate;
   // script/agent 双执行模式的唯一判别常量——所有条件渲染共用,避免散拷漂移
@@ -873,6 +886,16 @@ export function ScheduleFormDialog({
                         values={paramValues}
                         onChange={setParamValues}
                       />
+                    )}
+
+                    {!isScriptMode && !hideProjectBinding && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <ScheduleProjectBindingSelect value={form.projectId}
+                          onChange={(projectId) => setField('projectId', projectId)} />
+                        <span className="text-11 text-[var(--text-secondary)]">
+                          {t('scheduler.editor.projectBinding.hint')}
+                        </span>
+                      </div>
                     )}
 
                     <section

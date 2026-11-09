@@ -35,6 +35,36 @@ function sameGroupingInput(a: Session, b: Session): boolean {
   return true;
 }
 
+function sameDirKeys(
+  a: readonly string[] | undefined,
+  b: readonly string[] | undefined,
+): boolean {
+  const left = a ?? [];
+  const right = b ?? [];
+  return left.length === right.length && left.every((key, i) => key === right[i]);
+}
+
+function sameEntityProjects(
+  a: GroupSessionsOptions['entityProjects'],
+  b: GroupSessionsOptions['entityProjects'],
+): boolean {
+  return (
+    a === b ||
+    (!!a &&
+      !!b &&
+      a.length === b.length &&
+      a.every((p, i) => {
+        const next = b[i];
+        return (
+          p.id === next.id &&
+          p.name === next.name &&
+          p.updatedAt === next.updatedAt &&
+          sameDirKeys(p.dirs, next.dirs)
+        );
+      }))
+  );
+}
+
 function samePersistentProjects(
   a: readonly PersistentLocalProject[] | undefined,
   b: readonly PersistentLocalProject[] | undefined,
@@ -74,6 +104,7 @@ function sameOptions(a: GroupSessionsOptions, b: GroupSessionsOptions): boolean 
     a.provisionalDraftTaskId === b.provisionalDraftTaskId &&
     a.localPlatform === b.localPlatform &&
     a.botOwnerBySessionId === b.botOwnerBySessionId &&
+    sameEntityProjects(a.entityProjects, b.entityProjects) &&
     samePersistentProjects(a.persistentLocalProjects, b.persistentLocalProjects)
   );
 }

@@ -59,6 +59,12 @@ export { deviceLinkProjectKey, normalizeProjectKey, projectKeyComparisonKey, pro
 /* ============================== Types ============================== */
 
 export interface ProjectIdentity {
+  /**
+   * 实体项目（`projects.id`）。非空时该节点代表一个真实项目实体，名称来自
+   * `projects.name`，不参与目录同名消歧与项目别名。
+   */
+  entityProjectId?: string;
+  entityProjectName?: string;
   scope: ProjectScope;
   workingDir: string;
   remoteHostId: string | null;
@@ -75,6 +81,11 @@ export interface ProjectIdentity {
 export interface ProjectNode {
   /** Stable project identity key. Legacy bare workingDir keys are local. */
   projectKey: string;
+  /**
+   * 实体项目 id；非空表示这个节点是项目实体（`project:<id>` key），不是目录分组。
+   * 侧栏据此渲染项目标识并跳到项目详情。
+   */
+  entityProjectId?: string;
   scope: ProjectScope;
   /** 归一化后的 workingDir（POSIX 斜杠，无 trailing slash） */
   workingDir: string;
@@ -165,6 +176,11 @@ export interface GroupSessionsOptions {
   provisionalDraftTaskId?: string | null;
   /** 与会话生命周期解耦的本地项目目录，用于保留零会话项目。 */
   persistentLocalProjects?: readonly PersistentLocalProject[];
+  /**
+   * 实体项目（项目内核 M1）。绑定 `sessions.project_id` 的任务优先归到所属实体项目，
+   * 不再按目录分组；没有任务的项目也会出现在列表里。
+   */
+  entityProjects?: readonly EntityProjectOption[];
   /** 本地路径身份比较所需的平台；Windows 盘符与 UNC 路径忽略大小写。 */
   localPlatform?: string;
   /**
@@ -175,6 +191,24 @@ export interface GroupSessionsOptions {
    * 消失**。会话本身不带 botId,归属只有伙伴档案知道。
    */
   botOwnerBySessionId?: ReadonlyMap<string, BotSessionOwner>;
+}
+
+export interface EntityProjectOption {
+  id: string;
+  name: string;
+  /** 项目自身更新时间（ISO）；零任务项目靠它参与项目间排序。 */
+  updatedAt: string;
+  /**
+   * 项目认领的工作目录键（`local:` / `remote:` / `device:`）。
+   * 认领目录里尚未绑定 project_id 的历史任务也归到这个项目节点下，
+   * 侧栏因此只出现一行，而不是「项目 + 目录」两行。
+   */
+  dirs?: readonly string[];
+}
+
+/** 实体项目节点的 key 命名空间：与 `local:` / `remote:` / `device:` 目录 key 互不相交。 */
+export function entityProjectKey(projectId: string): string {
+  return `project:${projectId}`;
 }
 
 export interface PersistentLocalProject {
@@ -497,7 +531,11 @@ export function groupSessions(
 ): ProjectGroupsResult {
   const localPlatform = options.localPlatform ?? '';
   const aliases = normalizeProjectAliases(options.projectAliases, localPlatform);
-  if ((!sessions || sessions.length === 0) && !options.persistentLocalProjects?.length) {
+  if (
+    (!sessions || sessions.length === 0) &&
+    !options.persistentLocalProjects?.length &&
+    !options.entityProjects?.length
+  ) {
     return { pinned: [], dialogues: [], bots: [], unclassified: [], projects: [] };
   }
 
@@ -538,6 +576,43 @@ export function groupSessions(
     }
   }
 
+  const entityProjectsById = new Map<string, EntityProjectOption>();
+  for (const entity of options.entityProjects ?? []) {
+    if (entity.id) entityProjectsById.set(entity.id, entity);
+  }
+  const entityProjectKeys = new Set<string>();
+  // 目录 → 认领它的项目。本地键按比较键折叠（Windows 大小写/路径写法差异），
+  // 远端与设备键保持精确匹配。
+  const claimedDirProject = new Map<string, EntityProjectOption>();
+  const claimKey = (key: string): string => projectKeyComparisonKey(key, localPlatform) ?? key;
+  for (const entity of entityProjectsById.values()) {
+    for (const dirKey of entity.dirs ?? []) {
+      const key = claimKey(dirKey);
+      if (!claimedDirProject.has(key)) claimedDirProject.set(key, entity);
+    }
+  }
+  /** 项目节点分组：显式绑定与「目录被认领」共用同一段落组逻辑。 */
+  const groupIntoEntityProject = (session: Session, entity: EntityProjectOption): void => {
+    const projectKey = entityProjectKey(entity.id);
+    entityProjectKeys.add(projectKey);
+    const arr = groups.get(projectKey);
+    if (arr) arr.push(session);
+    else groups.set(projectKey, [session]);
+    if (!identityByKey.has(projectKey)) {
+      identityByKey.set(projectKey, {
+        scope: 'local',
+        // 实体项目不以路径为身份；空串让目录消歧逻辑跳过它（见 5c）。
+        workingDir: '',
+        remoteHostId: null,
+        deviceLinkDeviceId: null,
+        deviceLinkDeviceName: null,
+        deviceLinkConnectionStatus: null,
+        entityProjectId: entity.id,
+        entityProjectName: entity.name,
+      });
+    }
+  };
+
   // 3. 按 normalize 后 workingDir 分组
   // 草稿判定主线：userSendAt == null（用户从未按下发送）。
   // 兜底：_count.messages === 0 —— userSendAt 依赖 sendMessage → SDK echo →
@@ -569,7 +644,25 @@ export function groupSessions(
       if (!botOwners.has(owner.botId)) botOwners.set(owner.botId, owner);
       continue;
     }
+    // 实体项目绑定优先：有 project_id 的任务归到项目实体，不再按目录分组。
+    // 位置刻意放在草稿判定之前 —— 在项目里刚建好、还没发送的任务也应出现在该项目下。
+    // 伙伴任务仍归伙伴段（M1 不改伙伴/群聊模型）。
+    const entityProject = s.projectId ? entityProjectsById.get(s.projectId) : undefined;
+    if (entityProject) {
+      groupIntoEntityProject(s, entityProject);
+      continue;
+    }
+
     const dir = normalizeWorkingDir(sessionProjectDirectory(s));
+    // 目录被项目认领后，这个目录里的历史任务（project_id 仍是 null）也跟着项目走：
+    // 否则侧栏会出现「项目」与「目录」两行，同一批任务被拆开。
+    if (dir != null) {
+      const claimed = claimedDirProject.get(claimKey(projectIdentityKeyForSession(s) ?? ''));
+      if (claimed) {
+        groupIntoEntityProject(s, claimed);
+        continue;
+      }
+    }
     const noPhysicalMessages = (s._count?.messages ?? 0) === 0;
     const isOrcaLead = isOrcaLeadSession(s);
     // 新建页里正在输入、还没发送的任务：已经选好项目，就放在那个项目下。
@@ -637,6 +730,8 @@ export function groupSessions(
     const workingDir = normalizeWorkingDir(project.workingDir);
     if (!workingDir) continue;
     const seedKey = projectIdentityKey('local', workingDir, null);
+    // 已认领的目录不再单独占一行：它的任务在项目节点下，空目录也没有存在的必要。
+    if (claimedDirProject.has(claimKey(seedKey))) continue;
     const comparisonKey = projectKeyComparisonKey(seedKey, localPlatform);
     const projectKey = (comparisonKey && localProjectKeyByComparison.get(comparisonKey)) ?? seedKey;
     if (!groups.has(projectKey)) {
@@ -662,6 +757,24 @@ export function groupSessions(
       persistentKnownAgentKindsByKey.set(projectKey, knownKinds);
     }
     for (const agentKind of project.knownAgentKinds) knownKinds.add(agentKind);
+  }
+
+  // 3c. 实体项目即使没有任务也要出现（刚建好的项目在侧栏要能进得去）。
+  for (const entity of entityProjectsById.values()) {
+    const projectKey = entityProjectKey(entity.id);
+    if (groups.has(projectKey)) continue;
+    groups.set(projectKey, []);
+    entityProjectKeys.add(projectKey);
+    identityByKey.set(projectKey, {
+      scope: 'local',
+      workingDir: '',
+      remoteHostId: null,
+      deviceLinkDeviceId: null,
+      deviceLinkDeviceName: null,
+      deviceLinkConnectionStatus: null,
+      entityProjectId: entity.id,
+      entityProjectName: entity.name,
+    });
   }
 
   // 4. unclassified 排序 —— active 在 archived 之上，同状态按 sortTime desc
@@ -691,7 +804,7 @@ export function groupSessions(
   //    "该 dir 下最早 createdAt 的 Session 升序"排序，排序第一的获胜者保留纯
   //    basename（minSegments=1），其余强制 minSegments=2 触发 parent 追溯。
   //    createdAt 缺失时回退到 dir 字符串字典序，保证确定性。
-  const allProjectKeys = Array.from(groups.keys());
+  const allProjectKeys = Array.from(groups.keys()).filter((key) => !entityProjectKeys.has(key));
   const allDisplayDirs = allProjectKeys.map(
     (projectKey) => identityByKey.get(projectKey)?.workingDir ?? projectKey,
   );
@@ -755,7 +868,11 @@ export function groupSessions(
     // latestActivityAt 取"全员里 sortTime 最大"——project 间排序按真实最近活跃时间，
     // 不被 active-first 的组内排序污染（否则只有 archived 的 project 会被强行按
     // 较旧的 active 时间下沉，与用户预期不符）。
-    let latestIso = persistentLastUsedByKey.get(projectKey) ?? '';
+    const entityOption = identity?.entityProjectId
+      ? entityProjectsById.get(identity.entityProjectId)
+      : undefined;
+    let latestIso =
+      persistentLastUsedByKey.get(projectKey) ?? entityOption?.updatedAt ?? '';
     let latestMs = toMs(latestIso);
     for (const s of sess) {
       const t = sortTimeMs(s);
@@ -780,7 +897,11 @@ export function groupSessions(
       ?? (options.remoteProjectAliases
         ? resolveProjectAliasForSessions(aliasMembersByProject.get(projectKey) ?? sess, options.remoteProjectAliases)
         : null);
-    if (alias) {
+    if (entityOption) {
+      // 实体项目的名字就是 projects.name：不参与目录同名消歧，也不吃目录别名。
+      name = entityOption.name;
+      segments = 0;
+    } else if (alias) {
       name = alias;
       segments = 0;
     } else if (isWinner) {
@@ -794,6 +915,7 @@ export function groupSessions(
 
     projects.push({
       projectKey,
+      ...(identity?.entityProjectId ? { entityProjectId: identity.entityProjectId } : {}),
       scope: identity?.scope ?? 'local',
       workingDir,
       remoteHostId: identity?.remoteHostId ?? null,
@@ -804,7 +926,8 @@ export function groupSessions(
       segments,
       sessions: sorted,
       latestActivityAt: latestIso,
-      isPersistentLocal: persistentProjectKeys.has(projectKey) || undefined,
+      isPersistentLocal:
+        persistentProjectKeys.has(projectKey) || entityOption !== undefined || undefined,
       persistentLocalKnownAgentKinds: persistentProjectKeys.has(projectKey)
         ? Array.from(persistentKnownAgentKindsByKey.get(projectKey) ?? []).sort()
         : undefined,

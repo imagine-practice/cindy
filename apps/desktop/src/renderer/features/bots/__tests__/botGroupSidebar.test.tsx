@@ -393,7 +393,7 @@ describe('TeammatesSection group chats', () => {
     expect(screen.getByRole('dialog').textContent).toBe('create-teammate-dialog');
   });
 
-  it('moves a group above older private chats on a new message while preserving pins', async () => {
+  it('keeps bots first and lists group chats under their own label when a group gets a message', async () => {
     mocks.profiles = [{ ...bot('mimi', '咪咪'), lastMessageAt: 20 },
       { ...bot('xiaoman', '小满'), pinnedAt: 1 }];
     mocks.groups = [group()];
@@ -401,10 +401,13 @@ describe('TeammatesSection group chats', () => {
     const order = () => Array.from(view.container.querySelectorAll('button'))
       .map(row => ['咪咪', '小满', '周末出游'].find(name => screen.getByText(name).closest('button') === row))
       .filter(Boolean);
+    // 伙伴在前（置顶优先），群聊统一排到后面并带一个「群聊」小标题。
     expect(order()).toEqual(['小满', '咪咪', '周末出游']);
+    expect(screen.getAllByText('bots.list.groupSection')).toHaveLength(1);
+    // 群里来新消息只改变群内部顺序，不再把群插到伙伴中间。
     mocks.groups = [group({ lastMessage: { ...group().lastMessage!, createdAt: 30 } })];
     view.rerender(<TeammatesSection />);
-    expect(order()).toEqual(['小满', '周末出游', '咪咪']);
+    expect(order()).toEqual(['小满', '咪咪', '周末出游']);
   });
 
   it('keeps joined groups visible when the account has no local teammates', async () => {

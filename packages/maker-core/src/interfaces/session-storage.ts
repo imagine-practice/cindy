@@ -16,6 +16,13 @@ export interface SessionMeta {
   workspaceKind?: WorkspaceKind;
   /** Product project membership, independent of the agent's execution directory. */
   projectDir?: string | null;
+  /**
+   * Entity project the task belongs to (`projects.id`), independent of `projectDir`.
+   * Host-owned: a host that needs the membership gate commits it atomically with the
+   * task row (desktop routes it through the authorized-create transaction). Absent =
+   * the task does not belong to any entity project, which stays the legacy behavior.
+   */
+  projectId?: string | null;
   effort?: Effort;
   permissionMode?: PermissionMode;
   fastMode?: boolean | 'ultrafast';

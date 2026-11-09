@@ -104,6 +104,7 @@ function createDb(initialTitle: string): void {
       user_send_at INTEGER,
       last_activity_at INTEGER,
       parent_session_id TEXT,
+      project_binding_revision INTEGER NOT NULL DEFAULT 0,
       forked_at_message_id TEXT,
       worktree_path TEXT,
       source TEXT NOT NULL DEFAULT 'desktop',
@@ -131,7 +132,10 @@ function createDb(initialTitle: string): void {
       last_turn_ended_at INTEGER,
       list_preview TEXT,
       list_preview_role TEXT,
-      list_message_count INTEGER
+      list_message_count INTEGER,
+      project_id TEXT,
+      assignee_kind TEXT,
+      assignee_id TEXT
     );
     CREATE TABLE messages (
       id TEXT PRIMARY KEY,

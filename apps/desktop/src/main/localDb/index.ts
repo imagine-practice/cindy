@@ -335,6 +335,7 @@ export async function ensureReady(userId: string): Promise<EnsureReadyResult> {
           filePath,
           getDrizzleDir(),
           readSchemaVersion(db),
+          db,
         );
         if (prepared.bootstrappedLegacyBaseline) {
           log.warn(

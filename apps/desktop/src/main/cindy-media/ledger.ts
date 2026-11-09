@@ -132,7 +132,15 @@ export type MediaRefKind =
   | 'integration-cache'
   | 'profile-avatar'
   | 'bot-avatar'
-  | 'bot-group-attachment';
+  | 'bot-group-attachment'
+  /**
+   * 材料版本（项目内核 M2）持有的字节，refId = `material_versions.id`。
+   * 一个版本一个引用：版本不可变，所以引用也不随「当前引用」变化——
+   * 移除材料当前引用（`status = 'removed'`）与给材料补新版本都不删旧引用，
+   * 旧 `material_contexts` 指向的字节因此不会被回收器当成缓存清掉。
+   * 本业务只删自己名下的引用；字节物理回收仍由 recycler 统一处理。
+   */
+  | 'material';
 /** 出生来源类型。 */
 export type MediaOriginKind = 'ghost' | 'tool' | 'user' | 'integration';
 

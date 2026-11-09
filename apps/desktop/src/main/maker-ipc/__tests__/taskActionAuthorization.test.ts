@@ -334,6 +334,8 @@ function desktopFixture(kind: 'private' | 'group' | 'automatic' = 'group') {
     permissionRequest, capturePermissionRequest, routines, schedules, workDirs, getScheduleDefinition };
 }
 const ownerWrites = [
+  ['cindy_helper', 'mutate_project_entity'],
+  ['cindy_helper', 'execute_project_work_item'],
   ['cindy_helper', 'start_session_task'],
   ['cindy_helper', 'send_to_session'],
   ['cindy_helper', 'continue_workbench_task'],
