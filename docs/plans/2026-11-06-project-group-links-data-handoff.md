@@ -49,7 +49,7 @@ context 是封闭 main 的身份／资源／目标群绑定输入，不是 group
 
 ## 两表与迁移
 
-Drizzle 命令 pnpm --filter desktop db:generate 生成 [0150_curvy_bloodstrike.sql](../../apps/desktop/drizzle/0150_curvy_bloodstrike.sql)、0150 snapshot 和 journal 新条目；纯 DDL，无新 companion，不手改 SQL/journal/序号。重新 fetch 后 origin/main 仍为指定基线。0146..0149 SQL/snapshot/companion 原字节不动。
+Drizzle 命令 pnpm --filter desktop db:generate 生成 0150_curvy_bloodstrike.sql、0150 snapshot 和 journal 新条目（rebase 后实际落地为 [0153_project_group_links.sql](../../apps/desktop/drizzle/0153_project_group_links.sql)）；纯 DDL，无新 companion，不手改 SQL/journal/序号。重新 fetch 后 origin/main 仍为指定基线。0146..0149 SQL/snapshot/companion 原字节不动。
 
 | 表 | 结构与约束 |
 | --- | --- |

@@ -151,6 +151,8 @@ CLAUDE.local.md
 .marscode/
 .codebuddy/
 .codegeex/
+# Command Code 本地状态（taste 偏好等），不入仓。
+.commandcode/
 
 # AGENTS.md / CLAUDE.md 等共享 agent 指令有意提交，不在忽略范围。
 # 若以后需要共享某个 agent 的项目配置，用 ! 规则逐项反向豁免。
@@ -176,6 +178,8 @@ config/log-upload.json
 # 本地跑 visual-baseline-check 时会自动生成。
 apps/mobile/e2e/visual-baselines/
 .cindy-worktrees/
+# 会话工具/Agent 在仓根创建的工作树目录；内容属本地工作区，不入仓。
+.worktrees/
 # 品牌迁移前已创建的 worktree 仍需保持 ignored。
 .xdt-worktrees/
 .xdtworktreeinclude
