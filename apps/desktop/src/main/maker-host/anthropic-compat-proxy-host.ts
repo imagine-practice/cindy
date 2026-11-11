@@ -35,6 +35,7 @@ import {
   createAnthropicEffortCompatibilityRule,
   dedupeDuplicateToolUseIds,
   repairToolExchangeAdjacency,
+  redactToolResultPayloads,
   sanitizeXaiModelInputFromBody,
   stripEmptyAssistantMessagesFromBody,
   stripEmptyTextFromBody,
@@ -1313,6 +1314,20 @@ export async function ensureAnthropicCompatProxyReady(): Promise<void> {
           const sdkSessionId = headers['x-claude-code-session-id'];
           return sdkSessionId ? observeCcSessionId(sdkSessionId) : null;
         }),
+        // 出站 tool 结果净化：把二进制/十六进制转储与高置信度凭据字面量换成可诊断摘要。
+        //
+        // 为什么必须在这一层、且必须 late：代理每轮看到**完整历史**，所以这里一次能覆盖
+        // 本轮新产生的 tool_result 与历史里已经存在的那条 —— 被上游内容审核拒绝过的会话
+        // 因此在下次发送时自愈（2026-11-11：`bash` 把凭据文件 hexdump 读进 tool_result，
+        // 1 ms 后请求被 `data_inspection_failed` 拒，此后每轮重发都撞同一拒绝）。工具侧的
+        // 脱敏只能拦住未来输出，改不了已被毒化的历史，所以落点只能在这里。
+        //
+        // 位置：所有结构修复（repair/dedupe/vision bridge）之后、`stripNonAnthropicFields`
+        // 之前 —— 看到的是最终 tool 文本，且不影响任何结构性改写。
+        //
+        // 只改 tool 输出文本，不碰用户/助手正文；无改动返回 null（代理字节透传，缓存安全），
+        // 默认 fail-open（脱敏抛错时此步跳过、请求照常发出）。
+        redactToolResultPayloads,
         stripNonAnthropicFields,
       ],
       recoveryRules: [

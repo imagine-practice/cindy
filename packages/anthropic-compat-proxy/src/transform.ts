@@ -22,6 +22,7 @@ export {
   repairToolExchangeAdjacency,
   repairToolExchangeStructureFromBody,
   replaceToolResultImagesWithNotice,
+  redactToolResultPayloads,
   compactOversizedImageHistory,
   stripNonAnthropicFields,
   createActiveStripTransform,

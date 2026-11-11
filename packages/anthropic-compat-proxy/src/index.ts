@@ -59,6 +59,7 @@ export {
   repairToolExchangeAdjacencyFromBody,
   repairToolExchangeStructureFromBody,
   replaceToolResultImagesWithNotice,
+  redactToolResultPayloads,
   stripEmptyAssistantMessagesFromBody,
   stripEmptyTextFromBody,
   stripEmptyThinkingFromBody,

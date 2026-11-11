@@ -13,6 +13,7 @@ export * from './cindy/types';
 export * from './cindy/responses-null-array-repair';
 export { createCodexResponsesCompatibilityAdapter } from './codex';
 export * from './cindy/proxy/transform';
+export * from './cindy/proxy/tool-result-redaction';
 export * from './cindy/proxy/xai-model-input';
 export * from './cindy/proxy/vllm-responses-compatibility';
 export * from './cindy/proxy/anthropic-effort-compatibility';

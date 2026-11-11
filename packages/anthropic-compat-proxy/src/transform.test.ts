@@ -21,6 +21,7 @@ import {
   repairToolExchangeAdjacency,
   repairToolExchangeAdjacencyFromBody,
   repairToolExchangeStructureFromBody,
+  redactToolResultPayloads,
   stripEmptyAssistantMessagesFromBody,
   stripEmptyTextFromBody,
   stripEmptyThinkingFromBody,
@@ -2283,5 +2284,42 @@ describe('Anthropic context management recovery (#7041)', () => {
     }
     expect(rule.applyOnUnmatchedRetry).toBe(false);
     expect(rule.allowExtraRules).toBe(false);
+  });
+});
+
+/**
+ * 出站 tool 结果净化经本包 re-export 的契约：宿主从 '@cindy/anthropic-compat-proxy'
+ * 拿到的必须是 model-compat 里那份实现（本文件头要求「preserve this import
+ * contract」）。这条只守 re-export 与「无改动 → null」的缓存契约，pattern 细节在
+ * model-compat 的 tool-result-redaction.test.ts 覆盖。
+ */
+describe('redactToolResultPayloads re-export', () => {
+  it('is exported and redacts a hex dump carried in a tool_result', () => {
+    const body = {
+      messages: [{
+        role: 'user',
+        content: [{
+          type: 'tool_result',
+          tool_use_id: 'c1',
+          content: [{ type: 'text', text: '00000000: 646a 4577 6346 5a51 3539 7a4b 6d31 6e52' }],
+        }],
+      }],
+    };
+    const out = redactToolResultPayloads(body, { reqId: 1, method: 'POST', url: '/v1/messages', headers: {} });
+    expect(out).not.toBeNull();
+    const serialized = JSON.stringify(out);
+    expect(serialized).not.toContain('646a 4577');
+    expect(serialized).toContain('sha256');
+  });
+
+  it('returns null for a clean tool_result so the proxy keeps byte passthrough', () => {
+    const body = {
+      messages: [{
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 'c1', content: [{ type: 'text', text: 'ok' }] }],
+      }],
+    };
+    expect(redactToolResultPayloads(body, { reqId: 2, method: 'POST', url: '/v1/messages', headers: {} }))
+      .toBeNull();
   });
 });
