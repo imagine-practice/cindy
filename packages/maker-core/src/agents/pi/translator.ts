@@ -53,6 +53,10 @@ import {
   UNSUPPORTED_REQUEST_OPTION_REASON,
   isUnsupportedRequestOptionErrorMessage,
 } from '../shared/unsupported-request-option-error.js';
+import {
+  CONTENT_INSPECTION_REASON,
+  isContentInspectionErrorMessage,
+} from '../shared/content-inspection-error.js';
 import { isNetworkishErrorMessage, PI_GATEWAY_DROP_REASON } from '../shared/network-error.js';
 import { isContextModeDoctorToolName } from './context-mode-doctor-path.js';
 import type { PiRpcEvent } from './rpc-client.js';
@@ -99,7 +103,7 @@ interface PiPendingAssistantError {
   piCacheCompatibility?: import('./cache-compatibility.js').PiCacheCompatibility;
   errorStatus?: 401 | 429 | 529;
   usageLimit?: true;
-  reason?: typeof CONTEXT_OVERFLOW_REASON | typeof UPSTREAM_STREAM_INTERRUPTED_REASON | typeof PI_GATEWAY_DROP_REASON | typeof UNSUPPORTED_REQUEST_OPTION_REASON;
+  reason?: typeof CONTEXT_OVERFLOW_REASON | typeof UPSTREAM_STREAM_INTERRUPTED_REASON | typeof PI_GATEWAY_DROP_REASON | typeof UNSUPPORTED_REQUEST_OPTION_REASON | typeof CONTENT_INSPECTION_REASON;
 }
 
 interface PiThinkingBlock {
@@ -710,7 +714,11 @@ function piAssistantErrorOf(rawError: string): PiPendingAssistantError {
     sdkError: redactedError,
     ...(signals.errorStatus !== undefined ? { errorStatus: signals.errorStatus } : {}),
     ...(signals.usageLimit ? { usageLimit: true } : {}),
-    ...(isContextOverflowErrorMessage(redactedError)
+    ...(isContentInspectionErrorMessage(redactedError)
+      // 内容审核先于上下文超限判：这条错误同样带 `invalid_request_error` 外壳，
+      // 放到后面会被更宽的分支吃掉，用户就拿不到「剥离载荷」这条唯一出路。
+      ? { reason: CONTENT_INSPECTION_REASON }
+      : isContextOverflowErrorMessage(redactedError)
       ? { reason: CONTEXT_OVERFLOW_REASON }
       : isUnsupportedRequestOptionErrorMessage(redactedError)
         ? { reason: UNSUPPORTED_REQUEST_OPTION_REASON }

@@ -53,6 +53,7 @@ import { cn } from '@/lib/utils';
 import { isAppInteractionLocked } from '@/lib/appInteractionLock';
 import { isInvalidEncryptedContentError } from '@/utils/encryptedContentError';
 import { isNetworkishErrorMessage, parseReconnectAttemptMessage } from '@/utils/networkError';
+import { isContentInspectionErrorMessage } from '@/utils/contentInspectionError';
 import { isOverloadErrorMessage, parseOverloadRetryProgress } from '@/utils/overloadError';
 import {
   isStreamInterruptedErrorMessage,
@@ -363,6 +364,9 @@ export function ErrorBanner({
   // (老 daemon / Anthropic 侧 / 历史持久化错误行 —— 后者只有文案可用)。
   const isOverloadError = isOverloadErrorMessage(error, undefined, errorReason);
   const isStreamInterrupted = isStreamInterruptedErrorMessage(error, errorReason);
+  // 内容审核拒绝：触发审核的载荷留在会话转录里每轮重发，点 Retry 只会再撞同一条
+  // 规则。隐藏它，把用户推向唯一有效的两条出路（回退本轮 / 新建任务）。
+  const isContentInspectionError = isContentInspectionErrorMessage(error, errorReason);
   const overloadRetryProgress = parseOverloadRetryProgress(error);
   const errorReasonI18nKey = resolveErrorReasonI18nKey(errorReason, error);
   const toolLoopI18nKey =
@@ -427,6 +431,7 @@ export function ErrorBanner({
   // Gateway 错误则隐藏 Retry，改走切换到 Claude.ai 的明确恢复动作。
   const hideRetry = isMemberBudgetPaused(error) ||
     isSilentStopExhausted ||
+    isContentInspectionError ||
     isClaudeGatewayOpusPlanMismatch ||
     isGatewayProxyTokenInvalid ||
     isCodexThreadStale ||
@@ -605,6 +610,7 @@ export function ErrorBanner({
     isNetworkishError ||
     isOverloadError ||
     isStreamInterrupted ||
+    isContentInspectionError ||
     showUnwrappedRaw ||
     isCodexUsageLimitError ||
     terminalRateLimitRetryProgress ||

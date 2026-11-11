@@ -32,6 +32,10 @@ export type ProviderErrorCode =
   | 'ENDPOINT_NOT_FOUND'
   /** 上下文 / prompt 超长。 */
   | 'CONTEXT_TOO_LONG'
+  /** 上游对请求内容做了安全审核并确定性拒绝（百炼 `data_inspection_failed` /
+   * `sensitive_words_detected`）。不可重试：载荷留在历史里每轮重发，重试只会再撞
+   * 同一条规则。 */
+  | 'CONTENT_INSPECTION_REJECTED'
   /** 400 且命中「不认识的请求字段」类措辞：wire 兼容性问题（端点不完全兼容该协议）。 */
   | 'WIRE_INCOMPATIBLE'
   /** 5xx：上游服务端错误，可重试。 */
@@ -88,6 +92,24 @@ const WIRE_RE =
   /(unknown|unexpected|unsupported|extra|unrecognized).{0,16}(field|parameter|argument|inputs?|property|request param)|extra inputs are not permitted|invalid_request_error[^\n]{0,120}(field|param)/i;
 /** 鉴权失败措辞（个别网关 401 语义但回 400/403 文本）。 */
 const AUTH_RE = /invalid.{0,10}(api.?key|token)|authentication_error|unauthorized|api key not valid|令牌|鉴权失败/i;
+/**
+ * 内容安全审核拒绝措辞。与 maker-core `agents/shared/content-inspection-error.ts`、
+ * renderer `utils/contentInspectionError.ts` 同源，改 pattern 三处同步。
+ *
+ * 只认稳定错误码与整句官方措辞，每条都有真实错误体为证：
+ *  - `data_inspection_failed` + `Input text data may contain inappropriate content`
+ *    —— 百炼/DashScope 经 CN 网关，HTTP 400（2026-11-11 实测，Pi harness）。
+ *  - `sensitive_words_detected` —— #2792，HTTP **500** 形态。
+ *
+ * **未收录**（无本仓库真实错误体为证，取得样本后再加）：OpenAI / Azure 的
+ * `content_filter`、各家网关自造的 `content policy` 措辞。宁可暂时落 UNKNOWN，
+ * 也不凭推测放宽 pattern 去误伤无关失败。
+ *
+ * 故意不收裸 `inappropriate content` / `敏感词` / `content policy`：它们会出现在工具
+ * 输出与被审查的网页正文里，放宽会把无关失败误判成策略拒绝并隐藏本该有用的重试入口。
+ */
+const CONTENT_INSPECTION_RE =
+  /data_inspection_failed|sensitive_words_detected|input text data may contain inappropriate content/i;
 
 /**
  * 单独暴露「余额 / 配额耗尽」的文案判定，供只拿得到一条错误 message、拿不到
@@ -147,6 +169,13 @@ export function classifyProviderError(input: ProviderErrorInput): ProviderErrorC
     return { code: 'AUTH_FORBIDDEN', retryable: false, detail };
   }
   if (status === 429 || status === 529) return { code: 'RATE_LIMITED', retryable: true, detail };
+  // 内容审核在 400/422 与 5xx 分支**之前**判：同一条确定性拒绝在真实上游既回过 400
+  // （百炼）也回过 500（#2792），落到 5xx 分支会被归成 UPSTREAM_ERROR 而给出「稍后重试」
+  // 这种必败建议。鉴权与限流分支仍在它之前：401/402/403/429 的语义比内容审核更具体，
+  // 而且真实审核拒绝不会拿这些状态码。
+  if ((status === 400 || status === 422 || status >= 500) && CONTENT_INSPECTION_RE.test(body)) {
+    return { code: 'CONTENT_INSPECTION_REJECTED', retryable: false, detail };
+  }
   if (status === 404) {
     if (MODEL_NOT_FOUND_RE.test(body)) return { code: 'MODEL_NOT_FOUND', retryable: false, detail };
     return { code: 'ENDPOINT_NOT_FOUND', retryable: false, detail };

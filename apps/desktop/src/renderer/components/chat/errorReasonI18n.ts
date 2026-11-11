@@ -5,6 +5,7 @@ import {
 } from '../../../shared/claudeGatewayError';
 import { UPSTREAM_OVERLOAD_REASON } from '@/utils/overloadError';
 import { UPSTREAM_STREAM_INTERRUPTED_REASON } from '@/utils/streamInterruptError';
+import { CONTENT_INSPECTION_REASON } from '@/utils/contentInspectionError';
 
 /**
  * Stable maker-core error reason -> renderer i18n key.
@@ -45,6 +46,9 @@ export const ERROR_REASON_I18N_KEYS: Record<string, string> = {
   [REMOTE_COMPACT_ENCRYPTED_CONTENT_REASON]: 'chat.errorBanner.remoteCompactEncryptedContent',
   [UPSTREAM_OVERLOAD_REASON]: 'chat.errorBanner.overloadBusyNoRetry',
   [UPSTREAM_STREAM_INTERRUPTED_REASON]: 'chat.errorBanner.streamInterruptedNoRetry',
+  // 内容审核拒绝：重试必败（载荷每轮重发），文案必须给「把那段内容从历史去掉」这条
+  // 唯一出路，而不是「稍后重试」。
+  [CONTENT_INSPECTION_REASON]: 'chat.errorBanner.contentInspectionRejected',
   [CLAUDE_GATEWAY_OPUS_PLAN_MISMATCH_REASON]: 'chat.errorBanner.claudeGatewayOpusPlanMismatch',
   [CLAUDE_SUBSCRIPTION_OPUS_PLAN_MISMATCH_REASON]:
     'chat.errorBanner.claudeSubscriptionOpusPlanMismatch',

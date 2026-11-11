@@ -92,6 +92,51 @@ describe('classifyProviderError', () => {
     );
   });
 
+  it('内容审核拒绝归 CONTENT_INSPECTION_REJECTED，且不因 5xx 外壳变成可重试', () => {
+    // 2026-11-11 实踩（百炼经 CN 网关，Pi）：HTTP 400，内层被包在 `data: ` 里。
+    const bailian =
+      '{"message":"data: {\\"error\\":{\\"code\\":\\"data_inspection_failed\\",\\"param\\":null,'
+      + '\\"message\\":\\"Input text data may contain inappropriate content.\\",'
+      + '\\"type\\":\\"data_inspection_failed\\"},\\"id\\":\\"chatcmpl-00000000\\"}\\n\\n",'
+      + '"type":"invalid_request_error"}';
+    expect(classifyProviderError({ status: 400, bodyText: bailian })).toMatchObject({
+      code: 'CONTENT_INSPECTION_REJECTED',
+      retryable: false,
+    });
+    // #2792：同一条确定性拒绝回过 HTTP 500。归到 UPSTREAM_ERROR 会给用户
+    // 「稍后重试」这种必败建议，所以审核判定先于 status 分支。
+    expect(
+      classifyProviderError({
+        status: 500,
+        bodyText: 'sensitive_words_detected (request id: 202608150810385885953228268d9d6)',
+      }),
+    ).toMatchObject({ code: 'CONTENT_INSPECTION_REJECTED', retryable: false });
+    // 500 但没有审核措辞时仍走原有的可重试分支。
+    expect(classifyProviderError({ status: 500, bodyText: 'internal server error' })).toMatchObject({
+      code: 'UPSTREAM_ERROR',
+      retryable: true,
+    });
+  });
+
+  it('内容审核判定不吃掉相邻类别的 400', () => {
+    // 同为 400 + invalid_request_error 外壳，但原因不是内容：必须留在自己那类。
+    expect(
+      classifyProviderError({
+        status: 400,
+        bodyText: '{"error":{"type":"invalid_request_error","code":"context_length_exceeded",'
+          + '"message":"prompt is too long: 250000 tokens > 200000 maximum"}}',
+      }).code,
+    ).toBe('CONTEXT_TOO_LONG');
+    expect(
+      classifyProviderError({ status: 400, bodyText: 'Extra inputs are not permitted' }).code,
+    ).toBe('WIRE_INCOMPATIBLE');
+    // 限流不受影响。
+    expect(classifyProviderError({ status: 429, bodyText: 'rate_limit_exceeded' })).toMatchObject({
+      code: 'RATE_LIMITED',
+      retryable: true,
+    });
+  });
+
   it('网络层错误 → UPSTREAM_UNREACHABLE / TIMEOUT（均可重试）', () => {
     expect(classifyProviderError({ networkErrorCode: 'ECONNREFUSED' })).toMatchObject({
       code: 'UPSTREAM_UNREACHABLE',

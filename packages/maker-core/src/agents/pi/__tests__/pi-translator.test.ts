@@ -587,6 +587,51 @@ describe('pi translator', () => {
     ]);
   });
 
+  it('classifies a 百炼 content-inspection rejection as terminal, not transient (2026-11-11)', () => {
+    const ctx = createPiTranslateContext(noopLogger);
+    const { queue, events } = makeQueue();
+    translatePiEvent(ev({ type: 'agent_start' }), queue, ctx);
+    translatePiEvent(
+      ev({
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          content: [],
+          stopReason: 'error',
+          // 2026-11-11 实踩原文（request id 换成占位，形状保持）：内层被包在 `data: `
+          // 里，是流式响应的 SSE 错误帧。此前这条落 UNKNOWN，界面只剩「回复未完成」。
+          errorMessage:
+            '400: {"message":"data: {\\"error\\":{\\"code\\":\\"data_inspection_failed\\",\\"param\\":null,'
+            + '\\"message\\":\\"Input text data may contain inappropriate content.\\",'
+            + '\\"type\\":\\"data_inspection_failed\\"},\\"id\\":\\"chatcmpl-00000000-0000-0000-0000-000000000000\\"}\\n\\n",'
+            + '"type":"invalid_request_error"}',
+          usage: { input: 0, output: 0 },
+        },
+      }),
+      queue,
+      ctx,
+    );
+    translatePiEvent(ev({ type: 'agent_settled' }), queue, ctx);
+
+    expect(events.filter((event) => event.type === 'error')).toEqual([
+      expect.objectContaining({
+        source: 'pi',
+        data: expect.objectContaining({
+          isTerminal: true,
+          reason: 'content-inspection-rejected',
+        }),
+      }),
+    ]);
+    // 终态而非 transient：载荷每轮重发，重试只会再撞同一条规则，所以不得进自动重投，
+    // 且本轮以 failed 落定（不是 incomplete / 待续）。
+    expect(events.filter((event) => event.type === 'error')).toHaveLength(1);
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'done',
+      source: 'pi',
+      data: expect.objectContaining({ status: 'failed' }),
+    }));
+  });
+
   it.each([131064, 1000, undefined])('preserves normalized Pi reasoning usage (%s) without double counting', (reasoning) => {
     const ctx = createPiTranslateContext(noopLogger);
     const { queue, events } = makeQueue();

@@ -172,6 +172,56 @@ describe.each(SUPPORTED_LOCALES)('error presentation in %s', locale => {
     expect(screen.queryByText(locales[locale].chat.errorBanner.networkShowRaw)).toBeNull();
   });
 
+  // 内容审核拒绝（2026-11-11 实踩：百炼经 CN 网关，Pi）。活着的 ErrorBanner 与历史
+  // 持久化的 ErrorMessageCard 都必须给同一条本地化文案，并且**不提供 Retry**：触发审核的
+  // 载荷留在转录里每轮重发，原样重试必然再撞同一条规则。修前这条落 UNKNOWN，用户只看
+  // 到「回复未完成」加一坨原始 JSON，没有任何出路提示。
+  const inspectionBody =
+    '400: {"message":"data: {\\"error\\":{\\"code\\":\\"data_inspection_failed\\",\\"param\\":null,'
+    + '\\"message\\":\\"Input text data may contain inappropriate content.\\",'
+    + '\\"type\\":\\"data_inspection_failed\\"},\\"id\\":\\"chatcmpl-00000000\\"}\\n\\n",'
+    + '"type":"invalid_request_error"}';
+  const allLocales = Object.fromEntries(
+    Object.entries(locales).map(([lng, common]) => [lng, { translation: common }]),
+  );
+
+  it('gives a content-inspection rejection actionable copy and hides the doomed retry', async () => {
+    const i18n = createInstance();
+    await i18n.init({ lng: locale, fallbackLng: 'en', resources: allLocales });
+    render(<I18nextProvider i18n={i18n}><ErrorBanner error={inspectionBody}
+      errorReason="content-inspection-rejected" retryText={inspectionBody} onRetry={vi.fn()} onChooseComputer={vi.fn()} /></I18nextProvider>);
+    expect(screen.getByText(locales[locale].chat.errorBanner.contentInspectionRejected)).toBeTruthy();
+    expect(screen.queryByText(locales[locale].chat.errorBanner.replyFailed)).toBeNull();
+    // 上面显式传了 retryText，所以上层已经给了可重试入口；这里仍不得出现 Retry——
+    // 不传 retryText 的话这条断言会空过（按钮本来就恒不渲染，见 ErrorBanner 头部注释）。
+    expect(screen.queryByText(locales[locale].chat.errorBanner.retry)).toBeNull();
+  });
+
+  it('recognises a persisted content-inspection row that carries only the message text', async () => {
+    const i18n = createInstance();
+    await i18n.init({ lng: locale, fallbackLng: 'en', resources: allLocales });
+    render(<I18nextProvider i18n={i18n}><ErrorMessageCard kind="reply-error" message={inspectionBody} /></I18nextProvider>);
+    expect(screen.getByText(locales[locale].chat.errorBanner.contentInspectionRejected)).toBeTruthy();
+    expect(screen.queryByText(locales[locale].chat.errorBanner.replyFailed)).toBeNull();
+  });
+
+  it('has localized providerError copy for every classification code, so settings/toast never render a raw key', async () => {
+    // 与 apps/desktop/src/shared/providerErrors.ts 的 ProviderErrorCode 联合一一对应。
+    // 加新码时必须同步补这条列表与 12 个语言的 providerError.<code> 文案：
+    // 设置页与上游错误 toast 走的是 `t(`providerError.${code}`)` 动态键，缺文案就把
+    // 裸键名直接端给用户。
+    const CODES = [
+      'AUTH_INVALID', 'AUTH_FORBIDDEN', 'RATE_LIMITED', 'QUOTA_EXCEEDED', 'MODEL_NOT_FOUND',
+      'ENDPOINT_NOT_FOUND', 'CONTEXT_TOO_LONG', 'CONTENT_INSPECTION_REJECTED', 'WIRE_INCOMPATIBLE',
+      'UPSTREAM_ERROR', 'UPSTREAM_UNREACHABLE', 'TIMEOUT', 'UNKNOWN',
+    ] as const;
+    for (const code of CODES) {
+      const copy = locales[locale].providerError[code as keyof typeof locales[typeof locale]['providerError']];
+      expect(typeof copy).toBe('string');
+      expect((copy as string).trim().length).toBeGreaterThan(0);
+    }
+  });
+
   it.each(['REMOTE_LOCAL_ONLY_PROVIDER', 'DEVICE_LINK_MEDIA_TRANSFER_FAILED', 'DEVICE_LINK_MEDIA_ACCESS_DENIED', 'DEVICE_LINK_BUSY', 'MCP_APPROVAL_CONFIRMATION_TIMEOUT', 'SSH_HARNESS_SWITCH_UNSUPPORTED', 'MODEL_SELECTION_UNAVAILABLE', 'HARNESS_SWITCH_NOT_READY'])('preserves curated %s guidance and follows language changes', async code => {
     const i18n = createInstance();
     await i18n.init({ lng: locale, fallbackLng: 'en', resources: Object.fromEntries(Object.entries(locales).map(([lng, common]) => [lng, { translation: common }])) });

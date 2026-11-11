@@ -27,6 +27,7 @@ import {
   redactSensitiveText,
 } from '@cindy/maker-shared/error-redaction';
 import { isStreamInterruptedErrorMessage } from '@/utils/streamInterruptError';
+import { isContentInspectionErrorMessage } from '@/utils/contentInspectionError';
 import { chatRemoteErrorGuidanceKey } from '../../lib/autoReviewUnavailableGuidance';
 import { decodeRemoteErrorMessage, remoteErrorI18nKey } from '../../lib/makerChatStore';
 import { errorReasonI18nKey } from './errorReasonI18n';
@@ -66,6 +67,8 @@ export function ErrorMessageCard({
   const remoteGuidance = remoteKey && i18n.exists(remoteKey) ? t(remoteKey) : undefined;
   const i18nKey = errorReasonI18nKey(reason, decoded);
   const isStreamInterrupted = isStreamInterruptedErrorMessage(message, reason);
+  // 历史持久化的错误行只剩文案可用（reason 可能缺席），所以这里吃文本兜底判定。
+  const isContentInspection = isContentInspectionErrorMessage(message, reason);
   const isGatewayProxyTokenInvalid = isCindyGatewayProxyTokenInvalidError({
     reason,
     message: decoded,
@@ -91,6 +94,8 @@ export function ErrorMessageCard({
       ? t('chat.errorBanner.requestFormatError')
       : isStreamInterrupted
         ? t('chat.errorBanner.streamInterruptedNoRetry')
+        : isContentInspection
+          ? t('chat.errorBanner.contentInspectionRejected')
         : isGatewayProxyTokenInvalid
           ? t('chat.errorBanner.gatewayProxyTokenInvalidNoRetry')
           : (parsedRemoteKey?.startsWith('sharedTaskRecovery.') ? remoteGuidance : undefined)
