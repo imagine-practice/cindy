@@ -103,6 +103,10 @@ export function ProjectProgressSection({ projectId, refreshKey, onAccessLost, on
   const sequence = useRef(0);
   const current = useRef<ProjectProgressReadResult | null>(null);
   const paging = useRef(false);
+  const executionSequence = useRef(0);
+  const pendingRuntimeRefresh = useRef(false);
+  const scheduleRuntimeRefresh = useRef<(() => void) | undefined>(undefined);
+  const loadExecutionRef = useRef<() => Promise<void>>(async () => {});
   const valid = useCallback((ticket: number) => mounted.current && sequence.current === ticket
     && isDataOwnerGenerationCurrent(owner.current), []);
   const publish = (result: ProjectProgressReadResult) => {
@@ -116,6 +120,7 @@ export function ProjectProgressSection({ projectId, refreshKey, onAccessLost, on
     }
     current.current = result; setPage(result.historyPage);
     setState({ status: 'ready', projectId, items: result.items, history: result.history });
+    if (pendingRuntimeRefresh.current) scheduleRuntimeRefresh.current?.();
   };
   const fail = (error: unknown) => {
     const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
@@ -125,36 +130,63 @@ export function ProjectProgressSection({ projectId, refreshKey, onAccessLost, on
     } else setState({ status: 'error' });
   };
   // The callbacks deliberately close over this mounted project scope only.
+  loadExecutionRef.current = async () => {
+    const ticket=++executionSequence.current;
+    try {
+      const value=await readProjectWorkItemExecution({projectId});
+      if (!mounted.current || !isDataOwnerGenerationCurrent(owner.current) || ticket!==executionSequence.current) return;
+      if (value.projectId!==projectId) throw new Error('INVALID_PROJECT_SCOPE');
+      const next:Record<string,WorkItemExecutionEntry>={};
+      for (const entry of value.items) next[entry.sessionId]=entry;
+      setExecution(next);setExecutionUnavailable(false);
+    } catch {
+      if (!mounted.current || !isDataOwnerGenerationCurrent(owner.current) || ticket!==executionSequence.current) return;
+      setExecution({});setExecutionUnavailable(true);
+    }
+  };
   const loadRef = useRef<() => Promise<void>>(async () => {});
   loadRef.current = async () => {
     const ticket = ++sequence.current;
     paging.current = false; current.current = null; setPage(null); setState({ status: 'loading' });
     setLoadingMore(false); setMoreError(false);
     // Execution state is always re-read from main; nothing here is cached across loads.
-    const executionRead = readProjectWorkItemExecution({ projectId }).then(
-      value => ({ ok: true as const, value }),
-      error => ({ ok: false as const, error }),
-    );
+    const executionRead = loadExecutionRef.current();
     try {
       const result = await readProjectProgress({ projectId });
       if (!valid(ticket)) return;
       assertProject(result, projectId); publish(result);
     } catch (error) { if (valid(ticket)) fail(error); }
-    const projection = await executionRead;
-    if (!valid(ticket)) return;
-    if (!projection.ok || projection.value.projectId !== projectId) {
-      // The entry itself is missing; keep progress visible and say so instead of guessing.
-      setExecution({}); setExecutionUnavailable(true);
-      return;
-    }
-    const next: Record<string, WorkItemExecutionEntry> = {};
-    for (const entry of projection.value.items) next[entry.sessionId] = entry;
-    setExecution(next); setExecutionUnavailable(false);
+    await executionRead;
   };
   useEffect(() => {
     mounted.current = true; void loadRef.current();
-    return () => { mounted.current = false; sequence.current += 1; };
+    return () => { mounted.current = false; sequence.current += 1; executionSequence.current += 1; };
   }, [projectId, refreshKey]);
+  useEffect(() => {
+    let closed=false, scheduled=false;
+    const currentScope=()=>!closed && mounted.current && isDataOwnerGenerationCurrent(owner.current);
+    const schedule=()=>{
+      if (scheduled || !currentScope()) return;
+      scheduled=true;
+      queueMicrotask(()=>{
+        scheduled=false;
+        if (!currentScope()) return;
+        pendingRuntimeRefresh.current=false;
+        void loadExecutionRef.current();
+      });
+    };
+    scheduleRuntimeRefresh.current=schedule;
+    const changed=(raw:unknown)=>{
+      if (!currentScope() || !raw || typeof raw!=='object' || !('sessionId' in raw) || typeof raw.sessionId!=='string') return;
+      if (!current.current) { pendingRuntimeRefresh.current=true;return; }
+      if (current.current.items.some(item=>item.sessionId===raw.sessionId)) schedule();
+    };
+    const maker=window.electronAPI?.maker;
+    const unsubscribes=[maker?.onInputProjection?.(changed),maker?.onStatusChanged?.(changed),
+      maker?.onInteractionRequest?.(changed),maker?.onInteractionDismissed?.(changed)];
+    return ()=>{closed=true;pendingRuntimeRefresh.current=false;scheduleRuntimeRefresh.current=undefined;
+      for (const unsubscribe of unsubscribes) unsubscribe?.();};
+  }, [projectId]);
   const more = async () => {
     const base = current.current;
     if (!base || paging.current || !base.historyPage.hasMore || base.historyPage.nextBeforeEventId === null) return;

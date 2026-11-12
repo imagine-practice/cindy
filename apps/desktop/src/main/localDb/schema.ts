@@ -2937,6 +2937,8 @@ export const projectWorkItemExecutions = sqliteTable('project_work_item_executio
   admissionKind: text('admission_kind', { enum: ['explicit', 'automatic'] }),
   consentWorkingDir: text('consent_working_dir'),
   consentConfigHash: text('consent_config_hash'),
+  // Captured once for new requests; legacy receipts are never backfilled.
+  executionBody: text('execution_body'),
   phase: text('phase', { enum: ['admitted', 'dispatching', 'settled', 'unknown'] }).notNull(),
   resultJson: text('result_json'),
   createdAt: integer('created_at').notNull(),

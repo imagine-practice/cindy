@@ -43,6 +43,8 @@ export type OwnerTurnDispatch = (
  *   - `setSessionModel` 复用既有的 SET_MODEL 语义（只改后续回合路由，历史不动）。
  */
 export interface OwnerTurnHost extends OwnerTurnDispatch {
+  /** Host-consumed inputs in the current native turn; queued IDs are excluded. */
+  readActiveInputClientIds?(sessionId: string): readonly string[];
   readPendingConfirmation?(sessionId:string): import('../../shared/projectWorkItemExecutionRequest').WorkItemFollowupPending | null;
   /** 会话是否在跑回合；undefined = 该宿主没有这项信息，调用方回落到真实列。 */
   readSessionBusy?(sessionId: string): boolean | undefined;

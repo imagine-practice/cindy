@@ -31,6 +31,7 @@ export interface ProjectWorkItemExecutionScope extends ProjectWorkItemStartInput
 }
 export interface ProjectWorkItemExecutionView {
   fingerprint: string;
+  executionBody: string | null;
   delegationId: string;
   inputId: string;
   existing: boolean;

@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { PROJECT_AUTOMATION_REL_SEGMENTS } from '../../../../shared/projectAutomationPaths.js';
+import { untrustedJsonBlock } from '../../../../shared/untrustedPrompt.js';
 import type {
   ProjectWorkItemExecutionRequest,
   ProjectWorkItemExecutionResult,
@@ -85,6 +86,21 @@ const config = [
   'assignee_id',
 ];
 
+/** Intent hashes keep their old meaning. This separate versioned fingerprint
+ * binds the saved objective and exact captured user-message bytes to admission.
+ * Legacy null bodies keep the legacy fingerprint for read-only reconciliation.
+ */
+function executionFingerprint(facts: { fingerprint: string; taskObjective: string | null }, body: string | null): string {
+  return body === null ? facts.fingerprint : JSON.stringify({
+    version: 2, config: facts.fingerprint, taskObjective: facts.taskObjective, bodyDigest: digest(body),
+  });
+}
+function executionBody(p: ProjectWorkItemExecutionRequest, facts: { title: string; taskObjective: string | null }): string {
+  return 'Execute the saved objective of this existing work item in this task. Work-item data and the forwarding request:\n'
+    + untrustedJsonBlock({ projectId: p.projectId, sessionId: p.sessionId, title: facts.title,
+      taskObjective: facts.taskObjective, request: p.objective.trim() });
+}
+
 /** Standalone real SQLite core. Central named-operation registration is not part of this slice. */
 export function runProjectWorkItemExecutionTransaction(
   db: Database.Database,
@@ -105,9 +121,6 @@ export function runProjectWorkItemExecutionTransaction(
         return fail('INVALID_ARGS');
       const checked = readExecutionFacts(db, p);
       if (!checked.ok) return checked;
-      const fingerprint = checked.fingerprint;
-      if (p.action !== 'inspect' && p.fingerprint !== fingerprint)
-        return fail('SESSION_CONFIG_CHANGED');
       const key = digest(p.requestId);
       const body = digest(
         JSON.stringify([
@@ -124,14 +137,22 @@ export function runProjectWorkItemExecutionTransaction(
       const id = `project-workitem:${digest(JSON.stringify([p.sessionId, p.targetBotId, key]))}`;
       const old = db
         .prepare(
-          `SELECT id,input_id AS inputId,body_digest AS body,phase,result_json AS receipt,
+          `SELECT id,input_id AS inputId,body_digest AS body,phase,result_json AS receipt,fingerprint,
+      execution_body AS executionBody,
       admission_kind AS admissionKind,consent_working_dir AS consentWorkingDir,consent_config_hash AS consentConfigHash
       FROM project_work_item_executions WHERE session_id=? AND executor_bot_id=? AND key_digest=?`,
         )
         .get(p.sessionId, p.targetBotId, key) as
-        | (AdmissionRow & { id: string; inputId: string; body: string; phase: string; receipt: string | null })
+        | (AdmissionRow & { id: string; inputId: string; body: string; phase: string; receipt: string | null; fingerprint: string; executionBody: string | null })
         | undefined;
       if (old && old.body !== body) return fail('IDEMPOTENCY_CONFLICT');
+      const capturedBody = old ? old.executionBody : executionBody(p, checked);
+      const fingerprint = executionFingerprint(checked, capturedBody);
+      if (p.action !== 'inspect' && p.fingerprint !== fingerprint) return fail('SESSION_CONFIG_CHANGED');
+      if (old && (p.action === 'claim' || p.action === 'verify')) {
+        if (capturedBody === null) return fail('EXECUTION_CONTENT_UNAVAILABLE');
+        if (fingerprint !== old.fingerprint) return fail('SESSION_CONFIG_CHANGED');
+      }
       const inputId = old?.inputId ?? `project-workitem-input:${digest(id)}`;
       if (db.prepare("SELECT 1 FROM messages WHERE session_id=? AND client_id=? AND role='message_tombstone'").get(p.sessionId, inputId))
         return fail('INPUT_DELIVERY_CANCELLED');
@@ -141,6 +162,7 @@ export function runProjectWorkItemExecutionTransaction(
       if (admission && !admission.ok) return admission;
       const view = {
         fingerprint,
+        executionBody: capturedBody,
         delegationId: id,
         inputId,
         existing: !!old,
@@ -167,8 +189,8 @@ export function runProjectWorkItemExecutionTransaction(
           `INSERT INTO project_work_item_executions
         (id,project_id,session_id,binding_revision,executor_bot_id,caller_session_id,actor_kind,actor_id,
          key_digest,body_digest,fingerprint,input_id,phase,created_at,updated_at,
-         admission_kind,consent_working_dir,consent_config_hash)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'admitted',?,?,?,?,?)`,
+         admission_kind,consent_working_dir,consent_config_hash,execution_body)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'admitted',?,?,?,?,?,?)`,
         ).run(
           id,
           p.projectId,
@@ -187,6 +209,7 @@ export function runProjectWorkItemExecutionTransaction(
           admission.basis.admissionKind,
           admission.basis.consentWorkingDir,
           admission.basis.consentConfigHash,
+          capturedBody,
         );
         return { ok: true, view: { ...view, phase: 'admitted' }, newlyAdmitted: true };
       }
@@ -226,7 +249,7 @@ export function runProjectWorkItemExecutionTransaction(
 function readExecutionFacts(
   db: Database.Database,
   p: Omit<import('../../../../shared/projectWorkItemExecution.js').ProjectWorkItemExecutionScope, 'automatic'>,
-): { ok: true; fingerprint: string } | { ok: false; errorCode: string; message: string } {
+): { ok: true; fingerprint: string; title: string; taskObjective: string | null } | { ok: false; errorCode: string; message: string } {
   const member = db.prepare(
     "SELECT 1 FROM project_members WHERE project_id=? AND subject_kind=? AND subject_id=? AND role IN ('owner','member')",
   );
@@ -276,7 +299,8 @@ function readExecutionFacts(
     ...config.map((k) => target[k] ?? null),
     caller.clearedAt ?? null,
   ]);
-  return { ok: true as const, fingerprint };
+  return { ok: true as const, fingerprint, title: typeof target.title === 'string' ? target.title : '',
+    taskObjective: typeof target.task_objective === 'string' ? target.task_objective : null };
 }
 
 /** Restored queues resolve host-owned evidence from SQLite, never from model metadata. */
@@ -290,7 +314,7 @@ export function validateProjectWorkItemDelivery(
         .prepare(
           `SELECT project_id AS projectId,session_id AS sessionId,binding_revision AS expectedBindingRevision,
       executor_bot_id AS targetBotId,caller_session_id AS callerSessionId,actor_kind AS actorKind,actor_id AS actorId,
-      fingerprint,phase,admission_kind AS admissionKind,consent_working_dir AS consentWorkingDir,
+      fingerprint,phase,execution_body AS executionBody,admission_kind AS admissionKind,consent_working_dir AS consentWorkingDir,
       consent_config_hash AS consentConfigHash FROM project_work_item_executions WHERE session_id=? AND input_id=?`,
         )
         .get(input.sessionId, input.inputId) as
@@ -303,6 +327,7 @@ export function validateProjectWorkItemDelivery(
             actorKind: 'account' | 'bot';
             actorId: string;
             fingerprint: string;
+            executionBody: string | null;
             phase: string;
           })
         | undefined;
@@ -318,10 +343,11 @@ export function validateProjectWorkItemDelivery(
         objective: 'delivery',
       });
       if (!checked.ok) return checked;
-      if (checked.fingerprint !== row.fingerprint)
+      if (executionFingerprint(checked, row.executionBody) !== row.fingerprint)
         return { ok: false as const, errorCode: 'SESSION_CONFIG_CHANGED' };
       const admission = readAdmission(db, row.callerSessionId, false, row);
-      return admission.ok ? { ok: true as const } : admission;
+      if (!admission.ok) return admission;
+      return row.executionBody === null ? { ok: false as const, errorCode: 'EXECUTION_CONTENT_UNAVAILABLE' } : { ok: true as const };
     })
     .immediate();
 }

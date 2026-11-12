@@ -1,4 +1,4 @@
-// Joint DB tier: canonical 0000..0154 migration template, then real 0155..0160 per
+// Joint DB tier: canonical 0000..0154 migration template, then real 0155..0161 per
 // isolated case. No hand-created ledger or fixture SQL is executed here.
 import { copyFileSync, mkdirSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
@@ -27,7 +27,7 @@ export function createJointFollowupDb(tempRoot: string, filename = ':memory:'): 
   if (!template) {
     const before = join(tempRoot, 'joint-through-0154'); mkdirSync(before, { recursive: true });
     const migrations = listMigrations(drizzleDir);
-    if (migrations.at(-1)?.seq !== 160) throw new Error('Canonical joint chain must end at 0160');
+    if (migrations.at(-1)?.seq !== 161) throw new Error('Canonical joint chain must end at 0161');
     for (const migration of migrations.filter(m => m.seq <= 154)) {
       copyFileSync(migration.sqlPath, join(before, migration.fileName));
       if (migration.tsScriptPath) {
@@ -52,9 +52,9 @@ export function createJointFollowupDb(tempRoot: string, filename = ':memory:'): 
   const db = openJointFollowupDb(file);
   try {
     const result = runMigrationReplay(db, { drizzleDir });
-    if (result.currentVersion !== 154 || result.applied.length !== 6 || result.applied[0].seq !== 155
-      || result.finalVersion !== 160 || !db.prepare('SELECT seq FROM migration_history WHERE seq=155').get()) {
-      throw new Error('Each joint fixture must upgrade through production 0155..0160');
+    if (result.currentVersion !== 154 || result.applied.length !== 7 || result.applied[0].seq !== 155
+      || result.finalVersion !== 161 || !db.prepare('SELECT seq FROM migration_history WHERE seq=155').get()) {
+      throw new Error('Each joint fixture must upgrade through production 0155..0161');
     }
     return db;
   } catch (error) { db.close(); throw error; }

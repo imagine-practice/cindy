@@ -59,6 +59,59 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+// Runtime state is not a project metadata mutation. The already-open page must
+// reread execution/pending capabilities from Main when its task starts or asks.
+it('refreshes execution and permission actions from task runtime events without a project mutation',async()=>{
+  const progress=result();progress.items[0].sessionStatus='active';h.progress.mockResolvedValue(progress);
+  let entry:import('../../../../shared/projectWorkItemExecutionRequest').WorkItemExecutionEntry={
+    sessionId:'task-0',executor:{botId:'bot',displayName:'Bot'},state:'requested',canRequest:false,
+    unavailableReason:null,requestKey:'original',requestRound:0,requestedAt:1,delegationId:null,
+    followup:{busy:false,pending:null,model:null,actions:{
+      continue:{allowed:false,reason:'NO_TERMINAL_EXECUTION'},approve:{allowed:false,reason:'NO_PENDING_CONFIRMATION'},
+      queue:{allowed:false,reason:'NOT_BUSY'},model:{allowed:false,reason:'MODEL_UNAVAILABLE'}}}};
+  const execution=vi.fn(async()=>({projectId:'p1',items:[entry]}));
+  let inputEvent:((p:{sessionId:string})=>void)|undefined;
+  let pendingEvent:((p:{sessionId:string})=>void)|undefined;
+  let dismissedEvent:typeof pendingEvent;
+  const unsubscribed=vi.fn();
+  Object.defineProperty(window,'electronAPI',{configurable:true,value:{
+    localDb:{projectProgress:{read:h.progress},projectExecution:{read:execution}},
+    maker:{onInputProjection:(fn:typeof inputEvent)=>{inputEvent=fn;return unsubscribed;},
+      onInteractionRequest:(fn:typeof pendingEvent)=>{pendingEvent=fn;return unsubscribed;},
+      onInteractionDismissed:(fn:typeof pendingEvent)=>{dismissedEvent=fn;return unsubscribed;}}}});
+  const page=render(<ProjectDetailPage />);
+  const approve=await screen.findByRole('button',{name:key('execution.followup.action.approve')}) as HTMLButtonElement;
+  expect(approve.disabled).toBe(true);
+  const initial=execution.mock.calls.length;
+  entry={...entry,state:'running',followup:{...entry.followup,busy:true,
+    pending:{requestId:'exec',kind:'permission',summary:'Allow exec',raisedAt:2},
+    actions:{...entry.followup.actions,continue:{allowed:true,reason:null},approve:{allowed:true,reason:null}}}};
+  await act(async()=>{inputEvent?.({sessionId:'task-0'});pendingEvent?.({sessionId:'task-0'});});
+  await waitFor(()=>expect(approve.disabled).toBe(false));
+  expect(execution.mock.calls.length).toBeGreaterThan(initial);
+  expect(h.progress).toHaveBeenCalledOnce();
+  entry={...entry,followup:{...entry.followup,pending:null,actions:{...entry.followup.actions,approve:{allowed:false,reason:'NO_PENDING_CONFIRMATION'}}}};
+  await act(async()=>dismissedEvent?.({sessionId:'task-0'}));
+  await waitFor(()=>expect(approve.disabled).toBe(true));
+  const after=execution.mock.calls.length;
+  await act(async()=>inputEvent?.({sessionId:'other-project-task'}));
+  expect(execution).toHaveBeenCalledTimes(after);
+  // A retained runtime callback and its pending result cannot cross an owner
+  // generation, even when the project ID is unchanged.
+  const old=pending<{projectId:string;items:typeof entry[]}>();
+  execution.mockReturnValueOnce(old.promise);
+  await act(async()=>inputEvent?.({sessionId:'task-0'}));
+  h.generation++;
+  await act(async()=>old.resolve({projectId:'p1',items:[{...entry,followup:{...entry.followup,actions:{...entry.followup.actions,approve:{allowed:true,reason:null}}}}]}));
+  expect(approve.disabled).toBe(true);
+  const afterEpoch=execution.mock.calls.length;
+  await act(async()=>inputEvent?.({sessionId:'task-0'}));
+  expect(execution).toHaveBeenCalledTimes(afterEpoch);
+  const retained=inputEvent;page.unmount();
+  await act(async()=>retained?.({sessionId:'task-0'}));
+  expect(execution).toHaveBeenCalledTimes(afterEpoch);expect(unsubscribed).toHaveBeenCalled();
+});
+
 it('reads through the actual service, counts 120 full items and deduplicates 101 history entries by cursor', async () => {
   const first = result('p1', 120, Array.from({ length: 100 }, (_, i) => event(101 - i)));
   first.historyPage = { limit: 100, hasMore: true, nextBeforeEventId: 2 };

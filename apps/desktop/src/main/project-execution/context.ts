@@ -13,10 +13,11 @@ import type {
   WorkItemExecutionState,
   WorkItemExecutionUnavailableReason,
 } from '../../shared/projectWorkItemExecutionRequest';
-import { WORK_ITEM_EXECUTION_CLIENT_ID_PREFIX } from '../../shared/projectWorkItemExecutionRequest';
+import { WORK_ITEM_EXECUTION_CLIENT_ID_PREFIX, WORK_ITEM_FOLLOWUP_CLIENT_ID_PREFIX, type WorkItemFollowupAction } from '../../shared/projectWorkItemExecutionRequest';
 import { getCurrentDbClientSnapshot, type CurrentDbClientSnapshot } from '../localDb/client/current';
 import { activeOwnerScopeKey, isAppSessionBoundaryPending } from '../appSessionState';
 import { throwIpcError } from '../utils/ipcValidate';
+import { getOwnerTurnDispatch } from '../maker-ipc/ownerTurnDispatch';
 
 /** 终态：允许用户显式重新发起（生成下一个 round 的新键）。 */
 export const TERMINAL_DELEGATION_STATUSES = new Set([
@@ -46,6 +47,13 @@ export interface WorkItemRow {
 }
 
 export interface DelegationRow {
+  /** Present only for V2: live state must belong to this exact consumed input. */
+  inputId?: string;
+  /** Exact consumed initial/follow-up input proven by the current host and history. */
+  activeInputId?: string;
+  queuedInput?: number;
+  executorBotId?: string;
+  bindingRevision?: number;
   id: string;
   childSessionId: string;
   status: string;
@@ -69,6 +77,54 @@ export interface DeliveryRow {
   sessionId: string;
   clientId: string;
   createdAt: number;
+}
+
+export const DEFAULT_CONTINUE_TEXT = 'Continue this work item from its current real state.';
+
+export function workItemFollowupIntentDigest(input: {
+  projectId: string; sessionId: string; botId: string; action: WorkItemFollowupAction; text: string | null;
+}): string {
+  return createHash('sha256').update(JSON.stringify([
+    input.projectId,input.sessionId,input.botId,input.action,input.text??'',
+  ])).digest('hex').slice(0,32);
+}
+
+/** Follow-ups use the ordinary owner-input namespace. Its digest, actual user
+ * row and current binding/assignee prove scope; a prefix or model metadata alone
+ * does not. A new primary request still queued cannot borrow an older turn.
+ */
+async function readActiveExecutionInput(client: CurrentDbClientSnapshot['client'], projectId: string, row: DelegationRow): Promise<string | undefined> {
+  if (!row.inputId || row.acceptedAt===null || row.queuedInput) return;
+  const active=getOwnerTurnDispatch()?.readActiveInputClientIds?.(row.childSessionId)??[];
+  if (!active.length) return;
+  const bound=await client.queryOne<{ok:number}>(`SELECT 1 AS ok FROM sessions
+    WHERE id=? AND project_id=? AND project_binding_revision=? AND assignee_kind='bot' AND assignee_id=?`,
+    [row.childSessionId,projectId,row.bindingRevision,row.executorBotId]);
+  if (!bound) return;
+  if (active.includes(row.inputId)) return row.inputId;
+  for (const clientId of active) {
+    if (!clientId.startsWith(WORK_ITEM_FOLLOWUP_CLIENT_ID_PREFIX)) continue;
+    const message=await client.queryOne<{content:string}>(`SELECT m.content FROM messages m JOIN sessions s ON s.id=m.session_id
+      WHERE m.session_id=? AND m.client_id=? AND m.role='user' AND m.rewind_at IS NULL
+        AND (s.cleared_at IS NULL OR m.created_at>s.cleared_at)
+        AND m.rowid>(SELECT rowid FROM messages WHERE session_id=m.session_id AND client_id=? AND role='user')
+        AND NOT EXISTS(SELECT 1 FROM agent_input_queue_snapshots q,json_each(CASE WHEN json_valid(q.payload) THEN q.payload ELSE '[]' END) j
+          WHERE q.session_id=m.session_id AND CASE WHEN j.type='object' THEN json_extract(j.value,'$.clientId') ELSE NULL END=m.client_id)`,
+      [row.childSessionId,clientId,row.inputId]);
+    if (!message) continue;
+    let text=message.content;
+    try { const parsed:unknown=JSON.parse(text);
+      if (parsed && typeof parsed==='object' && 'text' in parsed && typeof parsed.text==='string') text=parsed.text;
+    } catch { /* Plain historical message content. */ }
+    for (const action of ['continue','queue'] as const) {
+      const texts: (string|null)[]=[text];
+      if (text===DEFAULT_CONTINUE_TEXT) texts.push(null);
+      for (const intentText of texts) {
+        const digest=workItemFollowupIntentDigest({projectId,sessionId:row.childSessionId,botId:row.executorBotId!,action,text:intentText});
+        if (new RegExp(`^${escapeForRegExp(WORK_ITEM_FOLLOWUP_CLIENT_ID_PREFIX+digest+':'+action+':')}(\\d+)(:retry:.+)?$`).test(clientId)) return clientId;
+      }
+    }
+  }
 }
 
 /**
@@ -175,7 +231,10 @@ export async function readDelegations(
     ORDER BY d.created_at DESC`,
     [projectId],
   );
-  const current=await client.query<DelegationRow>(`SELECT e.id,s.id AS childSessionId,
+  const queuedInput=`EXISTS(SELECT 1 FROM agent_input_queue_snapshots q,json_each(CASE WHEN json_valid(q.payload) THEN q.payload ELSE '[]' END) j
+        WHERE q.session_id=s.id AND CASE WHEN j.type='object' THEN json_extract(j.value,'$.clientId') ELSE NULL END=e.input_id)`;
+  const current=await client.query<DelegationRow>(`SELECT e.id,e.input_id AS inputId,s.id AS childSessionId,
+    e.executor_bot_id AS executorBotId,e.binding_revision AS bindingRevision,${queuedInput} AS queuedInput,
     CASE WHEN cancelled.id IS NOT NULL OR json_extract(e.result_json,'$.ok')=0 THEN 'failed'
       WHEN EXISTS(SELECT 1 FROM agent_input_queue_snapshots q,json_each(CASE WHEN json_valid(q.payload) THEN q.payload ELSE '[]' END) j
         WHERE q.session_id=s.id AND CASE WHEN j.type='object' THEN json_extract(j.value,'$.clientId') ELSE NULL END=e.input_id) THEN 'queued'
@@ -196,6 +255,14 @@ export async function readDelegations(
       AND (s.cleared_at IS NULL OR u.created_at>s.cleared_at)
     WHERE s.project_id=? AND s.project_binding_revision=e.binding_revision AND s.status<>'deleted'
     ORDER BY e.created_at DESC`,[projectId]);
+  const host=getOwnerTurnDispatch();
+  for (const row of current) {
+    if (row.status==='failed') continue;
+    row.activeInputId=await readActiveExecutionInput(client,projectId,row);
+    if (!row.activeInputId) continue;
+    if (host?.readPendingConfirmation?.(row.childSessionId)) row.status='waiting';
+    else if (host?.readSessionBusy?.(row.childSessionId)===true) row.status='running';
+  }
   return [...current,...history];
 }
 

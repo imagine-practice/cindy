@@ -1,0 +1,1 @@
+ALTER TABLE `project_work_item_executions` ADD `execution_body` text;

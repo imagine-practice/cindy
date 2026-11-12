@@ -39,7 +39,6 @@ import {
   WORK_ITEM_FOLLOWUP_CLIENT_ID_PREFIX,
   WORK_ITEM_FOLLOWUP_TEXT_MAX,
 } from '../../shared/projectWorkItemExecutionRequest';
-import { createHash } from 'node:crypto';
 import type { CurrentDbClientSnapshot } from '../localDb/client/current';
 import { throwIpcError } from '../utils/ipcValidate';
 import { createLogger } from '../logger';
@@ -55,6 +54,8 @@ import {
   readWorkItemRows,
   workItemRequestKeyPrefixDigest,
   workItemUnavailableReason,
+  workItemFollowupIntentDigest,
+  DEFAULT_CONTINUE_TEXT,
   type DelegationRow,
   type DeliveryRow,
   type WorkItemRow,
@@ -80,26 +81,7 @@ type Client = CurrentDbClientSnapshot['client'];
  * 静默吞掉、界面却显示已发送」。它也与入口的摘要（`workItemRequestKeyPrefixDigest`）
  * 分开：入口那两个键只看 (项目, 工作项, 伙伴)，执行状态的对账仍用那一个。
  */
-export function workItemFollowupIntentDigest(input: {
-  projectId: string;
-  sessionId: string;
-  botId: string;
-  action: WorkItemFollowupAction;
-  text: string | null;
-}): string {
-  return createHash('sha256')
-    .update(
-      JSON.stringify([
-        input.projectId,
-        input.sessionId,
-        input.botId,
-        input.action,
-        input.text ?? '',
-      ]),
-    )
-    .digest('hex')
-    .slice(0, 32);
-}
+export { workItemFollowupIntentDigest } from './context';
 
 /** 键形状：`project-workitem-followup:v1:<意图摘要>:<动作>:<round>`。 */
 export function workItemFollowupKey(
@@ -207,7 +189,10 @@ export async function readFollowupProjection(input: {
   /** 入口的不可用原因集合（无处理人等）；后续动作只区分「有原因 / 没原因」。 */
   unavailableReason: WorkItemExecutionUnavailableReason | null;
 }): Promise<WorkItemFollowupProjection> {
-  const pending = getOwnerTurnDispatch()?.readPendingConfirmation?.(input.row.sessionId) ?? null;
+  const host=getOwnerTurnDispatch();
+  const currentInput = !input.delegation?.inputId || (input.delegation.activeInputId!==undefined
+    && host?.readActiveInputClientIds?.(input.row.sessionId).includes(input.delegation.activeInputId));
+  const pending = currentInput ? host?.readPendingConfirmation?.(input.row.sessionId) ?? null : null;
   const busy = await readBusy(input.client, input.row.sessionId);
   const kind = agentKind(input.row.sessionAgentKind);
   const model = kind && input.row.sessionModel
@@ -300,9 +285,6 @@ function continuePrompt(input: {
     ...(input.ownerText ? [input.ownerText] : []),
   ].join('\n');
 }
-
-/** 没有原话时落库/展示的那句话；也是幂等校验里比对的期望值。 */
-const DEFAULT_CONTINUE_TEXT = 'Continue this work item from its current real state.';
 
 /**
  * 读回某个键已落库的那条 user 消息文本。读不到（已被 rewind / 清空 / 还没落库）时
@@ -461,8 +443,13 @@ export async function requestProjectWorkItemFollowup(
     await assertProjectMember(authority.client,intent.projectId,authority.userId);
     const current=await readWorkItemRows(authority.client,intent.projectId);
     authority.assertCurrent();
-    if (!current.some(item=>item.sessionId===row.sessionId && item.bindingRevision===row.bindingRevision))
+    if (!current.some(item=>item.sessionId===row.sessionId && item.bindingRevision===row.bindingRevision
+      && item.assigneeKind===row.assigneeKind && item.assigneeId===row.assigneeId
+      && workItemUnavailableReason(item,isCompanionShadowed)===null))
       return fail('CONFIRMATION_STALE',null,'The work-item binding changed');
+    if (delegation?.inputId && (!delegation.activeInputId
+      || !host.readActiveInputClientIds?.(row.sessionId).includes(delegation.activeInputId)))
+      return fail('CONFIRMATION_STALE',null,'The current execution input changed');
     const freshPending=host.readPendingConfirmation?.(row.sessionId);
     if (!freshPending || freshPending.requestId!==pending.requestId)
       return fail('CONFIRMATION_STALE','NO_PENDING_CONFIRMATION','The pending confirmation was already handled or is gone');

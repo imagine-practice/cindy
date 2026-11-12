@@ -65,6 +65,7 @@ let dispatch: ReturnType<typeof vi.fn>;
 let busy: Set<string>;
 let queuedIds: Set<string>;
 let pending: Map<string, {requestId:string;kind:'permission'|'ask_user_question'|'plan_review';summary:string;raisedAt:number}>;
+let activeInputs: Map<string,string[]>;
 let approve: ReturnType<typeof vi.fn>;
 let setSessionModel: ReturnType<typeof vi.fn>;
 
@@ -122,6 +123,7 @@ beforeEach(() => {
   busy = new Set();
   queuedIds = new Set();
   pending = new Map();
+  activeInputs = new Map();
   db.exec(`DELETE FROM project_work_item_execution_approvals; DELETE FROM project_work_item_executions; DELETE FROM messages; DELETE FROM bot_task_followup_requests; DELETE FROM bot_delegations;
     DELETE FROM bot_profiles; DELETE FROM project_members; DELETE FROM projects; DELETE FROM sessions;
     INSERT INTO projects(id,name,owner_id,status,created_at,updated_at) VALUES ('p','Fixture','owner','active',1,1);
@@ -179,6 +181,7 @@ beforeEach(() => {
         return queuedIds.has(clientId) ? 3 : null;
       },
       readPendingConfirmation: (sessionId:string)=>pending.get(sessionId)??null,
+      readActiveInputClientIds: (sessionId:string)=>activeInputs.get(sessionId)??[],
       approveInteraction: approve,
       setSessionModel,
     }),
@@ -529,7 +532,32 @@ describe('S work-item execution follow-ups', () => {
 });
 
 // V2 request identity wins over unrelated Session turn timestamps (acceptance correction).
+it('reads a consumed V2 input from the live busy/permission host before turn timestamps catch up',async()=>{
+  db.prepare(`INSERT INTO project_work_item_executions
+    (id,project_id,session_id,binding_revision,executor_bot_id,caller_session_id,actor_kind,actor_id,key_digest,body_digest,fingerprint,input_id,phase,result_json,created_at,updated_at)
+    VALUES ('v2-live','p','w1',3,'bot1','c1','account','owner','live-key','body','fingerprint','project-workitem-input:live','settled',?,10,11)`)
+    .run(JSON.stringify({ok:true,queued:true}));
+  db.exec(`INSERT INTO messages(id,client_id,session_id,role,content,created_at)
+    VALUES ('live-user','project-workitem-input:live','w1','user','saved objective',12);`);
+  busy.add('w1');
+  activeInputs.set('w1',['project-workitem-input:live']);
+  pending.set('w1',{requestId:'exec-wait',kind:'permission',summary:'Allow exec',raisedAt:13});
+  expect(await item()).toMatchObject({state:'running',followup:{busy:true,
+    pending:{requestId:'exec-wait',kind:'permission'},actions:{approve:{allowed:true},continue:{allowed:true}}}});
+  expect(await followup({projectId:'p',sessionId:'w1',action:'approve'})).toMatchObject({ok:true,approval:{requestId:'exec-wait',executionState:'running'}});
+  expect(approve).toHaveBeenCalledExactlyOnceWith({sessionId:'w1',requestId:'exec-wait',kind:'permission'});
+  expect((await item()).followup).toMatchObject({pending:null,actions:{approve:{allowed:false}}});
+  // A pending interaction in a different turn cannot authorize this consumed input.
+  activeInputs.set('w1',['other-turn']);
+  pending.set('w1',{requestId:'other-wait',kind:'permission',summary:'Other turn',raisedAt:14});
+  expect(await item()).toMatchObject({state:'accepted',followup:{pending:null,actions:{approve:{allowed:false}}}});
+  expect(await followup({projectId:'p',sessionId:'w1',action:'approve'})).toMatchObject({ok:false});
+  expect(approve).toHaveBeenCalledTimes(1);
+});
+
 it('keeps the new request pending after an older turn ends while its own input is still queued',async()=>{
+  activeInputs.set('w1',['older']);busy.add('w1');
+  pending.set('w1',{requestId:'older-permission',kind:'permission',summary:'Older turn',raisedAt:1});
   db.prepare(`INSERT INTO project_work_item_executions
     (id,project_id,session_id,binding_revision,executor_bot_id,caller_session_id,actor_kind,actor_id,key_digest,body_digest,fingerprint,input_id,phase,result_json,created_at,updated_at)
     VALUES ('v2','p','w1',3,'bot1','c1','account','owner','key','body','fingerprint','project-workitem-input:new','settled',?,10,11)`)
@@ -537,7 +565,7 @@ it('keeps the new request pending after an older turn ends while its own input i
   db.prepare('INSERT INTO agent_input_queue_snapshots(session_id,payload,updated_at) VALUES (?,?,?)')
     .run('w1',JSON.stringify([{clientId:'older'},{clientId:'project-workitem-input:new'}]),12);
   db.exec("UPDATE sessions SET active_turn_started_at=1,last_turn_ended_at=20 WHERE id='w1'");
-  expect((await item()).state).toBe('accepted');
+  expect(await item()).toMatchObject({state:'accepted',followup:{pending:null,actions:{approve:{allowed:false}}}});
   db.exec("DELETE FROM agent_input_queue_snapshots WHERE session_id='w1'");
   // Even an empty snapshot is not proof of delivery/completion: no matching user/response.
   expect((await item()).state).toBe('accepted');
@@ -552,4 +580,41 @@ it('keeps the new request pending after an older turn ends while its own input i
   expect((await item()).state).toBe('completed');
   db.exec("UPDATE messages SET role='error' WHERE id='new-result'");
   expect((await item()).state).toBe('failed');
+});
+
+// The first execution ID is not the only valid input: owner continue/queue
+// creates a new host key. Only a consumed row scoped to the current binding and
+// executor may expose that turn's confirmation. Controlled host, real DB/IPC.
+it.each(['continue','queue'] as const)('allows the current consumed %s input to own its permission confirmation',async(action)=>{
+  db.prepare(`INSERT INTO project_work_item_executions
+    (id,project_id,session_id,binding_revision,executor_bot_id,caller_session_id,actor_kind,actor_id,key_digest,body_digest,fingerprint,input_id,phase,result_json,created_at,updated_at)
+    VALUES ('v2-followup','p','w1',3,'bot1','c1','account','owner','original-key','body','fingerprint','project-workitem-input:original','settled',?,10,11)`)
+    .run(JSON.stringify({ok:true,queued:true}));
+  db.exec(`INSERT INTO messages(id,client_id,session_id,role,content,created_at) VALUES
+    ('first-user','project-workitem-input:original','w1','user','saved objective',12),
+    ('first-answer','first-answer','w1','assistant','done',13);
+    UPDATE sessions SET active_turn_started_at=12,last_turn_ended_at=14 WHERE id='w1';`);
+  if (action==='queue') busy.add('w1');
+  const result=await followup({projectId:'p',sessionId:'w1',action,text:'Only reply CONTINUE_OK'}) as import('../../../shared/projectWorkItemExecutionRequest').ProjectWorkItemFollowupResult;
+  expect(result).toMatchObject({ok:true,sessionId:'w1',action});
+  if (!result.ok || !result.requestKey) throw Error('No follow-up key');
+  if (action==='queue') {
+    busy.delete('w1');
+    const input=dispatch.mock.calls[0][0];
+    await dispatch(input); // Controlled host consumes the queued input, unchanged.
+  }
+  activeInputs.set('w1',[result.requestKey]);busy.add('w1');
+  pending.set('w1',{requestId:'followup-permission',kind:'permission',summary:'Current continuation',raisedAt:1_700_000_000_001});
+  // Even before asynchronous turn timestamps are written, exact consumed input
+  // evidence must override the previous turn's completed projection.
+  expect(await item()).toMatchObject({state:'running',followup:{pending:{requestId:'followup-permission'},actions:{approve:{allowed:true}}}});
+  const content=db.prepare('SELECT content FROM messages WHERE client_id=?').get(result.requestKey) as {content:string};
+  db.prepare("UPDATE messages SET content='different instruction' WHERE client_id=?").run(result.requestKey);
+  expect((await item()).followup.pending).toBeNull();
+  db.prepare('UPDATE messages SET content=? WHERE client_id=?').run(content.content,result.requestKey);
+  db.exec("UPDATE sessions SET assignee_id='replacement' WHERE id='w1'");
+  expect((await item()).followup.pending).toBeNull();
+  db.exec("UPDATE sessions SET assignee_id='bot1' WHERE id='w1'");
+  expect(await followup({projectId:'p',sessionId:'w1',action:'approve'})).toMatchObject({ok:true,approval:{requestId:'followup-permission',executionState:'running'}});
+  expect(approve).toHaveBeenCalledExactlyOnceWith({sessionId:'w1',requestId:'followup-permission',kind:'permission'});
 });

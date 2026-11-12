@@ -115,6 +115,7 @@ export function createProjectWorkItemExecutionService(deps: {
         const claimed = await tx({ ...scope, action: 'claim', fingerprint, now: deps.now() });
         if (!claimed.ok) return claimed;
         if (!claimed.claimed) return fail('FOLLOWUP_OUTCOME_UNKNOWN');
+        if (!admitted.view.executionBody) return fail('EXECUTION_CONTENT_UNAVAILABLE');
         markUnknown = () => tx({ ...scope, action: 'unknown', fingerprint, now: deps.now() });
         const validate = async () => {
           if (deps.runtime.isExecutionPaused(input.sessionId))
@@ -126,7 +127,7 @@ export function createProjectWorkItemExecutionService(deps: {
         const delivered = await deps.sendToSession({
           targetSessionId: input.sessionId,
           dispatcherSessionId: input.callerSessionId,
-          message: input.objective.trim(),
+          message: admitted.view.executionBody,
           deliveryClientId: admitted.view.inputId,
           forceQueue: true,
           resumeWithStoredPermissionMode: true,

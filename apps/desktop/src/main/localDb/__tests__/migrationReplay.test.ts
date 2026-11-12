@@ -276,10 +276,20 @@ describeMigrationReplay('migration replay', () => {
           'old-key','old-body','old-config','old-input','settled','{"queued":true}',1,2)`);
       const old = db.prepare('SELECT * FROM project_work_item_executions').get();
       const session = db.prepare('SELECT * FROM sessions').get();
-      expect(runMigrationReplay(db, { drizzleDir: drizzleDir() }).applied.map(m => m.seq)).toEqual([160]);
+      const consentMigration=listMigrations(drizzleDir()).find(m=>m.seq===160)!;
+      copyFileSync(consentMigration.sqlPath,path.join(before.dir,consentMigration.fileName));
+      expect(runMigrationReplay(db, { drizzleDir: before.dir }).applied.map(m => m.seq)).toEqual([160]);
       expect(db.prepare('SELECT * FROM project_work_item_executions').get()).toEqual({
         ...old as object, admission_kind: null, consent_working_dir: null, consent_config_hash: null,
       });
+      expect(db.prepare('SELECT * FROM sessions').get()).toEqual(session);
+      db.exec(`INSERT INTO messages(id,session_id,client_id,role,content,created_at)
+        VALUES ('legacy-user','old-work','old-input','user','"original delivered text"',3)`);
+      const old160=db.prepare('SELECT * FROM project_work_item_executions').get();
+      const oldMessages=db.prepare('SELECT * FROM messages').all();
+      expect(runMigrationReplay(db,{drizzleDir:drizzleDir()}).applied.map(m=>m.seq)).toEqual([161]);
+      expect(db.prepare('SELECT * FROM project_work_item_executions').get()).toEqual({...old160 as object,execution_body:null});
+      expect(db.prepare('SELECT * FROM messages').all()).toEqual(oldMessages);
       expect(db.prepare('SELECT * FROM sessions').get()).toEqual(session);
       expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     } finally { cleanup(); before.cleanup(); }
@@ -305,7 +315,7 @@ describeMigrationReplay('migration replay', () => {
         const result = runMigrationReplay(db, { drizzleDir: drizzleDir(), currentVersion: 124 });
         expect(result.applied.map((migration) => migration.seq)).toEqual([
           125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142,
-          143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160,
+          143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161,
         ]);
         expect(columnNames(db, 'chat_cache_rooms')).toEqual(['namespace', 'room_id', 'state', 'version']);
         expect(columnNames(db, 'sessions')).toContain('scheduled_model_baseline');
@@ -495,7 +505,7 @@ describeMigrationReplay('migration replay', () => {
       db.exec(readFileSync(path.join(drizzleDir(), '0045_living_namor.sql'), 'utf-8'));
       const result = runMigrationReplay(db, { drizzleDir: drizzleDir(), currentVersion: 129 });
       expect(result.applied.map((migration) => migration.seq)).toEqual([
-        130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160,
+        130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161,
       ]);
       expect(columnNames(db, 'sessions')).toContain('notifications_muted');
       // 存量任务全部回填为「未静音」：升级不能替用户少发提醒。
@@ -1025,7 +1035,7 @@ describeMigrationReplay('project/material/B1 upgrade', () => {
         .map(table => db.prepare(table === 'material_contexts' ? 'SELECT id,work_item_id,purpose,refs_json,created_by_kind,created_by_id,created_at FROM material_contexts' : 'SELECT * FROM ' + table).all());
       const old = snapshot();
       const result = runMigrationReplay(db, { drizzleDir: drizzleDir() });
-      expect(result.applied.map(m => m.seq)).toEqual([151, 152, 153, 154, 155, 156, 157, 158, 159, 160]);
+      expect(result.applied.map(m => m.seq)).toEqual([151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161]);
       expect(snapshot()).toEqual(old);
       expect(db.prepare('SELECT project_binding_revision FROM sessions').pluck().get()).toBe(0);
       expect(columnNames(db, 'session_pr_refs')).toEqual(expect.arrayContaining(['provider', 'host']));
@@ -1187,7 +1197,7 @@ describeMigrationReplay('R1 legacy reference adoption', () => {
       expect(columnNames(db,'material_contexts')).not.toContain('binding_revision');
       expect(db.prepare("SELECT value FROM migration_meta WHERE key='schema_version'").pluck().get()).toBe('151');
       db.exec('DROP TRIGGER fail_r1');
-      expect(runMigrationReplay(db, { drizzleDir: drizzleDir() }).applied.map(m => m.seq)).toEqual([152,153,154,155,156,157,158,159,160]);
+      expect(runMigrationReplay(db, { drizzleDir: drizzleDir() }).applied.map(m => m.seq)).toEqual([152,153,154,155,156,157,158,159,160,161]);
       expect(db.prepare('SELECT * FROM material_versions ORDER BY id').all()).toEqual(oldVersions);
       expect(db.prepare('SELECT * FROM materials ORDER BY id').all()).toEqual(oldMaterials);
       expect(db.prepare('SELECT refs_json,project_id,binding_revision FROM material_contexts').get()).toEqual({
@@ -1247,7 +1257,7 @@ describeMigrationReplay('project/group local link upgrade and durable replay', (
       expect(db.prepare("SELECT value FROM migration_meta WHERE key='schema_version'").pluck().get()).toBe('152');
       expect(db.prepare('SELECT seq FROM migration_history WHERE seq=153').get()).toBeUndefined();
       db.exec('DROP TABLE project_group_links');
-      expect(runMigrationReplay(db,{drizzleDir:drizzleDir()}).applied.map(m=>m.seq)).toEqual([153,154,155,156,157,158,159,160]);
+      expect(runMigrationReplay(db,{drizzleDir:drizzleDir()}).applied.map(m=>m.seq)).toEqual([153,154,155,156,157,158,159,160,161]);
       expect(db.prepare('SELECT COUNT(*) FROM project_group_links').pluck().get()).toBe(0);
       expect(db.prepare('SELECT COUNT(*) FROM project_group_link_requests').pluck().get()).toBe(0);
       const group={endpoint:'https://chat.example/Case/API',roomId:'aaaaaaaa-1111-4111-8111-111111111111'};
@@ -1308,7 +1318,7 @@ describeMigrationReplay('material dispatch upgrade and durable recovery', () => 
       expect(db.prepare('SELECT seq FROM migration_history WHERE seq=154').get()).toBeUndefined();
       expect(db.prepare("SELECT value FROM migration_meta WHERE key='schema_version'").pluck().get()).toBe('153');
       db.exec('DROP TABLE material_dispatch_messages');
-      expect(runMigrationReplay(db,{drizzleDir:drizzleDir()}).applied.map(m=>m.seq)).toEqual([154,155,156,157,158,159,160]);
+      expect(runMigrationReplay(db,{drizzleDir:drizzleDir()}).applied.map(m=>m.seq)).toEqual([154,155,156,157,158,159,160,161]);
       db.prepare("INSERT INTO sessions(id,title,created_at,updated_at) VALUES ('task','private title',1,1)").run();
       runProjectsTransaction(db,{action:'create',actor,newId:'p',now:1,input:{name:'private project',owner:actor}});
       runProjectsTransaction(db,{action:'bindSession',actor,sessionId:'task',projectId:'p'});
@@ -1432,7 +1442,7 @@ describeMigrationReplay('frozen follow-up ledger schema and persistence', () => 
       expect(db.prepare("SELECT value FROM migration_meta WHERE key='schema_version'").pluck().get()).toBe('154');
       expect(snapshot()).toEqual(old);
       db.exec('DROP INDEX bot_task_followup_requests_input_id_unique; DROP TABLE followup_index_collision');
-      expect(runMigrationReplay(db,{drizzleDir:drizzleDir()}).applied.map(m=>m.seq)).toEqual([155,156,157,158,159,160]);
+      expect(runMigrationReplay(db,{drizzleDir:drizzleDir()}).applied.map(m=>m.seq)).toEqual([155,156,157,158,159,160,161]);
       expect(snapshot()).toEqual(old.map((items, index) => index === 1 ? items.map(row => ({ ...(row as Record<string, unknown>), task_objective: null })) : items));expect(rows(db)).toEqual([]);
       for(const phase of ['admitted','dispatching','unknown','settled'])insert(db,{key_digest:phase,input_id:phase+'-original-input',phase,
         native_accepted_at:phase==='dispatching'?1100:null,result_json:phase==='settled'?'{"status":"queued","inputId":"settled-original-input","run":3}':null});
