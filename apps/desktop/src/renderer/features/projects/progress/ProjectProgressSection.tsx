@@ -139,6 +139,11 @@ export function ProjectProgressSection({ projectId, refreshKey, onAccessLost, on
       const next:Record<string,WorkItemExecutionEntry>={};
       for (const entry of value.items) next[entry.sessionId]=entry;
       setExecution(next);setExecutionUnavailable(false);
+      setExecutionNotice(notice => {
+        if (!notice || (notice.key !== 'requested' && notice.key !== 'alreadyRequested')) return notice;
+        const latest = next[notice.sessionId];
+        return latest && latest.state !== 'none' && latest.state !== 'requested' ? null : notice;
+      });
     } catch {
       if (!mounted.current || !isDataOwnerGenerationCurrent(owner.current) || ticket!==executionSequence.current) return;
       setExecution({});setExecutionUnavailable(true);

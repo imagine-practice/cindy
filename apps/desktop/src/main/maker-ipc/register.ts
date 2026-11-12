@@ -13389,6 +13389,7 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
 
   const welcomeDispatchReceipts = createQueuedDispatchReceipts();
   const dispatchBotSessionMessage = async (params: {
+    forceQueue?: true;
     autoReviewUserText?: AgentInputQueuedMessage['autoReviewUserText'];
     targetSessionId: string;
     dispatcherSessionId?: string;

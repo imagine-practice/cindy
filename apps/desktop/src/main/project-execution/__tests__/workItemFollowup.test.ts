@@ -20,9 +20,13 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { eq,and } from 'drizzle-orm';
+import type { InteractionRequest,InteractionDecision } from '@cindy/maker-core';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createBetterSqliteDatabase } from '../../localDb/betterSqliteFactory';
 import { runMigrationReplay } from '../../localDb/migrationRunner';
+import { messages as messagesTable,sessions as sessionsTable,botSessionLinks } from '../../localDb/schema';
 import { setCurrentDbClient, clearCurrentDbClient } from '../../localDb/client/current';
 import type { DbClient } from '../../localDb/client/DbClient';
 import {
@@ -31,7 +35,10 @@ import {
   WORK_ITEM_FOLLOWUP_CLIENT_ID_PREFIX,
 } from '../../../shared/projectWorkItemExecutionRequest';
 import { registerProjectWorkItemExecutionIpc } from '../entry';
-import { setOwnerTurnDispatch } from '../../maker-ipc/ownerTurnDispatch';
+import { setOwnerTurnDispatch,getOwnerTurnDispatch } from '../../maker-ipc/ownerTurnDispatch';
+import { AgentInputCoordinator } from '../../maker-ipc/agent-input-coordinator';
+import { botTaskDispatchHarness,wireNativeWorkItemHost } from '../../maker-ipc/__tests__/sendToSessionHarness';
+import { saveAgentInputQueueSnapshot,loadAgentInputQueueSnapshot,getPersistedInputClientIds,awaitAgentInputQueueSnapshotPersistence } from '../../localDb/agentInputQueueSnapshots';
 
 const h = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => Promise<unknown>>(),
@@ -187,11 +194,98 @@ beforeEach(() => {
     }),
   );
   client = {
+    drizzle:drizzle(db),
     query: async (sql: string, params: unknown[] = []) => db.prepare(sql).all(...params),
     queryOne: async (sql: string, params: unknown[] = []) => db.prepare(sql).get(...params),
     exec: async (sql: string, params: unknown[] = []) => db.prepare(sql).run(...params),
   } as unknown as DbClient;
   setCurrentDbClient(client, 'owner');
+});
+
+// Regression from real CN 8a: idle continue bypassed the coordinator, so native
+// permission existed while Main's project read denied it. Execute register's
+// actual dispatch/queue/interaction closures with a real coordinator and SQLite;
+// only the native provider and OS services are controlled (no real command).
+it.each(['idle','busy'] as const)('retains input identity and native approval through the production %s follow-up route',async(mode)=>{
+  db.prepare(`INSERT INTO project_work_item_executions
+    (id,project_id,session_id,binding_revision,executor_bot_id,caller_session_id,actor_kind,actor_id,key_digest,body_digest,fingerprint,input_id,phase,result_json,created_at,updated_at)
+    VALUES ('v2-native','p','w1',3,'bot1','c1','account','owner','native-key','body','fingerprint','project-workitem-input:original','settled',?,10,11)`)
+    .run(JSON.stringify({ok:true,queued:true}));
+  db.exec(`INSERT INTO messages(id,client_id,session_id,role,content,created_at) VALUES
+    ('native-first','project-workitem-input:original','w1','user','saved objective',12),
+    ('native-answer','native-answer','w1','assistant','done',13);
+    UPDATE sessions SET active_turn_started_at=12,last_turn_ended_at=14 WHERE id='w1';`);
+  let running=mode==='busy';
+  let listener:((request:InteractionRequest)=>Promise<InteractionDecision>)|null=null;
+  let raisedResolve!:()=>void;
+  const raised=new Promise<void>(resolve=>{raisedResolve=resolve;});
+  let decision:Promise<InteractionDecision>|undefined;
+  const native={id:'w1',agentKind:'codex',workDir:'/fixture/work',permissionMode:'ask',
+    isTurnRunning:()=>running,
+    setInteractionListener:(value:typeof listener)=>{listener=value;},
+    send:vi.fn(async(_message:unknown,opts:{onAccepted?:()=>Promise<void>;onDispatching?:()=>void})=>{
+      await opts.onAccepted?.();opts.onDispatching?.();running=true;
+      db.prepare("UPDATE sessions SET active_turn_started_at=? WHERE id='w1'").run(Date.now());
+      if (!listener)throw Error('Native interaction listener not wired');
+      decision=listener({kind:'permission',requestId:'codex:fixture:4',toolUseId:'exec-fixture',toolName:'exec',
+        input:{command:'Get-Location'},title:'Allow command?',description:'Read current directory'});
+      raisedResolve();return {accepted:true};
+    })};
+  const writeUser=async(sessionId:string,user:{clientId:string;content:unknown})=>{
+    db.prepare("INSERT INTO messages(id,session_id,client_id,role,content,created_at) VALUES (?,?,?,'user',?,?)")
+      .run(`native-${user.clientId}`,sessionId,user.clientId,typeof user.content==='string'?user.content:JSON.stringify(user.content),Date.now());
+  };
+  const coordinator=new AgentInputCoordinator({isTurnRunning:()=>running,hasPendingInteraction:()=>!!getOwnerTurnDispatch()?.readPendingConfirmation?.('w1'),
+    getAgentKind:()=> 'codex',getSdkSessionId:async()=>undefined,steerToAgent:async()=>{},abortSession:async()=>{},
+    createUserMessage:async()=>{throw Error('Unexpected optimistic write');},touchUserSend:async()=>{},emitProjection:()=>{},
+    loadQueueSnapshot:loadAgentInputQueueSnapshot,getPersistedClientIds:getPersistedInputClientIds,persistQueueSnapshot:saveAgentInputQueueSnapshot,
+    sendToAgent:async(sessionId,message,_createOpts,opts)=>{
+      opts.onVendorTurnReserved?.(1);
+      const sent=await native.send(message,{onAccepted:async()=>{
+        const user=opts.persistUserMessage!;user.onPersisting?.();await writeUser(sessionId,user);await user.onPersisted?.();
+      }});
+      if(!sent.accepted)throw Error('Controlled native provider rejected dispatch');
+      return {kind:'session-dispatch',source:'test',dispatched:true};
+    }});
+  const host=botTaskDispatchHarness({w1:{permissionMode:'ask',planModeEnabled:false}},{w1:native},{
+    inputCoordinator:coordinator,getDbClient:()=>({drizzle:drizzle(db)}),
+    messages:messagesTable,sessions:sessionsTable,botSessionLinks,
+    eq,and,
+    createDbMessage:writeUser,
+  });
+  const wired=wireNativeWorkItemHost(host,coordinator,setOwnerTurnDispatch,{
+    buildCreateOptsForQueuedSession:async()=>({agentKind:'codex',model:'model-a',permissionMode:'ask',workingDir:'/fixture/work',
+      effort:'medium',userPrompt:'',makerMemoryEnabled:true,displayReasoning:'summarized'}),
+  });
+  wired.installDesktopInteractionListener(native);
+  try {
+    const result=await followup({projectId:'p',sessionId:'w1',action:mode==='idle'?'continue':'queue',text:'Run Get-Location once'}) as import('../../../shared/projectWorkItemExecutionRequest').ProjectWorkItemFollowupResult;
+    expect(result,JSON.stringify(result)).toMatchObject({ok:true});if(!result.ok)throw Error(result.code);
+    if(mode==='busy') {
+      expect(coordinator.getProjection('w1').pendingQueue).toHaveLength(1);
+      expect(wired.getPendingInteractionsForSession('w1')).toEqual([]);
+      running=false;coordinator.wakeSession('w1','prior-turn-ended');
+    }
+    await vi.waitFor(()=>expect(native.send).toHaveBeenCalledOnce(),{timeout:1000,interval:10});
+    await raised;
+    expect(wired.getPendingInteractionsForSession('w1')).toMatchObject([{request:{kind:'permission',requestId:'codex:fixture:4'}}]);
+    expect.soft(result).toMatchObject({replayed:false,wakeKind:'queued'});
+    expect.soft(coordinator.getActiveInputClientIds('w1')).toContain(result.requestKey);
+    expect.soft(await item()).toMatchObject({state:'running',followup:{pending:{requestId:'codex:fixture:4'},actions:{approve:{allowed:true}}}});
+    expect(await followup({projectId:'p',sessionId:'w1',action:mode==='idle'?'continue':'queue',text:'Run Get-Location once'}))
+      .toMatchObject({ok:true,replayed:true,requestKey:result.requestKey});
+    expect(native.send).toHaveBeenCalledOnce();
+    expect(await followup({projectId:'p',sessionId:'w1',action:'approve'})).toMatchObject({ok:true,approval:{requestId:'codex:fixture:4'}});
+    expect(await decision).toMatchObject({kind:'permission',behavior:'allow'});
+    expect(wired.getPendingInteractionsForSession('w1')).toEqual([]);
+    expect((await item()).followup.actions.approve.allowed).toBe(false);
+    expect(native.send).toHaveBeenCalledOnce();expect(native.permissionMode).toBe('ask');
+    expect(db.prepare('SELECT COUNT(*) n FROM project_work_item_executions').get()).toEqual({n:1});
+  } finally {
+    getOwnerTurnDispatch()?.approveInteraction?.({sessionId:'w1',requestId:'codex:fixture:4',kind:'permission'});
+    await decision;running=false;coordinator.onTurnEvent('w1','done');
+    await awaitAgentInputQueueSnapshotPersistence('w1');
+  }
 });
 afterEach(() => clearCurrentDbClient());
 afterAll(() => {
@@ -213,6 +307,7 @@ describe('S work-item execution follow-ups', () => {
       wakeKind: string;
     };
     expect(result).toMatchObject({ ok: true, requestRound: 0, wakeKind: 'created' });
+    expect(dispatch.mock.calls[0][0]).not.toHaveProperty('forceQueue');
     expect(result.requestKey).toMatch(
       new RegExp(`^${WORK_ITEM_FOLLOWUP_CLIENT_ID_PREFIX}[a-f0-9]{32}:continue:0$`),
     );

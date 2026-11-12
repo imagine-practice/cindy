@@ -23,6 +23,8 @@ export interface OwnerTurnDispatchInput {
    * 主人代发属于同一类来源，因此固定要求该策略。
    */
   resumeWithStoredPermissionMode: true;
+  /** V2 work-item follow-ups retain consumed-input identity even for idle targets. */
+  forceQueue?: true;
   authorizationGuard?: { validate(): Promise<void>; assertCurrent(): void };
 }
 

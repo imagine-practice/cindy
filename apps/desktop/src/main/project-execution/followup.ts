@@ -559,6 +559,7 @@ export async function requestProjectWorkItemFollowup(
       // 任务里看到的是主人自己的话；没有原话时说明这是「继续」。
       persistedContent: intent.text ?? DEFAULT_CONTINUE_TEXT,
       resumeWithStoredPermissionMode: true,
+      ...(delegation?.inputId ? { forceQueue: true as const } : {}),
       authorizationGuard: {
         validate: async () => authority.assertCurrent(),
         assertCurrent: authority.assertCurrent,

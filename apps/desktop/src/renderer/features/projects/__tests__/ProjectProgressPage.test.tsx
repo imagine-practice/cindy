@@ -112,6 +112,35 @@ it('refreshes execution and permission actions from task runtime events without 
   expect(execution).toHaveBeenCalledTimes(afterEpoch);expect(unsubscribed).toHaveBeenCalled();
 });
 
+// The delivery receipt is transient. A later Main projection must retire its
+// "waiting for acceptance" notice even if no project metadata changed.
+it.each([
+  ['retires','running',true,false],
+  ['retires','completed',true,true],
+  ['retains the failure in','completed',false,false],
+] as const)('%s the request notice when runtime state becomes %s',async(_label,state,ok,replayed)=>{
+  const progress=result();progress.items[0].sessionStatus='active';h.progress.mockResolvedValue(progress);
+  let entry:import('../../../../shared/projectWorkItemExecutionRequest').WorkItemExecutionEntry={
+    sessionId:'task-0',executor:{botId:'bot',displayName:'Bot'},state:'none',canRequest:true,
+    unavailableReason:null,requestKey:null,requestRound:0,requestedAt:null,delegationId:null,
+    followup:{busy:false,pending:null,model:null,actions:{continue:{allowed:false,reason:'NO_TERMINAL_EXECUTION'},
+      approve:{allowed:false,reason:'NO_PENDING_CONFIRMATION'},queue:{allowed:false,reason:'NOT_BUSY'},model:{allowed:false,reason:'MODEL_UNAVAILABLE'}}}};
+  let event:((payload:{sessionId:string})=>void)|undefined;
+  const request=vi.fn(async()=>{entry={...entry,state:ok?'requested':'none',canRequest:!ok};return {ok,replayed,code:'DISPATCH_FAILED'};});
+  Object.defineProperty(window,'electronAPI',{configurable:true,value:{
+    localDb:{projectProgress:{read:h.progress},projectExecution:{read:async()=>({projectId:'p1',items:[entry]}),request}},
+    maker:{onStatusChanged:(fn:typeof event)=>{event=fn;return ()=>{};}}}});
+  render(<ProjectDetailPage />);
+  fireEvent.click(await screen.findByRole('button',{name:key('execution.action')}));
+  const notice=key(`execution.notice.${ok?(replayed?'alreadyRequested':'requested'):'dispatchFailed'}`);
+  await screen.findByText(notice);
+  entry={...entry,state};
+  await act(async()=>event?.({sessionId:'task-0'}));
+  await screen.findByText(key(`execution.state.${state}`));
+  if(ok)expect(screen.queryByText(notice)).toBeNull();else expect(screen.getByText(notice)).toBeTruthy();
+  expect(request).toHaveBeenCalledOnce();
+});
+
 it('reads through the actual service, counts 120 full items and deduplicates 101 history entries by cursor', async () => {
   const first = result('p1', 120, Array.from({ length: 100 }, (_, i) => event(101 - i)));
   first.historyPage = { limit: 100, hasMore: true, nextBeforeEventId: 2 };
