@@ -4,7 +4,7 @@
  * the original request. Preserve the Session, reject stale binding/ACL and never
  * infer permission to dispatch from a durable pending/unknown receipt. No provider.
  */
-import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -12,10 +12,13 @@ import type Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { createDbClient, createInprocDbClient, type DbClient } from '../client/DbClient';
+import { createProjectWorkItemExecutionService } from '../../maker-ipc/projectWorkItemExecutionService';
+import { setCurrentDbClient,clearCurrentDbClient } from '../client/current';
 import { buildDbWorkerBundle } from './dbWorkerTestUtils';
 import { createJointFollowupDb, openJointFollowupDb } from '../ipc/__tests__/jointFollowupMigration.fixture';
 import type { ProjectWorkItemExecutionRequest, ProjectWorkItemExecutionResult } from '../../../shared/projectWorkItemExecution';
 
+vi.mock('../../appSessionState',()=>({activeOwnerScopeKey:()=> 'fixture-owner',isAppSessionBoundaryPending:()=>false,getActiveAppSession:()=>({dataOwnerId:'owner'})}));
 const h = vi.hoisted(() => ({ db: undefined as Database.Database | undefined }));
 vi.mock('../index', () => ({ getRawDb: () => h.db, getDrizzle: () => drizzle(h.db!), ensureReady: async () => ({ ready: true }) }));
 vi.mock('../../logger', () => ({ createLogger: () => ({ debug() {}, info() {}, warn() {}, error() {} }) }));
@@ -40,12 +43,15 @@ for (const mode of ['inproc', 'file-worker'] as const) {
     const file = path.join(dir, `${mode}.sqlite`); copyFileSync(template, file);
     const db = openJointFollowupDb(file); h.db = db;
     db.exec(`INSERT INTO sessions(id,title,source,status,working_dir,permission_mode,created_at,updated_at)
-      VALUES ('caller','Bot lane','bot','active','/fixture/caller','ask',1,1),('work','Original title','desktop','active','/fixture/work','ask',1,1);
+      VALUES ('caller','Bot lane','bot','active','/fixture/caller','ask',1,1),('work','Original title','desktop','active','/fixture/work','ask',1,1),
+      ('work2','Existing task two','desktop','active','/fixture/work2','ask',1,1),
+      ('work3','Existing task three','desktop','active','/fixture/work3','bypassPermissions',1,1),
+      ('work4','Automation target','desktop','active','/fixture/work4','ask',1,1);
       INSERT INTO bot_profiles(id,display_name,canonical_session_id,created_at,updated_at) VALUES ('executor','Executor','caller',1,1);
       INSERT INTO bot_session_links(id,bot_id,session_id,role,created_at) VALUES ('lane','executor','caller','canonical',1);
       INSERT INTO projects(id,name,owner_id,status,created_at,updated_at) VALUES ('p','Project','owner','active',1,1);
       INSERT INTO project_members VALUES ('p','account','owner','owner',1),('p','bot','executor','member',1);
-      UPDATE sessions SET project_id='p',project_binding_revision=7 WHERE id='work';`);
+      UPDATE sessions SET project_id='p',project_binding_revision=7,assignee_kind='bot',assignee_id='executor' WHERE id IN ('work','work2','work3','work4');`);
     const connect = () => mode === 'inproc' ? createInprocDbClient() : createDbClient({ transport: 'worker-thread',
       dbPath: file, drizzleDir: path.join(root, 'drizzle'), workerScriptPath, useInlineWorker: false,
       betterSqliteModulePath: require.resolve('better-sqlite3'),
@@ -53,39 +59,102 @@ for (const mode of ['inproc', 'file-worker'] as const) {
     let client: DbClient = await connect();
     const request = { intent: 'start' as const, callerSessionId: 'caller', targetBotId: 'executor', projectId: 'p', sessionId: 'work',
       expectedBindingRevision: 7, requestId: 'original-key', objective: 'Explicit existing task execution', actor: { kind: 'account' as const, id: 'owner' } };
-    const execute = (p: ProjectWorkItemExecutionRequest) => client.tx('bots.adoptProjectWorkItem', p);
+    const execute = (p: ProjectWorkItemExecutionRequest) => client.tx('projects.executeWorkItem', p);
     const requireView = (r: ProjectWorkItemExecutionResult) => { expect(r.ok).toBe(true); if (!r.ok) throw new Error(r.errorCode); return r.view; };
     const original = db.prepare('SELECT * FROM sessions ORDER BY id').all();
     try {
-      expect(await client.queryOne("SELECT value FROM migration_meta WHERE key='schema_version'")).toEqual({ value: '158' });
+      expect(await client.queryOne("SELECT value FROM migration_meta WHERE key='schema_version'")).toEqual({ value: '159' });
       const first = requireView(await execute({ ...request, action: 'inspect' }));
-      const plan = JSON.stringify({ permission: { mode: 'ask' }, targetBotId: null, taskInput: { inputId: first.inputId },
-        projectWorkItemExecution: { version: 1, projectId: 'p', sessionId: 'work', bindingRevision: 7, targetBotId: 'executor', actor: request.actor } });
-      const admit = { ...request, action: 'admit' as const, fingerprint: first.fingerprint, now: 10, maxActiveChildren: 3, permissionSnapshotJson: plan };
-      await client.exec("CREATE TRIGGER fail_workitem_ledger BEFORE INSERT ON bot_task_followup_requests BEGIN SELECT RAISE(ABORT,'injected ledger failure'); END");
+      const admit = {...request,action:'admit' as const,fingerprint:first.fingerprint,now:10};
+      await client.exec("CREATE TRIGGER fail_workitem_ledger BEFORE INSERT ON project_work_item_executions BEGIN SELECT RAISE(ABORT,'injected ledger failure'); END");
       await expect(execute(admit)).rejects.toThrow('injected ledger failure');
-      expect(db.prepare('SELECT COUNT(*) n FROM bot_delegations').get()).toEqual({ n: 0 });
-      expect(db.prepare('SELECT COUNT(*) n FROM bot_task_followup_requests').get()).toEqual({ n: 0 });
+      expect(db.prepare('SELECT COUNT(*) n FROM project_work_item_executions').get()).toEqual({n:0});
       expect(db.prepare('SELECT * FROM sessions ORDER BY id').all()).toEqual(original);
       await client.exec('DROP TRIGGER fail_workitem_ledger');
-      await execute(admit); // Deliberately discard ACK; no dispatch or claim follows it.
-      await client.dispose(); client = await connect();
-      const recovered = requireView(await execute({ ...request, action: 'inspect' }));
-      expect(recovered).toMatchObject({ inputId: first.inputId, delegationId: first.delegationId, phase: 'admitted', receipt: null, existing: true });
-      requireView(await execute(admit));
-      expect(await execute({ ...admit, requestId: 'new-key-after-lost-ack', requireSettledExisting: true })).toMatchObject({ ok: false, errorCode: 'FOLLOWUP_OUTCOME_UNKNOWN' });
-      expect(db.prepare('SELECT COUNT(*) n FROM bot_delegations').get()).toEqual({ n: 1 });
-      expect(db.prepare('SELECT COUNT(*) n FROM bot_task_followup_requests').get()).toEqual({ n: 1 });
-      expect(await execute({ ...admit, objective: 'Changed same-key intent' })).toMatchObject({ ok: false, errorCode: 'IDEMPOTENCY_CONFLICT' });
-      // Merely admitted is not permission to consume. Claim is a distinct main-only CAS.
-      expect(await execute({ ...request, action: 'verify', fingerprint: first.fingerprint })).toMatchObject({ ok: false, errorCode: 'EXECUTION_CHANGED' });
-      expect(await client.tx('bots.followupRequest', { action: 'claim', taskId: first.delegationId, inputId: first.inputId, now: 11 })).toMatchObject({ kind: 'claimed' });
-      requireView(await execute({ ...request, action: 'verify', fingerprint: first.fingerprint }));
-      await client.tx('bots.followupRequest', { action: 'unknown', taskId: first.delegationId, inputId: first.inputId, now: 12 });
-      await client.dispose(); client = await connect();
-      expect(requireView(await execute({ ...request, action: 'inspect' }))).toMatchObject({ inputId: first.inputId, phase: 'unknown' });
-      expect(await client.tx('bots.followupRequest', { action: 'claim', taskId: first.delegationId, inputId: first.inputId, now: 13 })).toMatchObject({ kind: 'request', request: { phase: 'unknown' } });
-      expect(await execute({ ...request, action: 'verify', fingerprint: first.fingerprint })).toMatchObject({ ok: false, errorCode: 'EXECUTION_CHANGED' });
+      await execute(admit); // Discard ACK; reopening must not infer permission to dispatch.
+      await client.dispose(); client=await connect();
+      expect(requireView(await execute({...request,action:'inspect'}))).toMatchObject({inputId:first.inputId,phase:'admitted',receipt:null,existing:true});
+      expect(await execute(admit)).toMatchObject({ok:true,newlyAdmitted:false});
+      expect(await execute({...admit,requestId:'new-key-after-lost-ack'})).toMatchObject({ok:false,errorCode:'FOLLOWUP_OUTCOME_UNKNOWN'});
+      expect(await execute({...admit,objective:'Changed same-key intent'})).toMatchObject({ok:false,errorCode:'IDEMPOTENCY_CONFLICT'});
+      expect(await execute({...request,action:'verify',fingerprint:first.fingerprint})).toMatchObject({ok:false,errorCode:'EXECUTION_CHANGED'});
+      expect(await execute({...request,action:'claim',fingerprint:first.fingerprint,now:11})).toMatchObject({ok:true,claimed:true});
+      requireView(await execute({...request,action:'verify',fingerprint:first.fingerprint}));
+      expect(await client.tx('projects.validateWorkItemDelivery',{sessionId:'work',inputId:first.inputId})).toEqual({ok:true});
+      // A reassignment does not change bindingRevision and A remains a project member.
+      // The restored delivery must still reject A, rather than treating membership as assignment.
+      await client.exec("UPDATE sessions SET assignee_id='replacement' WHERE id='work'");
+      expect(await client.tx('projects.validateWorkItemDelivery',{sessionId:'work',inputId:first.inputId}))
+        .toMatchObject({ok:false,errorCode:'EXECUTOR_MISMATCH'});
+      expect(await execute({...request,action:'inspect'})).toMatchObject({ok:false,errorCode:'EXECUTOR_MISMATCH'});
+      await client.exec("UPDATE sessions SET assignee_id='executor' WHERE id='work'");
+      await client.exec("UPDATE sessions SET cleared_at=9 WHERE id='caller'");
+      expect(await client.tx('projects.validateWorkItemDelivery',{sessionId:'work',inputId:first.inputId}))
+        .toMatchObject({ok:false,errorCode:'SESSION_CONFIG_CHANGED'});
+      await client.exec("UPDATE sessions SET cleared_at=NULL WHERE id='caller'");
+      await execute({...request,action:'unknown',fingerprint:first.fingerprint,now:12});
+      await client.dispose(); client=await connect();
+      expect(requireView(await execute({...request,action:'inspect'}))).toMatchObject({inputId:first.inputId,phase:'unknown'});
+      expect(await execute({...request,action:'claim',fingerprint:first.fingerprint,now:13})).toMatchObject({ok:true,claimed:false});
+      expect(await execute({...request,action:'verify',fingerprint:first.fingerprint})).toMatchObject({ok:false,errorCode:'EXECUTION_CHANGED'});
+      expect(db.prepare('SELECT COUNT(*) n FROM bot_delegations').get()).toEqual({n:0});
+      expect(db.prepare('SELECT COUNT(*) n FROM bot_task_followup_requests').get()).toEqual({n:0});
+      expect(db.prepare('SELECT COUNT(*) n FROM project_work_item_executions').get()).toEqual({n:1});
+      // Real public service -> registered SQL transport. Lost completion ACK must replay
+      // the stored result, never enqueue another input or change existing permissions.
+      setCurrentDbClient(client,'owner');
+      const live={instanceId:'fixture',getCurrentTurnOrigin:()=>null};
+      const runtime={input:()=>({key:'owner-input',boundary:'turn',ownerInput:true}),getSession:()=>live,
+        callerSessionId:()=> 'caller',isExecutionPaused:()=>false};
+      const send=vi.fn(async (input:Parameters<import('../../maker-ipc/projectWorkItemExecutionService').ProjectWorkItemSend>[0])=>{
+        await input.authorizationGuard.validate();
+        expect(input).toMatchObject({targetSessionId:'work2',forceQueue:true,resumeWithStoredPermissionMode:true});
+        return {ok:true as const,targetSessionId:input.targetSessionId,wakeKind:'queued',queuedMessageId:input.deliveryClientId};
+      });
+      let loseAck=true;
+      const service=createProjectWorkItemExecutionService({runtime,sendToSession:send,now:()=>20,
+        transact:async (db,operation)=>{
+          const result=await db.tx('projects.executeWorkItem',operation);
+          if(operation.action==='finish' && loseAck){loseAck=false;throw new Error('lost completion ACK');}
+          return result;
+        }});
+      const start={...request,sessionId:'work2',requestId:'service-key'};
+      const {actor:ignoredActor,...publicStart}=start;
+      expect(await service.start(publicStart)).toMatchObject({ok:false,errorCode:'FOLLOWUP_OUTCOME_UNKNOWN'});
+      expect(await service.start(publicStart)).toMatchObject({ok:true,childSessionId:'work2',queued:true,queuedMessageId:expect.any(String)});
+      expect(send).toHaveBeenCalledOnce();
+      expect(await service.start({...publicStart,objective:'changed-body'})).toMatchObject({ok:false,errorCode:'IDEMPOTENCY_CONFLICT'});
+      const failedSend=vi.fn(async()=>{throw new Error('queue snapshot write failed');});
+      const failed=createProjectWorkItemExecutionService({runtime,sendToSession:failedSend,now:()=>30});
+      const failedStart={...publicStart,sessionId:'work3',requestId:'failed-queue'};
+      expect(await failed.start(failedStart)).toMatchObject({ok:false,errorCode:'FOLLOWUP_OUTCOME_UNKNOWN'});
+      expect(await failed.start(failedStart)).toMatchObject({ok:false,errorCode:'FOLLOWUP_OUTCOME_UNKNOWN'});
+      expect(failedSend).toHaveBeenCalledOnce();
+      expect(db.prepare('SELECT * FROM sessions ORDER BY id').all()).toEqual(original);
+      expect(db.prepare('SELECT COUNT(*) n FROM bot_delegations').get()).toEqual({n:0});
+      expect(db.prepare('SELECT COUNT(*) n FROM bot_task_followup_requests').get()).toEqual({n:0});
+      const automationDir=path.join(dir,`automation-${mode}`);
+      mkdirSync(path.join(automationDir,'.cindy','automations'),{recursive:true});
+      const automationConfig=JSON.stringify({version:1,schedules:[]});
+      writeFileSync(path.join(automationDir,'.cindy','automations','schedules.json'),automationConfig);
+      db.prepare("UPDATE sessions SET working_dir=? WHERE id='caller'").run(automationDir);
+      const automaticSend=vi.fn(async(input:Parameters<import('../../maker-ipc/projectWorkItemExecutionService').ProjectWorkItemSend>[0])=>{
+        await input.authorizationGuard.validate();
+        return {ok:true as const,targetSessionId:input.targetSessionId,wakeKind:'queued',queuedMessageId:input.deliveryClientId};
+      });
+      const automatic=createProjectWorkItemExecutionService({runtime:{...runtime,input:()=>({key:'automation',boundary:'turn',ownerInput:false,automatic:true})},
+        sendToSession:automaticSend,now:()=>40});
+      const automaticInput={...publicStart,sessionId:'work4',requestId:'automation-key'};
+      expect(await automatic.start(automaticInput)).toMatchObject({ok:false,errorCode:'AUTOMATION_CONSENT_REQUIRED'});
+      expect(automaticSend).not.toHaveBeenCalled();
+      db.prepare('INSERT INTO project_automation_consents(working_dir,consented_at,config_hash) VALUES (?,1,?)').run(automationDir,'stale-hash');
+      expect(await automatic.start(automaticInput)).toMatchObject({ok:false,errorCode:'AUTOMATION_CONSENT_REQUIRED'});
+      expect(automaticSend).not.toHaveBeenCalled();
+      db.prepare('UPDATE project_automation_consents SET config_hash=? WHERE working_dir=?').run(digest(automationConfig),automationDir);
+      expect(await automatic.start(automaticInput)).toMatchObject({ok:true,childSessionId:'work4',queued:true});
+      expect(automaticSend).toHaveBeenCalledOnce();
+      db.prepare("UPDATE sessions SET working_dir='/fixture/caller' WHERE id='caller'").run();
+      clearCurrentDbClient();
       // Same string, other principal kind does not acquire membership.
       expect(await execute({ ...request, actor: { kind: 'bot', id: 'owner' }, action: 'inspect' })).toMatchObject({ ok: false, errorCode: 'FORBIDDEN' });
       await client.exec("DELETE FROM project_members WHERE subject_kind='bot' AND subject_id='executor'");
@@ -97,8 +166,7 @@ for (const mode of ['inproc', 'file-worker'] as const) {
       expect(db.prepare('SELECT * FROM sessions ORDER BY id').all()).toEqual(original);
       expect(db.prepare('SELECT COUNT(*) n FROM messages').get()).toEqual({ n: 0 });
       expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
-      expect(await client.tx('bots.followupRequest', { action: 'lookup', taskId: first.delegationId, requesterBotId: 'executor', keyDigest: digest(request.requestId) }))
-        .toMatchObject({ kind: 'request', request: { phase: 'unknown', inputId: first.inputId, nativeAcceptedAt: null } });
-    } finally { await client.dispose(); db.close(); h.db = undefined; }
+      expect(requireView(await execute({...request,action:'inspect'}))).toMatchObject({phase:'unknown',inputId:first.inputId});
+    } finally { clearCurrentDbClient(); await client.dispose(); db.close(); h.db = undefined; }
   });
 }

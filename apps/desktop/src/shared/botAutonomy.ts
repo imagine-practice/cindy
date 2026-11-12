@@ -11,13 +11,6 @@ export const BUILTIN_FOLLOW_UP_ROUTINE_PREFIX = 'builtin-follow-up-';
 /** V1「每天查待办」例行任务的 id 前缀，只用来认出旧数据里留下的这一条（见 todoCheckRoutine.ts）。 */
 export const TODO_CHECK_ROUTINE_PREFIX = 'builtin-todo-check-';
 
-/**
- * COMPAT (frozen V1 delegation layer): id prefix of host-started (non built-in) routine schedules.
- * Used by taskActionHost.teammateTurnPrincipal to classify an entrusted run. Upstream removed it
- * with the V1 routine engine. Delete with the V1 layer after V2 migration.
- */
-export const BUILTIN_ROUTINE_SCHEDULE_PREFIX = 'routine-builtin-';
-
 /** 内置「夜间学习」例行任务的 id 前缀；每个伙伴默认一条，完整 id 见 nightlyLearningRoutine.ts。 */
 export const BUILTIN_NIGHTLY_LEARNING_ROUTINE_PREFIX = 'builtin-nightly-learning-';
 

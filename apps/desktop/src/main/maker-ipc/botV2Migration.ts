@@ -40,7 +40,7 @@ import {
   carryoverPointer,
   type CarryoverLabel,
 } from './botV2Carryover.js';
-import { todoCheckRoutineId } from '../bot-autonomy/todoCheckRoutine.js';
+import { todoCheckRoutineId } from './legacyTeammateRoutineIds.js';
 
 const log = createLogger('maker-ipc:bot-v2-migration');
 

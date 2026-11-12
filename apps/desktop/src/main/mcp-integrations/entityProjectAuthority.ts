@@ -5,7 +5,6 @@ import { activeOwnerScopeKey, getActiveAppSession, isAppSessionBoundaryPending }
 import { botSessionLinks, sessions } from '../localDb/schema';
 import { readChannelToolScope } from '../im/shared/channelToolScope';
 import { authorizeGroupTool } from '../maker-ipc/botGroupToolAuthorization';
-import { teammateTurnPrincipal } from '../maker-ipc/taskActionHost';
 import type { ProjectSubjectRef } from '../../shared/projects';
 
 export interface EntityProjectRuntime {
@@ -82,10 +81,8 @@ export async function captureEntityProjectAuthority(id: string, runtime: EntityP
     // can establish owner agency in a group; tools/chat lanes cannot upgrade themselves.
     group = caller.role === 'group' ? await authorizeGroupTool(id, caller.botId, 'owner-action') : null;
     assertSource();
-    const principal = teammateTurnPrincipal({ groupOwner: group !== null, laneRequesterIsOwner: lane?.requesterIsOwner,
-      ownerInput: input.ownerInput, ownerContinuation: input.ownerContinuation,
-      scheduleId: origin?.kind === 'scheduler' ? origin.scheduleId : undefined });
-    actor = principal === 'owner' ? { kind: 'account', id: owner.userId } : { kind: 'bot', id: caller.botId };
+    actor = group !== null || input.ownerInput || input.ownerContinuation
+      ? { kind: 'account', id: owner.userId } : { kind: 'bot', id: caller.botId };
   } else {
     if (caller.source === 'bot') return deny('BOT_SESSION_INACTIVE');
     // Ordinary owner/profile tasks (including plugin tasks) keep the same account

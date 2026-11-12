@@ -64,7 +64,6 @@ import {
   type BotGroupSpeaker,
   type BotGroupSpeakingMode,
   type BotGroupSummary,
-  type BotGroupTaskCard,
 } from '../../shared/botGroupChat.js';
 
 /** docs/product-rules/bot-group-chat.md §4.2 — enforced here, never by prompt. */
@@ -2251,33 +2250,11 @@ export function createBotGroupChatService(deps: BotGroupChatServiceDeps) {
     editPlanStep,
     settleLaneTurn,
     refreshPendingInteraction,
-    // COMPAT (frozen V1 delegation layer): companion task-posting stub. Upstream removed it with
-    // V1; kept because the retained chatServer wrapper + botDelegationService reference it and the
-    // post types below. Delete with the V1 layer after V2 migration.
-    postCompanionTaskMessage: async (_input: BotGroupTaskPostInput): Promise<BotGroupTaskPostResult> =>
-      ({ ok: false, errorCode: 'GROUP_CHANNEL_UNAVAILABLE', retryable: false }),
     dispose,
   };
 }
 
-/** COMPAT (frozen V1 delegation layer): one message a teammate posts into its group about an independent task. */
-export interface BotGroupTaskPostInput {
-  groupId: string;
-  botId: string;
-  clientId: string;
-  text: string;
-  card?: BotGroupTaskCard;
-  preparePost?: (prepare: () => Promise<import('./botGroupTaskPostSnapshot.js').BotGroupTaskPostSnapshot>,
-    destination: { endpoint: string; selfId: string; roomId: string; clientId: string }) => Promise<import('./botGroupTaskPostSnapshot.js').BotGroupTaskPostSnapshot>;
-  files?: Array<{ absolutePath: string }>;
-  threadRootId?: string;
-}
-export type BotGroupTaskPostResult =
-  | { ok: true; messageId: string }
-  | { ok: false; errorCode: string; retryable: boolean };
-
 export type BotGroupChatService = ReturnType<typeof createBotGroupChatService> & {
-  /** Main-only native authority; never attach to the public ChatServerApi/IPC surface. */
   groupAuthority?: import('./chatGroupAuthority.js').ChatGroupAuthorityService;
   chatServer?: import('../../shared/botGroupChat.js').ChatServerApi;
 };

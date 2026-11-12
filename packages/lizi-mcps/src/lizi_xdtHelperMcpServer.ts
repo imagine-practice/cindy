@@ -462,50 +462,6 @@ export type ControlDispatchOutcome =
 
 // ── Factory ────────────────────────────────────────────────────────────────
 
-/**
- * COMPAT (frozen V1 delegation layer): background Session-task controls exposed to the model.
- * Upstream removed these with the V1 teammate delegation system; retained because the frozen V1
- * layer still serves project work-item execution (getSessionTask routes through
- * createProjectWorkItemHost). Delete with the V1 layer after V2 send_to_session migration.
- */
-interface SessionTaskCallbacks {
-  startSessionTask(params: {
-    projectDir?: string | null;
-    modelSelection?: { id: string; effort?: string; fastMode?: boolean | 'ultrafast' };
-    callerSessionId: string;
-    objective: string;
-    contextRefs?: string[];
-    title?: string;
-    workingDir?: string;
-    useWorktree?: boolean;
-    timeoutMs?: number;
-  }): Promise<ControlResult<Record<string, unknown>, string>>;
-  messageSessionTask(params: {
-    callerSessionId: string;
-    taskId: string;
-    reply:
-      | { kind: 'approve' }
-      | { kind: 'deny'; reason?: string }
-      | { kind: 'answer'; answers: Record<string, string> }
-      | { kind: 'message'; text: string; idempotencyKey?: string; mode?: 'queue' | 'steer' }
-      | { kind: 'resume'; text?: string }
-      | { kind: 'edit'; queuedMessageId: string; text: string }
-      | { kind: 'withdraw'; queuedMessageId: string };
-  }): Promise<ControlResult<Record<string, unknown>, string>>;
-  getSessionTask(params: {
-    callerSessionId: string;
-    taskId: string;
-    queuedMessageId?: string;
-  }): Promise<ControlResult<{ task: unknown }, string>>;
-  stopSessionTask(params: {
-    callerSessionId: string;
-    taskId: string;
-    mode?: 'cancel' | 'request-stop' | 'pause';
-  }): Promise<ControlResult<Record<string, unknown>, string>>;
-  inspectSessionTaskRoute?(params: { callerSessionId: string; taskId: string }): Promise<ControlResult<Record<string, unknown>, string>>;
-  advanceSessionTaskRoute?(params: { callerSessionId: string; taskId: string; expectedGeneration: number; selectionToken: string }): Promise<ControlResult<Record<string, unknown>, string>>;
-}
-
 export interface XdtHelperMcpDeps {
   github?: GithubToolCallbacks;
   getSessionProject?: import('./xdt-helper/get_current_session_id.js').GetCurrentSessionIdDeps['getSessionProject'];
@@ -571,7 +527,6 @@ export interface XdtHelperMcpDeps {
   entityProjectMutation?: EntityProjectMutationCallback;
   projectWorkItemExecution?: ProjectWorkItemExecuteCallback;
   /** Cindy Bot-only background Session-task controls. Host validates the caller Session. */
-  sessionTasks?: SessionTaskCallbacks;
   /** Direct Bot-to-Bot messages over each partner's canonical Cindy Session. */
   botMessaging?: BotMessagingCallbacks;
   /** Direct lightweight Bot creation for a Bot-bound session. */

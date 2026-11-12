@@ -73,12 +73,8 @@ export type DbTxName =
   | 'bots.replaceCanonicalSession'
   | 'bots.prepareRuntime'
   | 'bots.finishRuntime'
-  | 'bots.finishDelegation'
-  | 'bots.reparentDelegations'
-  | 'bots.createDelegation'
-  | 'bots.reopenDelegation'
-  | 'bots.followupRequest'
-  | 'bots.adoptProjectWorkItem'
+  | 'projects.executeWorkItem'
+  | 'projects.validateWorkItemDelivery'
   | 'bots.pauseLifecycle'
   | 'bots.resumeLifecycle'
   | 'bots.archiveLifecycle'
@@ -1506,12 +1502,8 @@ export type DbTxArgsByName = {
   'bots.replaceCanonicalSession': BotsReplaceCanonicalSessionArgs;
   'bots.prepareRuntime': BotsPrepareRuntimeArgs;
   'bots.finishRuntime': BotsFinishRuntimeArgs;
-  'bots.finishDelegation': BotsFinishDelegationArgs;
-  'bots.reparentDelegations': BotsReparentDelegationsArgs;
-  'bots.createDelegation': BotsCreateDelegationArgs;
-  'bots.reopenDelegation': BotsReopenDelegationArgs;
-  'bots.followupRequest': BotFollowupRequestArgs;
-  'bots.adoptProjectWorkItem': ProjectWorkItemExecutionRequest;
+  'projects.executeWorkItem': ProjectWorkItemExecutionRequest;
+  'projects.validateWorkItemDelivery': {sessionId:string;inputId:string};
   'bots.pauseLifecycle': BotsLifecycleTransitionArgs;
   'bots.resumeLifecycle': BotsLifecycleTransitionArgs;
   'bots.archiveLifecycle': BotsArchiveLifecycleArgs;
@@ -1620,12 +1612,8 @@ export type DbTxResultByName = {
   'bots.replaceCanonicalSession': BotsReplaceCanonicalSessionResult;
   'bots.prepareRuntime': undefined;
   'bots.finishRuntime': boolean;
-  'bots.finishDelegation': BotsFinishDelegationResult | null;
-  'bots.reparentDelegations': BotsReparentDelegationsResult;
-  'bots.createDelegation': undefined;
-  'bots.reopenDelegation': BotsReopenDelegationResult;
-  'bots.followupRequest': BotFollowupRequestResult;
-  'bots.adoptProjectWorkItem': ProjectWorkItemExecutionResult;
+  'projects.executeWorkItem': ProjectWorkItemExecutionResult;
+  'projects.validateWorkItemDelivery': {ok:true}|{ok:false;errorCode:string};
   'bots.pauseLifecycle': undefined;
   'bots.resumeLifecycle': undefined;
   'bots.archiveLifecycle': { sessions: number };

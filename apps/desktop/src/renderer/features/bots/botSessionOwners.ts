@@ -8,11 +8,6 @@
 
 import type { BotProfile } from './botStore';
 import type { RemoteBot } from './remoteBotRoster';
-// COMPAT (frozen V1 delegation layer): bot-ownership projection used by the preserved
-// project grouping (useProjectGroups/projectGrouping). Upstream removed it with V1 bot
-// ownership grouping. Delete with the V1 layer after V2 migration.
-import type { BotSessionOwner } from '@/features/cc-agent/lib/projectGrouping';
-
 /** The durable registry has exactly one canonical link; kind is only presentation. */
 export function canonicalBotSession<T extends { role?: unknown }>(bot: { sessions: readonly T[] }): T | undefined {
   const matches = bot.sessions.filter((session) => session.role === 'canonical');
@@ -232,26 +227,4 @@ export function createSessionEntryNavigator(
       }
     },
   });
-}
-
-/**
- * COMPAT (frozen V1 delegation layer): session → owning-bot projection for the preserved
- * project grouping. Upstream removed it with V1 bot-ownership grouping. Delete with the V1 layer.
- */
-export function buildBotSessionOwners(
-  profiles: readonly BotProfile[],
-): Map<string, BotSessionOwner> {
-  const map = new Map<string, BotSessionOwner>();
-  for (const profile of profiles) {
-    const owner: BotSessionOwner = {
-      botId: profile.id,
-      displayName: profile.name,
-      avatar: profile.avatar,
-      avatarColor: profile.avatarColor,
-    };
-    for (const session of profile.sessions) {
-      if (session.id) map.set(session.id, owner);
-    }
-  }
-  return map;
 }

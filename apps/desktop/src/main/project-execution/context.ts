@@ -165,7 +165,7 @@ export async function readDelegations(
   client: CurrentDbClientSnapshot['client'],
   projectId: string,
 ): Promise<DelegationRow[]> {
-  return client.query<DelegationRow>(
+  const history = await client.query<DelegationRow>(
     `SELECT d.id AS id, d.child_session_id AS childSessionId, d.status AS status,
       d.accepted_at AS acceptedAt, d.completed_at AS completedAt, d.updated_at AS updatedAt,
       d.pending_interaction_json AS pendingInteractionJson,
@@ -175,20 +175,43 @@ export async function readDelegations(
     ORDER BY d.created_at DESC`,
     [projectId],
   );
+  const current=await client.query<DelegationRow>(`SELECT e.id,s.id AS childSessionId,
+    CASE WHEN EXISTS(SELECT 1 FROM agent_input_queue_snapshots q,json_each(CASE WHEN json_valid(q.payload) THEN q.payload ELSE '[]' END) j
+        WHERE q.session_id=s.id AND CASE WHEN j.type='object' THEN json_extract(j.value,'$.clientId') ELSE NULL END=e.input_id) THEN 'queued'
+      WHEN e.phase IN ('admitted','dispatching','unknown') AND u.id IS NULL THEN 'queued'
+      WHEN json_extract(e.result_json,'$.ok')=0 THEN 'failed'
+      WHEN u.id IS NOT NULL AND EXISTS(SELECT 1 FROM messages r WHERE r.session_id=s.id AND r.rowid>u.rowid
+        AND r.rewind_at IS NULL AND r.role='error' AND r.rowid<COALESCE((SELECT MIN(n.rowid) FROM messages n
+          WHERE n.session_id=s.id AND n.role='user' AND n.rowid>u.rowid),9223372036854775807)) THEN 'failed'
+      WHEN u.id IS NOT NULL AND COALESCE(s.active_turn_started_at,0)>COALESCE(s.last_turn_ended_at,0) THEN 'running'
+      WHEN u.id IS NOT NULL AND COALESCE(s.last_turn_ended_at,0)>=u.created_at AND EXISTS(
+        SELECT 1 FROM messages r WHERE r.session_id=s.id AND r.rowid>u.rowid AND r.role='assistant' AND r.rewind_at IS NULL
+        AND r.rowid<COALESCE((SELECT MIN(n.rowid) FROM messages n WHERE n.session_id=s.id AND n.role='user' AND n.rowid>u.rowid),9223372036854775807))
+        THEN 'completed' ELSE 'queued' END AS status,
+    CASE WHEN u.id IS NOT NULL THEN u.created_at ELSE NULL END AS acceptedAt,
+    s.last_turn_ended_at AS completedAt,e.updated_at AS updatedAt,NULL AS pendingInteractionJson,'{}' AS permissionSnapshotJson
+    FROM project_work_item_executions e JOIN sessions s ON s.id=e.session_id
+    LEFT JOIN messages u ON u.session_id=s.id AND u.client_id=e.input_id AND u.role='user' AND u.rewind_at IS NULL
+      AND (s.cleared_at IS NULL OR u.created_at>s.cleared_at)
+    WHERE s.project_id=? AND s.project_binding_revision=e.binding_revision AND s.status<>'deleted'
+    ORDER BY e.created_at DESC`,[projectId]);
+  return [...current,...history];
 }
 
 export async function readFollowups(
   client: CurrentDbClientSnapshot['client'],
   projectId: string,
 ): Promise<FollowupRow[]> {
-  return client.query<FollowupRow>(
-    `SELECT f.child_session_id AS childSessionId, f.phase AS phase,
-      f.native_accepted_at AS nativeAcceptedAt, f.updated_at AS updatedAt
+  const current=await client.query<FollowupRow>(`SELECT e.session_id AS childSessionId,e.phase AS phase,
+    CASE WHEN e.phase='settled' THEN e.updated_at ELSE NULL END AS nativeAcceptedAt,e.updated_at AS updatedAt
+    FROM project_work_item_executions e JOIN sessions s ON s.id=e.session_id
+    WHERE s.project_id=? AND s.project_binding_revision=e.binding_revision AND s.status<>'deleted'
+    ORDER BY e.created_at DESC`,[projectId]);
+  const history=await client.query<FollowupRow>(`SELECT f.child_session_id AS childSessionId,f.phase,
+    f.native_accepted_at AS nativeAcceptedAt,f.updated_at AS updatedAt
     FROM bot_task_followup_requests f JOIN sessions s ON s.id=f.child_session_id
-    WHERE s.project_id=? AND s.status<>'deleted'
-    ORDER BY f.updated_at DESC`,
-    [projectId],
-  );
+    WHERE s.project_id=? AND s.status<>'deleted' ORDER BY f.updated_at DESC`,[projectId]);
+  return [...current,...history];
 }
 
 /** 状态分档：真实行 → 六档（+ completed）。顺序即优先级。 */

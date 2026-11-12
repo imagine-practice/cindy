@@ -11,7 +11,7 @@ import { ASYNC_QUESTION_ANSWER, AUTO_REVIEW_SOURCE_CONTENT, AUTO_REVIEW_USER_INT
 import { REPLY_QUOTE_SOURCE_CONTENT } from '../chatReplyQuoteNote';
 import { AUTO_REVIEW_DELEGATED_CONTINUATION, restoreAutoReviewUserIntent, type AutoReviewHistoryMessage } from '../autoReviewUserIntent.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { admitTaskAction, bindTaskActionInput, settleTaskActionInput, taskActionInputGuard } from '../taskActionAuthorization.js';
+import { TaskActionAuthorizationError, admitTaskAction, bindTaskActionInput, settleTaskActionInput, taskActionInputGuard } from '../taskActionAuthorization.js';
 import { AgentInputCoordinator } from '../agent-input-coordinator.desktop.js';
 import { ProviderGroupUsageLimitError, providerGroupSwitchCause } from '../../provider-group/failurePolicy.js';
 import { SUPERSEDE_ASYNC_QUESTIONS, type Session } from '@cindy/maker-core';
@@ -1731,6 +1731,7 @@ function unsupportedChatBridgeImageError(feature = "input content part 'input_im
 }
 
 function createHarness(opts?: {
+  validateInputBeforePersistence?: AgentInputCoordinatorDeps['validateInputBeforePersistence'];
   assertInputDispatchable?: AgentInputCoordinatorDeps['assertInputDispatchable'];
   getRecoveryContextSnapshot?: (sessionId: string, userClientId: string) => Promise<RecoveryContextSnapshot>;
   providerGroupSwitchCandidate?: AgentInputCoordinatorDeps['providerGroupSwitchCandidate'];
@@ -1946,6 +1947,7 @@ function createHarness(opts?: {
     resolveSessionReferences,
     refreshAgentReferencesBeforeDispatch,
     assertInputDispatchable: opts?.assertInputDispatchable,
+    validateInputBeforePersistence: opts?.validateInputBeforePersistence,
     hasPendingCredentialSwitch: () => hasPendingCredentialSwitch?.() === true,
     screenUserMessage: (sessionId, agentFacingText, item) =>
       screenUserMessage
@@ -16793,5 +16795,54 @@ describe('material input dispatch admission', () => {
     expect(check).toHaveBeenCalledWith('material-steer-task', expect.objectContaining({ clientId: 'material-steer' }));
     expect(h.steerToAgent).not.toHaveBeenCalled();
     expect(mocks.createMessage.mock.calls).toHaveLength(persistedBefore);
+  });
+});
+
+// V2 delivery rule: a serialized/restored queue has no original closure. Host-owned
+// SQLite admission is therefore re-read at the real coordinator's pre-persist boundary.
+// Existing App-message tests only cover ephemeral symbol guards. Unit tier, no wait timers.
+describe('project work-item durable admission',()=>{
+  it('does not let steer bypass a revoked project assignment on a queued input',async()=>{
+    const guard=vi.fn(async()=>{throw new TaskActionAuthorizationError();});
+    const h=createHarness({validateInputBeforePersistence:guard});
+    await h.coordinator.ensureQueueRestored('work');h.setRunning(true);
+    const item=makeItem('project-workitem-input:steer','Original objective');
+    h.coordinator.enqueue('work',item);
+    const queued=h.coordinator.getProjection('work').pendingQueue[0]!;
+    await expect(h.coordinator.steer('work',queued,{removeFromQueue:true})).rejects.toThrow('TASK_ACTION_AUTHORIZATION_EXPIRED');
+    expect(h.coordinator.getProjection('work').pendingQueue).toHaveLength(1);
+    expect(guard).toHaveBeenCalled();expect(h.steerToAgent).not.toHaveBeenCalled();
+  });
+
+  it('revalidates a restored work-item input and drops revoked membership before any user row',async()=>{
+    const guard=vi.fn(async()=>{throw new TaskActionAuthorizationError();});
+    const h=createHarness({validateInputBeforePersistence:guard});
+    h.setRunning(true);
+    const item=makeItem('project-workitem-input:restored','Original objective');
+    h.setLoadQueueSnapshot(async()=>[JSON.parse(JSON.stringify(item))]);
+    await h.coordinator.ensureQueueRestored('work');
+    h.setRunning(false);h.coordinator.wakeSession('work','restored-work-item');
+    await vi.waitFor(()=>expect(h.coordinator.getProjection('work').pendingQueue).toHaveLength(0));
+    expect(guard).toHaveBeenCalledWith('work',expect.objectContaining({clientId:item.clientId}));
+    expect(h.sendToAgent).not.toHaveBeenCalled();
+    expect(mocks.createMessage).not.toHaveBeenCalled();
+  });
+  it('rechecks project admission immediately before persistence after an intervening revoke',async()=>{
+    let valid=true;
+    const guard=vi.fn(async()=>{if(!valid)throw new TaskActionAuthorizationError();});
+    const h=createHarness({validateInputBeforePersistence:guard});
+    const vendor=vi.fn();
+    h.sendToAgent.mockImplementation(async(_id,_body,_opts,sendOpts)=>{
+      valid=false;
+      await sendOpts[MCP_APP_MESSAGE_GUARD]?.();
+      vendor();return sendSuccess();
+    });
+    await h.coordinator.ensureQueueRestored('work');
+    h.coordinator.enqueue('work',makeItem('project-workitem-input:revoked','Original objective'));
+    await vi.waitFor(()=>expect(guard).toHaveBeenCalledTimes(2));
+    await flush();
+    expect(vendor).not.toHaveBeenCalled();
+    expect(mocks.createMessage).not.toHaveBeenCalled();
+    expect(h.coordinator.getProjection('work').pendingQueue).toHaveLength(0);
   });
 });

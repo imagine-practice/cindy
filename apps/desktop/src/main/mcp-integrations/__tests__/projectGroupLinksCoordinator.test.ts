@@ -28,7 +28,7 @@ const host=vi.hoisted(()=>({generation:1,pending:false,user:'owner',db:undefined
 vi.mock('../../localDb/index',()=>({getRawDb:()=>host.db,getDrizzle:()=>drizzle(host.db!,{schema}),getCurrentUserId:()=>host.user}));
 vi.mock('../../appSessionState',()=>({getActiveAppSession:()=>({dataOwnerId:host.user,generation:host.generation}),
   activeOwnerScopeKey:()=>`${host.user}:${host.generation}`,isAppSessionBoundaryPending:()=>host.pending}));
-vi.mock('../../i18n',()=>({t:(key:string)=>key}));
+vi.mock('../../i18n.desktop',()=>({t:(key:string)=>key}));
 vi.mock('../../logger',()=>({createLogger:()=>({trace(){},debug(){},info(){},warn(){},error(){}})}));
 vi.mock('../../localDb/client/WorkerThreadTransport',()=>({WorkerThreadTransport:class{constructor(){throw Error('Native transport outside fixture');}}}));
 

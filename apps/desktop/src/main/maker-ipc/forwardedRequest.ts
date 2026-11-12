@@ -13,13 +13,6 @@ export interface CapturedAgentRequest {
   message: string;
   autoReviewUserText: AgentRequestReceipt;
   /**
-   * COMPAT (frozen V1 delegation layer): the sender's review found this was not a hand-off the
-   * owner asked for. Upstream dropped the sender-side review with the teammate permission gates;
-   * the field stays (read by botDelegationService.ts) but is never set under the new pipeline.
-   * Delete with the V1 layer after V2 migration.
-   */
-  blocked?: string;
-  /**
    * What an older peer, which only verifies the quoted format, receives instead: the
    * pre-2026-11-05 envelope when the owner's words are at hand, otherwise plain text.
    */

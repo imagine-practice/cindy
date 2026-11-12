@@ -9,6 +9,7 @@ type Decision = Awaited<ReturnType<ToolCallAuthorizer>>;
 /** These names describe effects, not tool visibility or an Agent permission mode. */
 export const TASK_ACTION_TOOLS: ReadonlySet<string> = new Set([
   'set_teammate_project',
+  'execute_project_work_item',
   'send_to_session',
   'steer_session',
   'stop_session_turn',
@@ -29,8 +30,6 @@ export const TASK_ACTION_TOOLS: ReadonlySet<string> = new Set([
   'move_session',
   'manage_session_prs',
   'create_shared_task_invitation',
-  'mutate_project_entity',
-  'execute_project_work_item',
   'request_remote_control',
 ]);
 
@@ -50,23 +49,6 @@ export const ORCA_TASK_ACTION_TOOLS: ReadonlySet<string> = new Set([
   'end_team',
   'archive_worker',
 ]);
-
-/**
- * COMPAT (frozen V1 delegation layer): task actions a V1 delegation is admitted to perform.
- * Upstream removed this with the V1 teammate delegation system; kept because the retained V1
- * isolation layer (botDelegationService.ts) still mints this evidence. Delete together with
- * the V1 layer once project work-item execution migrates to V2 send_to_session.
- * See docs/dev-rules/v1-delegation-compat-layer.md.
- */
-export const DELEGATED_TASK_ACTIONS = ['message_session_task', 'stop_session_task'] as const;
-
-/**
- * COMPAT (frozen V1 delegation layer): host-decided principal of an admitted call. Upstream
- * removed the owner/entrusted/autonomous principal with the teammate permission gates; restored
- * because the retained project-authority code (entityProjectAuthority via
- * taskActionHost.teammateTurnPrincipal) still distinguishes owner agency. Delete with the V1 layer.
- */
-export type TaskActionPrincipal = 'owner' | 'entrusted' | 'autonomous';
 
 export interface TaskActionScope {
   /** Host identity/active-input generation, captured before the confirmation. */
@@ -223,31 +205,6 @@ export function isolateTaskActionAuthorizer(authorize: ToolCallAuthorizer): Tool
 /** Existing lifecycle callbacks can outlive the AsyncLocalStorage call itself. */
 export function captureTaskActionGuard(): (() => Promise<void>) | undefined {
   return actionContext.getStore()?.assertCurrent;
-}
-
-/**
- * COMPAT (frozen V1 delegation layer): host-only creation evidence for a V1 delegation; no
- * tool parameter can mint this snapshot. Upstream dropped it with the V1 teammate delegation
- * system. Returns undefined for non-V1 flows (e.g. project work-item execution, which uses
- * captureEntityProjectAuthority instead). Delete with the V1 layer after V2 send_to_session
- * migration. See docs/dev-rules/v1-delegation-compat-layer.md.
- */
-export function approvedTaskDelegation(
-  callerSessionId: string,
-): { version: 1; actions: readonly string[] } | undefined {
-  const current = actionContext.getStore();
-  return current?.sessionId === callerSessionId && current.tool === 'start_session_task'
-    ? { version: 1, actions: DELEGATED_TASK_ACTIONS }
-    : undefined;
-}
-
-/**
- * COMPAT (frozen V1 delegation layer): durable completion delivery is not another invocation of
- * the tool that started the task. Upstream dropped it with the V1 system; kept for the retained
- * V1 isolation layer. Delete with the V1 layer after V2 send_to_session migration.
- */
-export function runHostCompletionDelivery<T>(operation: () => Promise<T>): Promise<T> {
-  return actionContext.exit(operation);
 }
 
 export class TaskActionAuthorizationError extends Error {

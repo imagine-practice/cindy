@@ -15,8 +15,6 @@ import type { Session } from '@/lib/ccAgent.types';
 import { useRemoteSshHosts } from '@/hooks/useRemoteSshHosts';
 import { remoteProjectAliases } from '@/features/device-link/remoteProjectAliases';
 import { projectsStore } from '@/features/projects/projectsStore';
-import { buildBotSessionOwners } from '@/features/bots/botSessionOwners';
-import { useBotProfiles } from '@/features/bots/botStore';
 import {
   type PersistentLocalProject,
   type ProjectGroupsResult,
@@ -53,13 +51,6 @@ export function useProjectGroups(
       /* 静默：下一次广播或用户操作会重试 */
     });
   }, []);
-  /*
-    伙伴归属表。会话行本身不带 botId,归属只有伙伴档案知道 —— 档案还没加载完的
-    那一瞬间这张表是空的,伙伴任务就走原来的分组落到别处,**不会消失**。
-  */
-  const botProfiles = useBotProfiles();
-  const botOwnerBySessionId = useMemo(() => buildBotSessionOwners(botProfiles), [botProfiles]);
-
   const groups = useMemo(() => {
     if (equivalentResult) return equivalentResult;
     return selectGroups(sessions, {

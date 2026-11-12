@@ -1,5 +1,4 @@
 import { createProjectWorkItemExecution } from './projectWorkItemExecution';
-import { createProjectWorkItemHost } from '../maker-ipc/projectWorkItemHost';
 import { randomUUID } from 'node:crypto';
 import { permissionModeOrAsk } from '@cindy/maker-shared/permission-mode';
 import { gateBuiltinMcpProviders } from './provider-gate.js';
@@ -31,7 +30,7 @@ import { createEntityProjectManagement } from './entityProjectManagement.js';
 import { createMoveSession } from './moveSession.js';
 import { createTaskWorktreeHost } from './createTaskWorktree.js';
 import { sessionImportCallbacks } from '../session-import/agentTools.js';
-import { listProjects, renameProject, removeProject, resolveSessionProject, readCurrentSessionProject } from './projectManagement.js';
+import { listProjects, renameProject, removeProject, readCurrentSessionProject } from './projectManagement.js';
 import { activeOwnerScopeKey, isAppSessionBoundaryPending, ownerScopedUserDataPath } from '../appSessionState.js';
 import { botProfileDir } from '../maker-ipc/botProfileFolder.js';
 import type { createBotCapabilityService } from '../maker-ipc/botCapabilityService.js';
@@ -95,7 +94,6 @@ import {
   getTaskActionSession,
   confirmTaskAction,
   requestMcpSetupForSession,
-  tryGetBotDelegationService,
 } from '../maker-ipc/register.js';
 import { createBotProfile } from '../localDb/ipc/bots.js';
 import { submitGithubIssueForSession } from '../github-issue/index.js';
@@ -827,7 +825,10 @@ export function createDesktopMcpProviders(deps: DesktopMcpProvidersDeps): LiziMc
         rename: renameProject, remove: removeProject,
       },
       entityProjects: createEntityProjectManagement({ input: getTaskActionInputState, getSession: getTaskActionSession }),
-      projectWorkItemExecution: createProjectWorkItemExecution({ input: getTaskActionInputState, getSession: getTaskActionSession, delegation: tryGetBotDelegationService, isExecutionPaused: isTaskExecutionPaused }),
+      projectWorkItemExecution: createProjectWorkItemExecution({ input: getTaskActionInputState, getSession: getTaskActionSession, sendToSession: async params => {
+        const svc=tryGetOrcaCollabService();
+        return svc ? svc.sendToSession(params) : {ok:false as const,errorCode:'HOST_NOT_READY',message:'Task host is not ready'};
+      }, isExecutionPaused: isTaskExecutionPaused }),
       entityProjectMutation: createEntityProjectMutation({ input: getTaskActionInputState, getSession: getTaskActionSession }),
       authorizeSkillLearning: async (request, context) => {
         if (!isCindyLearnSkillEnabled()) {
@@ -1102,84 +1103,6 @@ export function createDesktopMcpProviders(deps: DesktopMcpProvidersDeps): LiziMc
         } catch (err) {
           return { ok: false, errorCode: 'INTERNAL', message: err instanceof Error ? err.message : String(err) };
         }
-      },
-      sessionTasks: {
-        startSessionTask: async (params) => {
-          const svc = tryGetBotDelegationService();
-          if (!svc) {
-            return {
-              ok: false,
-              errorCode: 'HOST_NOT_READY',
-              message: 'Session task service not initialized',
-            };
-          }
-          try {
-            const project = await resolveSessionProject({ callerSessionId: params.callerSessionId, projectDir: params.projectDir });
-            if (!project.ok) return project;
-            const result = await svc.startSessionTask({ ...params, projectDir: project.projectDir,
-              workingDir: params.workingDir ?? project.projectDir ?? undefined });
-            return result.ok ? { ...result, projectDir: project.projectDir } : result;
-          } catch (err) {
-            return {
-              ok: false,
-              errorCode: 'INTERNAL',
-              message: err instanceof Error ? err.message : String(err),
-            };
-          }
-        },
-        messageSessionTask: async ({ callerSessionId, taskId, reply }) => {
-          const svc = tryGetBotDelegationService();
-          if (!svc) {
-            return {
-              ok: false,
-              errorCode: 'HOST_NOT_READY',
-              message: 'Session task service not initialized',
-            };
-          }
-          try {
-            return await svc.messageSessionTask(callerSessionId, taskId, reply);
-          } catch (err) {
-            return {
-              ok: false,
-              errorCode: 'INTERNAL',
-              message: err instanceof Error ? err.message : String(err),
-            };
-          }
-        },
-        getSessionTask: async ({ callerSessionId, taskId, queuedMessageId }) => {
-          const svc = tryGetBotDelegationService();
-          if (!svc) {
-            return {
-              ok: false,
-              errorCode: 'HOST_NOT_READY',
-              message: 'Session task service not initialized',
-            };
-          }
-          return createProjectWorkItemHost({ callerSessionId, delegation: svc,
-            runtime: { input: getTaskActionInputState, getSession: getTaskActionSession },
-          }).get(taskId, queuedMessageId);
-        },
-        stopSessionTask: async ({ callerSessionId, taskId, mode }) => {
-          const svc = tryGetBotDelegationService();
-          if (!svc) {
-            return {
-              ok: false,
-              errorCode: 'HOST_NOT_READY',
-              message: 'Session task service not initialized',
-            };
-          }
-          return svc.stopSessionTask(callerSessionId, taskId, mode);
-        },
-        inspectSessionTaskRoute: async ({ callerSessionId, taskId }) => {
-          const svc = tryGetBotDelegationService();
-          if (!svc) return { ok: false, errorCode: 'HOST_NOT_READY', message: 'Session task service not initialized' };
-          return svc.inspectSessionTaskRoute(callerSessionId, taskId);
-        },
-        advanceSessionTaskRoute: async ({ callerSessionId, taskId, expectedGeneration, selectionToken }) => {
-          const svc = tryGetBotDelegationService();
-          if (!svc) return { ok: false, errorCode: 'HOST_NOT_READY', message: 'Session task service not initialized' };
-          return svc.advanceSessionTaskRoute(callerSessionId, taskId, expectedGeneration, selectionToken);
-        },
       },
       botMessaging: {
         sendToUser: async (params) => {

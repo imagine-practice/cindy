@@ -2918,3 +2918,34 @@ export const botTaskFollowupRequests = sqliteTable('bot_task_followup_requests',
   positiveRun: check('bot_task_followup_requests_run', sql`${t.admittedRunSequence} >= 1`),
   validPhase: check('bot_task_followup_requests_phase', sql`${t.phase} IN ('admitted', 'dispatching', 'unknown', 'settled')`),
 }));
+
+/** Profile-local V2 delivery ledger. Historical delegation tables are never written. */
+export const projectWorkItemExecutions = sqliteTable('project_work_item_executions', {
+  id: text('id').primaryKey(),
+  projectId: text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  sessionId: text('session_id').notNull().references(() => sessions.id, { onDelete: 'cascade' }),
+  bindingRevision: integer('binding_revision').notNull(),
+  executorBotId: text('executor_bot_id').notNull(),
+  callerSessionId: text('caller_session_id').notNull(),
+  actorKind: text('actor_kind').notNull(),
+  actorId: text('actor_id').notNull(),
+  keyDigest: text('key_digest').notNull(),
+  bodyDigest: text('body_digest').notNull(),
+  fingerprint: text('fingerprint').notNull(),
+  inputId: text('input_id').notNull().unique(),
+  phase: text('phase', { enum: ['admitted', 'dispatching', 'settled', 'unknown'] }).notNull(),
+  resultJson: text('result_json'),
+  createdAt: integer('created_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+}, t => ({
+  identity: uniqueIndex('project_work_item_executions_request').on(t.sessionId, t.executorBotId, t.keyDigest),
+  validPhase: check('project_work_item_executions_phase', sql`${t.phase} IN ('admitted','dispatching','settled','unknown')`),
+  validRevision: check('project_work_item_executions_binding', sql`${t.bindingRevision} >= 0`),
+}));
+
+export const projectWorkItemExecutionApprovals = sqliteTable('project_work_item_execution_approvals', {
+  requestId: text('request_id').primaryKey(),
+  sessionId: text('session_id').notNull().references(() => sessions.id, { onDelete:'cascade' }),
+  auditJson: text('audit_json').notNull(),
+  createdAt: integer('created_at').notNull(),
+});

@@ -207,7 +207,7 @@ export async function readFollowupProjection(input: {
   /** 入口的不可用原因集合（无处理人等）；后续动作只区分「有原因 / 没原因」。 */
   unavailableReason: WorkItemExecutionUnavailableReason | null;
 }): Promise<WorkItemFollowupProjection> {
-  const pending = readPendingConfirmation(input.delegation);
+  const pending = getOwnerTurnDispatch()?.readPendingConfirmation?.(input.row.sessionId) ?? null;
   const busy = await readBusy(input.client, input.row.sessionId);
   const kind = agentKind(input.row.sessionAgentKind);
   const model = kind && input.row.sessionModel
@@ -330,27 +330,10 @@ async function readStoredDeliveryText(
     : row.content;
 }
 
-/** 追加批准审计：写在委派已有的快照 JSON 里（不新开表，不改任何已有字段）。 */
-async function appendApprovalAudit(
-  client: Client,
-  delegation: Pick<DelegationRow, 'id' | 'permissionSnapshotJson'>,
-  audit: WorkItemFollowupApprovalAudit,
-): Promise<void> {
-  const snapshot = parseRecord(delegation.permissionSnapshotJson);
-  const previous = Array.isArray(snapshot.executionApprovals)
-    ? snapshot.executionApprovals.filter(
-        (entry): entry is Record<string, unknown> =>
-          Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry),
-      )
-    : [];
-  const next = JSON.stringify({
-    ...snapshot,
-    executionApprovals: [...previous, audit].slice(-MAX_APPROVAL_AUDIT_ROWS),
-  });
-  await client.exec('UPDATE bot_delegations SET permission_snapshot_json=? WHERE id=?', [
-    next,
-    delegation.id,
-  ]);
+/** Ordinary session confirmation audit; historical delegation snapshots remain immutable. */
+async function appendApprovalAudit(client:Client,audit:WorkItemFollowupApprovalAudit):Promise<void> {
+  await client.exec(`INSERT INTO project_work_item_execution_approvals(request_id,session_id,audit_json,created_at)
+    VALUES (?,?,?,?) ON CONFLICT(request_id) DO NOTHING`,[audit.requestId,audit.sessionId,JSON.stringify(audit),audit.at]);
 }
 
 function assertFollowupIntent(value: unknown): {
@@ -470,18 +453,19 @@ export async function requestProjectWorkItemFollowup(
   if (intent.action === 'approve') {
     const pending = projection.pending;
     const host = getOwnerTurnDispatch();
-    if (!pending || !delegation)
+    if (!pending)
       return fail('FOLLOWUP_UNAVAILABLE', 'NO_PENDING_CONFIRMATION', 'There is no pending confirmation');
     if (!host?.approveInteraction)
       return fail('HOST_NOT_READY', null, 'The confirmation path is not ready yet');
     // 批准前重读一次：状态可能在这几毫秒里变了，过期就报真实原因，不硬批。
-    const freshDelegations = await readDelegations(authority.client, intent.projectId);
+    await assertProjectMember(authority.client,intent.projectId,authority.userId);
+    const current=await readWorkItemRows(authority.client,intent.projectId);
     authority.assertCurrent();
-    const fresh = freshDelegations.find((value) => value.childSessionId === row.sessionId) ?? null;
-    const freshPending = readPendingConfirmation(fresh);
-    if (!fresh || !freshPending || freshPending.requestId !== pending.requestId)
-      return fail('CONFIRMATION_STALE', 'NO_PENDING_CONFIRMATION',
-        'The pending confirmation was already handled or is gone');
+    if (!current.some(item=>item.sessionId===row.sessionId && item.bindingRevision===row.bindingRevision))
+      return fail('CONFIRMATION_STALE',null,'The work-item binding changed');
+    const freshPending=host.readPendingConfirmation?.(row.sessionId);
+    if (!freshPending || freshPending.requestId!==pending.requestId)
+      return fail('CONFIRMATION_STALE','NO_PENDING_CONFIRMATION','The pending confirmation was already handled or is gone');
     const approved = host.approveInteraction({
       sessionId: row.sessionId,
       requestId: pending.requestId,
@@ -503,10 +487,7 @@ export async function requestProjectWorkItemFollowup(
       sessionId: row.sessionId,
     };
     try {
-      await appendApprovalAudit(authority.client, {
-        id: fresh.id,
-        permissionSnapshotJson: fresh.permissionSnapshotJson,
-      }, audit);
+      await appendApprovalAudit(authority.client, audit);
     } catch (error) {
       // 批准已经生效：审计写失败要如实说出来，但不能回滚一个已完成的批准。
       log.warn('work item approval audit write failed', {

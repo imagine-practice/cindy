@@ -577,6 +577,8 @@ export interface AgentInputCoordinatorDeps {
     item: AgentInputQueuedMessage,
     info: { ghostId: string; ghostName: string; text: string; originalText: string },
   ) => void;
+  /** Host-owned durable input admission, rechecked before persistence and steer. */
+  validateInputBeforePersistence?: (sessionId: string, item: AgentInputQueuedMessage) => Promise<void>;
   /** Awaited after the user message is persisted but before vendor dispatch starts. */
   beforeDispatchUserTurn?: (
     sessionId: string,
@@ -2733,6 +2735,7 @@ export class AgentInputCoordinator {
     // as the row's original delivery guard. UI-only calls have no action scope.
     const beforeMutation = combineInputGuards(
       opts?.beforeMutation,
+      this.deps.validateInputBeforePersistence ? () => this.deps.validateInputBeforePersistence!(sessionId, item) : undefined,
       hasTaskActionAuthorization() ? assertTaskActionCurrent : undefined,
     );
     const assertSteerAuthority = async () => {
@@ -5337,7 +5340,8 @@ export class AgentInputCoordinator {
     this.emit(sessionId);
 
     let appMessageGuardRejected = false;
-    const taskActionGuard = taskActionInputGuard(sessionId, head);
+    const taskActionGuard = combineInputGuards(taskActionInputGuard(sessionId, head),
+      this.deps.validateInputBeforePersistence ? ()=>this.deps.validateInputBeforePersistence!(sessionId,head) : undefined);
     const logTaskActionRevocation = (error: unknown, stage: 'pre-check' | 'before-persistence'): boolean => {
       const errorCode = taskActionRevocationCode(error);
       if (!errorCode) return false;

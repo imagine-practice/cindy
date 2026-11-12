@@ -51,7 +51,7 @@ vi.mock('../../bot-import/runtime.js', () => ({
 }));
 
 import { carryLegacyTodos, migrateTeammateToV2 } from '../botV2Migration.js';
-import { todoCheckRoutineId } from '../../bot-autonomy/todoCheckRoutine.js';
+import { todoCheckRoutineId } from '../legacyTeammateRoutineIds.js';
 
 const BOT = 'import_ada';
 const routine = (id: string, patch: Partial<Routine> = {}): Routine => ({

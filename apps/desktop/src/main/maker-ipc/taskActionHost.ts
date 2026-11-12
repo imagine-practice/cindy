@@ -17,34 +17,11 @@ import {
   type TaskActionConfirmation,
   taskActionFingerprint,
   type TaskActionScope,
-  type TaskActionPrincipal,
 } from './taskActionAuthorization.js';
-import { BUILTIN_ROUTINE_SCHEDULE_PREFIX } from '../../shared/botAutonomy.js';
 
 type TaskActionSession = Pick<Session,
   'stablePermissionModeState' | 'stablePlanModeState' |
   'getCurrentTurnOrigin' | 'reviewHostPermissionAction'> & { readonly instanceId?: string };
-
-/**
- * COMPAT (frozen V1 delegation layer): host-decided principal of a teammate turn. Upstream removed
- * the owner/entrusted/autonomous principal with the teammate permission gates; restored because the
- * retained project authority (entityProjectAuthority) uses it to decide owner agency. Delete with
- * the V1 layer after V2 migration.
- */
-export function teammateTurnPrincipal(facts: {
-  groupOwner: boolean;
-  laneRequesterIsOwner?: boolean;
-  ownerInput: boolean;
-  ownerContinuation?: boolean;
-  scheduleId?: string;
-}): TaskActionPrincipal {
-  if (facts.groupOwner) return 'owner';
-  if (facts.laneRequesterIsOwner !== undefined) return facts.laneRequesterIsOwner ? 'owner' : 'autonomous';
-  if (facts.ownerInput || facts.ownerContinuation) return 'owner';
-  if (facts.scheduleId?.startsWith('routine-') && !facts.scheduleId.startsWith(BUILTIN_ROUTINE_SCHEDULE_PREFIX))
-    return 'entrusted';
-  return 'autonomous';
-}
 
 
 /** The live turn identifies a continuation, not consent. Only its existing

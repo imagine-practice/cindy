@@ -24,7 +24,16 @@
 
 `execute_project_work_item` 由Desktop可选宿主回调注册。当前本机Bot以真实caller/current input、权限与暂停代次采用原Session；actor/executor/requestToken由main决定。非Bot和group lane不降级另一主体，群由独立原生跟进来源通道负责。输入必须带实际绑定代次，不补最新值。
 
-`recover`仅按已返回requestToken读取原请求，不admit或dispatch；未知请求不能换key冒充新执行。工具ACK完全丢失时可用原项目Session ID调用既有`get_session_task`，只读定位现有执行。accepted仅原生接收事实，不是provider消费/任务完成。公开工具接线仍待受控链路测试与主人审查，不宣称真实Host/模型通过；UI按钮、继续/批准/队列/模型route及重启恢复尚未完成。
+`recover` 仅按已返回的 requestToken 读取原请求，不准入或投递新消息；未知请求不能换键冒充新执行。
+V2 通过 `send_to_session` jump 原工作项 Session，保留项目绑定与任务自己的存储权限档，不创建替代任务。
+0159 的项目执行账本保存请求摘要、阶段和排队句柄；同键不同正文拒绝，丢 ACK 或重启后只读恢复原回执。
+返回 queued 前必须确认输入队列快照持久化；恢复队列在落库前重新核对项目成员、绑定、配置与发起任务清空边界。
+显式请求不以自动化 consent 为前提；自动输入另查项目配置的 consent 哈希，且 consent 从不设置权限档。
+旧委派表、历史消息卡片与 migration 保留为只读历史，V1 专用执行和跟进写入口已退役。
+项目侧栏沿用上游按项目／目录分组；伙伴归属保留头像与创建者筛选，不恢复 V1 独立伙伴分组布局。
+项目页按本请求 inputId 的队列和消息事实投影，旧回合结束不代表新请求完成；待确认项来自宿主当前交互，
+批准审计写入独立项目执行审计表。以上有隔离 SQLite、inproc/file-worker 与队列回归，
+真实模型和手机端联调仍须单独验收，不能把自测当作主人验收。
 
 
 ## 实体项目宿主读写适配（2026-11-06，本机中央接线）
@@ -36,7 +45,7 @@
 
 本片在独立工作树实现本机读取：调用身份只取宿主绑定的当前任务、实时输入与群执行租约。
 普通主人任务／插件任务使用账号；伙伴的已核验主人代办使用账号，自主／受托轮使用伙伴主体；
-复用 `teammateTurnPrincipal`，同 ID 的 account 与 bot 不混同。群请求沿正式
+在 `entityProjectAuthority` 内判定来源，同 ID 的 account 与 bot 不混同。群请求沿正式
 `authorizeGroupTool(..., 'owner-action')`，`read-self`、群名和来源分类不授予项目读取权；
 非主人渠道发言、共享访客和未知来源明确拒绝。
 

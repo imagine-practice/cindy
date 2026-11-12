@@ -64,6 +64,7 @@ let client: DbClient;
 let dispatch: ReturnType<typeof vi.fn>;
 let busy: Set<string>;
 let queuedIds: Set<string>;
+let pending: Map<string, {requestId:string;kind:'permission'|'ask_user_question'|'plan_review';summary:string;raisedAt:number}>;
 let approve: ReturnType<typeof vi.fn>;
 let setSessionModel: ReturnType<typeof vi.fn>;
 
@@ -89,13 +90,15 @@ const messages = (sessionId: string) =>
     content: string;
   }>;
 
-const delegation = (status: string, pending: Record<string, unknown> | null = null) =>
-  db
+const delegation = (status: string, confirmation: Record<string, unknown> | null = null) => {
+  if(confirmation) pending.set('w1',confirmation as never);
+  return db
     .prepare(
       `INSERT INTO bot_delegations(id,requesting_bot_id,target_bot_id,child_session_id,objective,status,pending_interaction_json,permission_snapshot_json,created_at,updated_at)
        VALUES (?,?,NULL,'w1','ship it',?,?, '{}',1,1)`,
     )
-    .run('d1', 'bot1', status, pending ? JSON.stringify(pending) : null);
+    .run('d1', 'bot1', status, confirmation ? JSON.stringify(confirmation) : null);
+};
 
 beforeAll(async () => {
   dir = mkdtempSync(path.join(os.tmpdir(), 'cindy-workitem-followup-S-'));
@@ -118,7 +121,8 @@ beforeEach(() => {
   h.trusted = true;
   busy = new Set();
   queuedIds = new Set();
-  db.exec(`DELETE FROM messages; DELETE FROM bot_task_followup_requests; DELETE FROM bot_delegations;
+  pending = new Map();
+  db.exec(`DELETE FROM project_work_item_execution_approvals; DELETE FROM project_work_item_executions; DELETE FROM messages; DELETE FROM bot_task_followup_requests; DELETE FROM bot_delegations;
     DELETE FROM bot_profiles; DELETE FROM project_members; DELETE FROM projects; DELETE FROM sessions;
     INSERT INTO projects(id,name,owner_id,status,created_at,updated_at) VALUES ('p','Fixture','owner','active',1,1);
     INSERT INTO project_members(project_id,subject_kind,subject_id,role,added_at) VALUES
@@ -157,14 +161,10 @@ beforeEach(() => {
     return { ok: true, targetSessionId: input.targetSessionId, wakeKind: 'created' };
   });
   approve = vi.fn(({ sessionId, requestId }: { sessionId: string; requestId: string }) => {
-    // 真实解析器成功后会由生命周期观察者把 waiting 行收敛；这里照同一结果。
-    const found = db
-      .prepare("SELECT 1 AS ok FROM bot_delegations WHERE child_session_id=? AND status='waiting' AND pending_interaction_json LIKE ?")
-      .get(sessionId, `%${requestId}%`);
-    if (!found) return { accepted: false };
-    db.prepare("UPDATE bot_delegations SET status='running', pending_interaction_json=NULL WHERE child_session_id=?")
-      .run(sessionId);
-    return { accepted: true };
+    const current=pending.get(sessionId);
+    if(!current || current.requestId!==requestId) return {accepted:false};
+    pending.delete(sessionId);
+    return {accepted:true};
   });
   setSessionModel = vi.fn(async ({ sessionId, model }: { sessionId: string; model: string }) => {
     db.prepare('UPDATE sessions SET model=? WHERE id=?').run(model, sessionId);
@@ -178,6 +178,7 @@ beforeEach(() => {
         // 宿主回执里的位置：只对真的排在本会话队列里的 id 给出位置。
         return queuedIds.has(clientId) ? 3 : null;
       },
+      readPendingConfirmation: (sessionId:string)=>pending.get(sessionId)??null,
       approveInteraction: approve,
       setSessionModel,
     }),
@@ -308,16 +309,9 @@ describe('S work-item execution follow-ups', () => {
       },
     });
     expect(approve).toHaveBeenCalledWith({ sessionId: 'w1', requestId: 'r-perm-1', kind: 'permission' });
-    // 审计写进该次委派已有的快照，没有新表。
-    const snapshot = JSON.parse(
-      (db.prepare("SELECT permission_snapshot_json AS json FROM bot_delegations WHERE id='d1'").get() as { json: string }).json,
-    ) as { executionApprovals: Array<Record<string, unknown>> };
-    expect(snapshot.executionApprovals).toHaveLength(1);
-    expect(snapshot.executionApprovals[0]).toMatchObject({
-      requestId: 'r-perm-1',
-      actorId: 'owner',
-      executionState: 'running',
-    });
+    const audit=JSON.parse((db.prepare("SELECT audit_json FROM project_work_item_execution_approvals WHERE request_id='r-perm-1'").get() as {audit_json:string}).audit_json);
+    expect(audit).toMatchObject({requestId:'r-perm-1',actorId:'owner',executionState:'running'});
+    expect(db.prepare("SELECT permission_snapshot_json FROM bot_delegations WHERE id='d1'").get()).toEqual({permission_snapshot_json:'{}'});
   });
 
   it('F4c approves only the confirmation of this work item, never a sibling execution', async () => {
@@ -333,6 +327,8 @@ describe('S work-item execution follow-ups', () => {
     db.prepare("UPDATE bot_delegations SET pending_interaction_json=? WHERE id='d2'").run(
       JSON.stringify({ requestId: 'r2', kind: 'permission', summary: 'Allow w2', raisedAt: 1 }),
     );
+    pending.set('w1',{requestId:'r1',kind:'permission',summary:'Allow w1',raisedAt:1});
+    pending.set('w2',{requestId:'r2',kind:'permission',summary:'Allow w2',raisedAt:1});
     expect(await followup({ projectId: 'p', sessionId: 'w1', action: 'approve' })).toMatchObject({
       ok: true,
       approval: { requestId: 'r1', sessionId: 'w1' },
@@ -358,7 +354,7 @@ describe('S work-item execution follow-ups', () => {
     });
     expect(approve).not.toHaveBeenCalled();
 
-    db.exec("UPDATE bot_delegations SET pending_interaction_json=NULL WHERE id='d1'");
+    pending.delete('w1');
     expect((await item()).followup.actions.approve).toEqual({
       allowed: false,
       reason: 'NO_PENDING_CONFIRMATION',
@@ -530,4 +526,30 @@ describe('S work-item execution follow-ups', () => {
     );
     expect(dispatch).not.toHaveBeenCalled();
   });
+});
+
+// V2 request identity wins over unrelated Session turn timestamps (acceptance correction).
+it('keeps the new request pending after an older turn ends while its own input is still queued',async()=>{
+  db.prepare(`INSERT INTO project_work_item_executions
+    (id,project_id,session_id,binding_revision,executor_bot_id,caller_session_id,actor_kind,actor_id,key_digest,body_digest,fingerprint,input_id,phase,result_json,created_at,updated_at)
+    VALUES ('v2','p','w1',3,'bot1','c1','account','owner','key','body','fingerprint','project-workitem-input:new','settled',?,10,11)`)
+    .run(JSON.stringify({ok:true,queued:true}));
+  db.prepare('INSERT INTO agent_input_queue_snapshots(session_id,payload,updated_at) VALUES (?,?,?)')
+    .run('w1',JSON.stringify([{clientId:'older'},{clientId:'project-workitem-input:new'}]),12);
+  db.exec("UPDATE sessions SET active_turn_started_at=1,last_turn_ended_at=20 WHERE id='w1'");
+  expect((await item()).state).toBe('accepted');
+  db.exec("DELETE FROM agent_input_queue_snapshots WHERE session_id='w1'");
+  // Even an empty snapshot is not proof of delivery/completion: no matching user/response.
+  expect((await item()).state).toBe('accepted');
+  db.prepare('INSERT INTO agent_input_queue_snapshots(session_id,payload,updated_at) VALUES (?,?,?)')
+    .run('w1',JSON.stringify(['damaged entry',null,1]),21);
+  expect((await item()).state).toBe('accepted');
+  db.exec("DELETE FROM agent_input_queue_snapshots WHERE session_id='w1'");
+  db.exec(`INSERT INTO messages(id,client_id,session_id,role,content,created_at)
+    VALUES ('new-user','project-workitem-input:new','w1','user','objective',30),
+      ('new-result','new-result','w1','assistant','done',40);
+    UPDATE sessions SET last_turn_ended_at=40 WHERE id='w1';`);
+  expect((await item()).state).toBe('completed');
+  db.exec("UPDATE messages SET role='error' WHERE id='new-result'");
+  expect((await item()).state).toBe('failed');
 });

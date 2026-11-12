@@ -14,12 +14,8 @@ import { assembleSystemPromptSections, TASK_SYSTEM_PROMPT } from '@cindy/maker-c
 import { z as settingsSchema } from 'zod';
 import { registerPreferenceControlIpc } from '../app-settings/preferences.js';
 import { configureModelSettingsActions } from '../app-settings/models.js';
-import { createTaskCompletionDeliveryHost, type TaskCompletionDeliveryHost } from './taskCompletionDeliveryHost.js';
-import { createBotSessionTaskRouteBridge } from './botSessionTaskRouteBridge.js';
 import { GroupToolAuthorizationError } from './botGroupToolAuthorization.js';
 import { TaskActionAuthorizationError } from './taskActionAuthorization.js';
-import { createBotDelegationService, discardDelegationQueuedInputs, type BotDelegationService } from './botDelegationService.js';
-import { setRoutineResultDispatch } from '../routines/deliveryDispatch.js';
 import { setOwnerTurnDispatch } from './ownerTurnDispatch.js';
 import { registerProjectWorkItemExecutionIpc } from '../project-execution/entry.js';
 import { McpSetupBridge } from './mcpSetupBridge.js';
@@ -2830,6 +2826,9 @@ interface OrcaCollabService {
       }
   >;
   sendToSession: (params: {
+    forceQueue?: boolean;
+    resumeWithStoredPermissionMode?: boolean;
+    authorizationGuard?: BotAuthorizationInputGuard;
     /** Host-only script follow-up; preserves target authorization without treating script text as consent. */
     readonly [AUTO_REVIEW_DELEGATED_CONTINUATION]?: true;
     /** Host-generated stable delivery ID for a script retry, not model-supplied metadata. */
@@ -3157,13 +3156,6 @@ interface EnableOrcaOptions {
 let orcaCollabServiceHolder: OrcaCollabService | null = null;
 let botDirectMessageServiceHolder: BotDirectMessageService | null = null;
 let botGroupChatServiceHolder: BotGroupChatService | null = null;
-// COMPAT (frozen V1 delegation layer): holder for the retained V1 delegation service, used by
-// project work-item execution (mcp-providers → tryGetBotDelegationService). Upstream removed it
-// with V1. Delete with the V1 layer after V2 send_to_session migration.
-let botDelegationServiceHolder: BotDelegationService | null = null;
-export function tryGetBotDelegationService(): BotDelegationService | null {
-  return botDelegationServiceHolder;
-}
 /**
  * Settle a pending account / endpoint switch before using the companion runtime: the lazy Chat
  * Server wrapper rebinds only when touched. (The home registry itself is owner-scoped.)
@@ -3395,6 +3387,7 @@ async function prepareUserMessageForAgent(
 const PERMISSION_INTERACTION_TIMEOUT_MS = 10 * 60 * 1000;
 
 interface PendingInteractionEntry {
+  raisedAt: number;
   sharedPermission?: import('./sharedPermission').SharedPermission;
   sessionId: string;
   kind: InteractionRequest['kind'];
@@ -3754,30 +3747,6 @@ function clearPendingInteraction(requestId: string): PendingInteractionEntry | n
 }
 
 /** Permission safety time counts only while its owning task can accept input. */
-// COMPAT (frozen V1 delegation layer): pause/resume pending-interaction timeouts for a session;
-// used by the retained V1 delegation service's task control. Delete with the V1 layer.
-function setPendingInteractionTimeoutsPaused(sessionId: string, paused: boolean): string[] {
-  const applied: string[] = [];
-  for (const [requestId, entry] of pendingInteractionResolvers) {
-    if (entry.sessionId !== sessionId) continue;
-    if (!paused && entry.deferredDecision) {
-      if (resolvePendingInteraction(requestId, entry.deferredDecision, !!entry.sharedPermission)) applied.push(requestId);
-      continue;
-    }
-    if (entry.kind !== 'permission') continue;
-    if (paused) {
-      if (entry.timeoutId === undefined) continue;
-      clearTimeout(entry.timeoutId);
-      entry.timeoutId = undefined;
-      entry.timeoutRemainingMs = Math.max(0, (entry.timeoutDeadlineAt ?? Date.now()) - Date.now());
-      entry.timeoutDeadlineAt = undefined;
-    } else {
-      schedulePendingPermissionTimeout(requestId, entry);
-    }
-  }
-  return applied;
-}
-
 function schedulePendingPermissionTimeout(requestId: string, entry: PendingInteractionEntry): void {
   if (entry.migrated || entry.sharedPermission || (entry.kind !== 'permission' && !(entry.request.kind === 'ask_user_question' && entry.request.isBlocking === false && !entry.questionTimerSnoozed)) || entry.timeoutId !== undefined
     || pendingInteractionResolvers.get(requestId) !== entry
@@ -5844,6 +5813,7 @@ export function installDesktopInteractionListener(session: {
             }
           : req;
       const entry: PendingInteractionEntry = {
+        raisedAt: Date.now(),
         sharedPermission,
         sessionId: session.id,
         kind: req.kind,
@@ -13001,9 +12971,10 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
       if (params.files?.length || params.forceQueue || verifiedOwnerRequestText(params.autoReviewUserText) !== undefined || explicitClientId?.startsWith('bot-dm:') || explicitClientId?.startsWith(BOT_GROUP_CLIENT_ID_PREFIX) || explicitClientId?.startsWith('bot-authorization-resume:') || inputCoordinator.shouldQueueNewTurn(targetSessionId) || agentSwitchPending.get(targetSessionId)) {
         lockStage = 'enqueue-queued-message';
         const qClientId = explicitClientId ?? createId();
-        const durableScriptDelivery = qClientId.startsWith('schedule-delivery:');
+        const durableScriptDelivery = qClientId.startsWith('schedule-delivery:') || qClientId.startsWith('project-workitem-input:');
         if (durableScriptDelivery) {
           await inputCoordinator.ensureQueueRestored(targetSessionId);
+          if (!inputCoordinator.isQueueRestored(targetSessionId)) throw new Error('HOST_NOT_READY');
           const persisted = await getPersistedInputClientIds(targetSessionId, [qClientId]);
           if (persisted.has(qClientId) || inputCoordinator.hasKnownClientId(targetSessionId, qClientId)) {
             await awaitAgentInputQueueSnapshotPersistence(targetSessionId);
@@ -13553,7 +13524,6 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
 
   setBotInvitationWelcomeDispatch(dispatchBotSessionMessage);
   setVoiceTaskDispatch(dispatchBotSessionMessage);
-  setRoutineResultDispatch(dispatchBotSessionMessage);
   // 项目工作项「请该伙伴执行」：入口只投递一个 owner→伙伴回合，不新造执行授权。
   // 执行后续（继续 / 批准 / 排队 / 换模型）复用同一窄面，另外接三个已有能力：
   // 输入协调器的实时队列边界、既有 owner 确认解析器、既有 SET_MODEL 语义。
@@ -13566,6 +13536,17 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
           .getProjection(sessionId)
           .pendingQueue.findIndex((item) => item.clientId === clientId);
         return index < 0 ? null : index + 1;
+      },
+      readPendingConfirmation: (sessionId:string) => {
+        for (const entry of pendingInteractionResolvers.values()) {
+          if (entry.sessionId!==sessionId || entry.migrated) continue;
+          const request=entry.request;
+          if (request.kind!=='permission' && request.kind!=='plan_review' && request.kind!=='ask_user_question') continue;
+          const summary=request.kind==='permission' ? request.description ?? request.title ?? request.toolName
+            : request.kind==='plan_review' ? request.plan : request.questions.map(q=>q.question).join('\n');
+          return {requestId:request.requestId,kind:request.kind,summary:summary.slice(0,4000),raisedAt:entry.raisedAt};
+        }
+        return null;
       },
       approveInteraction: ({
         sessionId,
@@ -13964,159 +13945,6 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
   registerBotGroupRemoteResourceProvider(() => botGroupChatServiceHolder);
   // Archive / restore changes the open tasks a teammate's roster row links as followed.
   setSessionStatusPatchedListener(scheduleBotRemoteResourceChangedForFollowedSession);
-  // COMPAT (frozen V1 delegation layer): instantiate the retained V1 delegation service so
-  // project work-item execution (tryGetBotDelegationService) functions. Upstream removed this
-  // with V1. Delete with the V1 layer after V2 send_to_session migration.
-  botDelegationServiceHolder?.dispose();
-  botDelegationServiceHolder = createBotDelegationService({
-    captureRequest: captureSessionAgentRequest,
-    readSessionExecution: id => {
-      const session = maker.getSession(id);
-      return session ? { instanceId: session.instanceId, generation: session.getTurnGeneration() } : null;
-    },
-    // Native close cannot be cancelled by the ordinary send-lock watchdog.
-    withSessionLock: withSessionRestartLock,
-    taskControl: {
-      steer: (params) => sessionControlService.steerSession(params),
-      stop: (params) => sessionControlService.stopSessionTurn(params),
-      isActive: (id) => {
-        const session = maker.getSession(id);
-        return !!session && (session.isTurnRunning() || session.getTurnControlSnapshot().pendingInteractionCount > 0);
-      },
-      holdInput: (id, held) => {
-        inputCoordinator.setExecutionPaused(id, held);
-        return setPendingInteractionTimeoutsPaused(id, held);
-      },
-      // Wait for sends already admitted before the hold before sampling native activity.
-      waitForInputBoundary: (id) => withSendToSessionLock(id, async () => undefined),
-      preparePause: async (id) => {
-        resetAutomaticRecoveryForExplicitStop(id);
-        contextOverflowRolloverHolder?.cancelRecovery(id);
-        await pauseGoalBeforeExplicitStop(id);
-      },
-      restoreInput: (id) => inputCoordinator.ensureQueueRestored(id),
-      flushInput: awaitAgentInputQueueSnapshotPersistence,
-      resumeInput: async (id) => { inputCoordinator.resume(id); },
-    },
-    getWorktree: worktreeManager.getForSession,
-    reconcileWorktree: worktreeManager.reconcileSessionTransfer,
-    withTransferredWorktree: worktreeManager.withTransferredSession,
-    discardUnusedWorktree: async sessionId => {
-      const [row] = await getDbClient().drizzle.select({ id: sessions.id }).from(sessions)
-        .where(eq(sessions.id, sessionId)).limit(1);
-      if (!row) await worktreeManager.removeWorktreeForSession(sessionId);
-    },
-    prepareWorktree: async workingDir => {
-      const prepared = await prepareHandoffWorktree({
-        getForSession: worktreeManager.getForSession, listAll: worktreeManager.listAll,
-        detectCwd: worktreeManager.detectCwd, suggestName: worktreeManager.suggestName,
-        listBranches: worktreeManager.listBranches, resolveCommit: worktreeManager.revParseCommit,
-        createWorktree: worktreeManager.createWorktree, createId: () => randomUUID(),
-        resolveFreshSource: resolveFreshSourceBranch,
-      }, undefined, workingDir);
-      return prepared.ok ? { ok: true, sessionId: prepared.sessionId, workingDir: prepared.meta.path } : prepared;
-    },
-    taskQueue: {
-      inspect: async (id, callerSessionId) => {
-        await inputCoordinator.ensureQueueRestored(id);
-        if (!inputCoordinator.isQueueRestored(id)) throw new Error('Task queue restoration is incomplete');
-        return inputCoordinator.getQueueInspection(id)
-          .filter(item => item.source === 'session' && item.sourceLabel === callerSessionId)
-          .map(item => ({ queuedMessageId: item.queuedMessageId, consuming: item.consuming, message: item.content }));
-      },
-      update: params => sessionControlService.updateQueuedMessage(params),
-      cancel: params => sessionControlService.cancelQueuedMessage(params),
-    },
-    readCallerPermission: (sessionId) => {
-      const state = maker.getSession(sessionId)?.stablePermissionModeState;
-      return state?.mode ? { mode: state.mode, generation: state.generation } : null;
-    },
-    readCallerRuntime: (sessionId) => {
-      const session = maker.getSession(sessionId);
-      return session ? {
-        agentKind: makerToDbAgentKind(session.agentKind),
-        agentDeviceId: session.agentDeviceId ?? null,
-        model: session.model,
-        providerId: getSessionProvider(sessionId) ?? null,
-        effort: (getSessionEffort(sessionId) ?? undefined) as CreateOpts['effort'],
-        fastMode: getSessionFastMode(sessionId),
-      } : null;
-    },
-    taskRoute: createBotSessionTaskRouteBridge({
-      getSessionRuntime: params => sessionControlService.getSessionRuntime(params),
-      setSessionRuntime: params => sessionControlService.setSessionRuntime(params),
-      readConfiguredCandidate: (callerSessionId, current, childSessionId) =>
-        readBotFallbackCandidate(callerSessionId, current, childSessionId),
-    }),
-    dispatch: ({ targetSessionId, message, persistedContent, clientId, onAccepted, dispatcherSessionId, autoReviewUserText }) =>
-      dispatchBotSessionMessage({
-        autoReviewUserText,
-        targetSessionId,
-        message,
-        persistedContent,
-        clientId,
-        onAccepted: onAccepted ? async (replayed) => {
-          try {
-            await onAccepted(replayed);
-          } catch (error) {
-            if (error instanceof GroupToolAuthorizationError || error instanceof TaskActionAuthorizationError) {
-              throw new AcceptedCallbackDispatchCancelled(error.message);
-            }
-            throw error;
-          }
-        } : undefined,
-        dispatcherSessionId,
-        // 后台任务按发起时落库的权限档运行；冷启动不能退回 bypass。否则任务实际以
-        // Full access 运行，库里却是 Auto / Ask，绑定它的心跳每轮都因档位不一致被顺延。
-        resumeWithStoredPermissionMode: true,
-      }),
-    discardDelegationQueuedInputs: (sessionId, delegationId) =>
-      discardDelegationQueuedInputs(inputCoordinator, sessionId, delegationId, awaitAgentInputQueueSnapshotPersistence),
-    abortSession: (sessionId) => stopSessionTurnExplicitly(sessionId),
-    closeSession: (sessionId) => maker.closeSession(sessionId),
-    broadcastSessionCreated,
-    onChanged: (payload) => {
-      broadcastToAllWindows('maker:bot-delegation:changed', payload);
-      const sessionId = payload.childSessionId ?? payload.parentSessionId;
-      if (sessionId) scheduleBotRemoteResourceChangedForFollowedSession(sessionId);
-    },
-    resolveInteraction: resolvePendingInteraction,
-    hasPendingInput: (sessionId) =>
-      inputCoordinator.getQueueControlSnapshot(sessionId).pendingQueue.length > 0,
-    readPendingInputClientIds: (sessionId) =>
-      inputCoordinator.getQueueControlSnapshot(sessionId).pendingQueue.flatMap(item => [item.clientId, ...(item.supersedesUserClientId ? [item.supersedesUserClientId] : []), ...(item.retrySourceClientId ? [item.retrySourceClientId] : [])]),
-    collectArtifacts: async (sessionId, inputClientIds) => {
-      await waitForTurnChangeSetSeal(sessionId);
-      const acceptedInputs = new Set(inputClientIds);
-      const changeSets = (await listTurnChangeSets(sessionId)).filter(changeSet => acceptedInputs.has(changeSet.anchorClientId));
-      const byPath = new Map<string, {
-        path: string;
-        absolutePath: string;
-        status: 'added' | 'modified' | 'deleted' | 'renamed';
-      }>();
-      for (const changeSet of changeSets) {
-        for (const file of changeSet.files) {
-          const status = file.status === 'added' || file.status === 'untracked' || file.status === 'copied'
-            ? 'added'
-            : file.status === 'deleted'
-              ? 'deleted'
-              : file.status === 'renamed'
-                ? 'renamed'
-                : 'modified';
-          byPath.set(file.path, {
-            path: file.path,
-            absolutePath: path.resolve(changeSet.cwd, file.path),
-            status,
-          });
-        }
-      }
-      return [...byPath.values()];
-    },
-    // A task started from a group posts its card, confirmations and result there as its teammate.
-    postGroupTaskMessage: async (input) => botGroupChatServiceHolder
-      ? botGroupChatServiceHolder.postCompanionTaskMessage(input)
-      : { ok: false as const, errorCode: 'GROUP_CHANNEL_UNAVAILABLE', retryable: true },
-  });
   registerBotLifecycleHandlers({
     maker,
     restartRuntime: restartBotCanonicalRuntime,
@@ -20315,6 +20143,14 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
   }
 
   const inputCoordinator: AgentInputCoordinator = new AgentInputCoordinator({
+    validateInputBeforePersistence: async (sessionId,item) => {
+      if (!item.clientId.startsWith('project-workitem-input:')) return;
+      const owner=getCurrentDbClientSnapshot();
+      if (!owner) throw new Error('HOST_NOT_READY');
+      const valid=await owner.client.tx('projects.validateWorkItemDelivery',{sessionId,inputId:item.clientId});
+      if (getCurrentDbClientSnapshot()!==owner) throw new TaskActionAuthorizationError();
+      if (!valid.ok) throw new TaskActionAuthorizationError();
+    },
     sendToAgent: async (sessionId, message, createOpts, sendOpts) => {
       try {
         const result = await sendToAgentAccepted(sessionId, message, createOpts, sendOpts);

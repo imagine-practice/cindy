@@ -33,7 +33,6 @@ import { botGroupMentionAudience, splitBotGroupRelaySteps } from '@cindy/maker-s
 import { chatMigrationReceipts } from './chatMigrationReceipts.js';
 import { chatLocalHistory } from './chatLocalHistory.js';
 import { chatSendJournal, chatSendJournalEndpoint, chatSendJournalKey } from './chatSendJournal.js';
-import { prepareBotGroupTaskPost, type BotGroupTaskPostSnapshot } from './botGroupTaskPostSnapshot.js';
 import { registerGroupToolAuthority, GroupToolAuthorizationError } from './botGroupToolAuthorization.js';
 import path from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
@@ -360,7 +359,6 @@ export function withChatServer(local: BotGroupChatService, deps: BotGroupChatSer
     editPlanStep: (...args) => service().editPlanStep(...args),
     settleLaneTurn: (...args) => service().settleLaneTurn(...args),
     refreshPendingInteraction: local.refreshPendingInteraction,
-    postCompanionTaskMessage: (...args) => service().postCompanionTaskMessage(...args),
     dispose: () => { wrapperDisposed = true; active.dispose(); local.dispose(); },
   };
 }
@@ -3753,7 +3751,6 @@ function createChatServer(local: BotGroupChatService, deps: BotGroupChatServiceD
     chatServer,
     groupAuthority,
     refreshPendingInteraction: local.refreshPendingInteraction,
-    postCompanionTaskMessage: local.postCompanionTaskMessage,
     listGroups: () => safe(async () => {
       await ensureRegistered(); await syncPersonalList(); beginUpgrade();
       const groups: BotGroupDetail[] = [];

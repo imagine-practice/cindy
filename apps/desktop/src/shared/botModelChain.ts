@@ -151,17 +151,3 @@ export function normalizeBotProfileModelChain(
   }
   return next;
 }
-
-// COMPAT (frozen V1 delegation layer): task-model override reader upstream removed with V1.
-// Needed by botDelegationService.ts (project work-item execution). Delete with the V1 layer.
-export function readBotTaskModelOverride(value: unknown): BotModelRoute | null {
-  if (value === null || value === undefined) return null;
-  const record = value as Partial<BotModelRoute>;
-  const route = normalizeBotModelRoute(value);
-  if (!route || !['claude', 'codex', 'pi'].includes(String(record.harness))
-    || (record.providerId !== null && typeof record.providerId !== 'string')
-    || typeof record.effort !== 'string' || (typeof record.fastMode !== 'boolean' && record.fastMode !== 'ultrafast')) {
-    throw new Error('Invalid task model route');
-  }
-  return route;
-}

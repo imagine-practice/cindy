@@ -3,10 +3,10 @@ import type { ProjectWorkItemExecuteCallback, ProjectWorkItemExecuteResult } fro
 import { captureEntityProjectAuthority, EntityProjectAccessError, type EntityProjectRuntime } from './entityProjectAuthority';
 import { captureTaskActionGuard, captureTaskActionSyncGuard } from '../maker-ipc/taskActionAuthorization';
 import { createProjectWorkItemExecutionService } from '../maker-ipc/projectWorkItemExecutionService';
-import type { BotDelegationService } from '../maker-ipc/botDelegationService';
+import type { ProjectWorkItemSend } from '../maker-ipc/projectWorkItemExecutionService';
 
 export function createProjectWorkItemExecution(runtime: EntityProjectRuntime & {
-  delegation(): BotDelegationService | null | undefined;
+  sendToSession: ProjectWorkItemSend;
   isExecutionPaused(id: string): boolean | undefined;
 }): ProjectWorkItemExecuteCallback {
   return async ({ callerSessionId, intent }) => {
@@ -20,8 +20,7 @@ export function createProjectWorkItemExecution(runtime: EntityProjectRuntime & {
         'SELECT bot_id AS botId,role FROM bot_session_links WHERE session_id=? AND archived_at IS NULL', [callerSessionId]);
       authority.assertCurrent();
       if (!caller || caller.role === 'group') return failure('UNSUPPORTED_CAPABILITY');
-      const delegation = runtime.delegation();
-      if (!delegation || runtime.isExecutionPaused(intent.sessionId) === undefined) return failure('HOST_NOT_READY');
+      if (runtime.isExecutionPaused(intent.sessionId) === undefined) return failure('HOST_NOT_READY');
       const source = runtime.input(callerSessionId);
       requestToken = intent.action === 'recover' ? intent.requestToken : 'project-workitem-execution:' + createHash('sha256')
         .update(JSON.stringify([caller.botId, source.key, intent.projectId, intent.sessionId, intent.expectedBindingRevision])).digest('hex');
@@ -30,7 +29,7 @@ export function createProjectWorkItemExecution(runtime: EntityProjectRuntime & {
       await authority.refresh([intent.projectId]); await guard?.(); authority.assertCurrent(); sync?.();
       if (intent.action === 'recover') {
         // Read only. Deletion/races cannot turn reconciliation into a fresh admit.
-        const result = await authority.client.tx('bots.adoptProjectWorkItem', { ...input, actor: authority.actor, action: 'inspect' });
+        const result = await authority.client.tx('projects.executeWorkItem', { ...input, actor: authority.actor, action: 'inspect' });
         await authority.refresh([intent.projectId]); authority.assertCurrent(); sync?.();
         if (!result.ok) return failure(result.errorCode);
         if (!result.view.phase) return failure('REQUEST_NOT_FOUND');
@@ -40,19 +39,19 @@ export function createProjectWorkItemExecution(runtime: EntityProjectRuntime & {
         return failure(result.view.phase === 'admitted' ? 'FOLLOWUP_PENDING' : 'FOLLOWUP_OUTCOME_UNKNOWN', result.view.phase === 'admitted' ? 'pending' : 'unknown');
       }
       submitted = true;
-      const result = await createProjectWorkItemExecutionService({ delegation, now: Date.now,
+      const result = await createProjectWorkItemExecutionService({ sendToSession:runtime.sendToSession, now: Date.now,
         runtime: { input: id => runtime.input(id), getSession: id => runtime.getSession(id), callerSessionId: () => callerSessionId,
           isExecutionPaused: id => {
             const paused = runtime.isExecutionPaused(id);
             if (paused === undefined) throw new Error('HOST_NOT_READY');
             return paused;
           } },
-        transact: (client, request) => client.tx('bots.adoptProjectWorkItem', request.action === 'admit' ? { ...request, requireSettledExisting: true } : request),
+        transact: (client, request) => client.tx('projects.executeWorkItem', request),
       }).start(input);
       await authority.refresh([intent.projectId]); authority.assertCurrent(); sync?.();
       if (!result.ok) {
         if (result.errorCode === 'FOLLOWUP_OUTCOME_UNKNOWN') {
-          const original = await authority.client.queryOne('SELECT 1 FROM bot_task_followup_requests WHERE child_session_id=? AND requester_bot_id=? AND key_digest=?',
+          const original = await authority.client.queryOne('SELECT 1 FROM project_work_item_executions WHERE session_id=? AND executor_bot_id=? AND key_digest=?',
             [intent.sessionId, caller.botId, createHash('sha256').update(requestToken).digest('hex')]);
           authority.assertCurrent();
           if (!original) requestToken = null;
