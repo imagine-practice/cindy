@@ -154,7 +154,11 @@ export function runProjectWorkItemExecutionTransaction(
         if (
           db
             .prepare(
-              "SELECT 1 FROM project_work_item_executions WHERE session_id=? AND phase IN ('admitted','dispatching','unknown')",
+              `SELECT 1 FROM project_work_item_executions e
+               WHERE e.session_id=? AND e.phase IN ('admitted','dispatching','unknown')
+                 AND NOT EXISTS (SELECT 1 FROM messages cancelled
+                   WHERE cancelled.session_id=e.session_id AND cancelled.client_id=e.input_id
+                     AND cancelled.role='message_tombstone')`,
             )
             .get(p.sessionId)
         )

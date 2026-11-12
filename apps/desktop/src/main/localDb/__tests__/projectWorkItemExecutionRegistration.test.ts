@@ -20,6 +20,7 @@ import { createProjectWorkItemExecution } from '../../mcp-integrations/projectWo
 import { AgentInputCoordinator } from '../../maker-ipc/agent-input-coordinator';
 import { validateWorkItemInputBeforePersistence, settleDiscardedInputDelivery } from '../../maker-ipc/inputDeliveryLifecycle';
 import { readDelegations, readFollowups, projectWorkItemExecutionState } from '../../project-execution/context';
+import { readProjectWorkItemExecution } from '../../project-execution/entry';
 import { saveAgentInputQueueSnapshot, loadAgentInputQueueSnapshot, getPersistedInputClientIds, awaitAgentInputQueueSnapshotPersistence } from '../agentInputQueueSnapshots';
 import type { AgentInputQueuedMessage } from '../../../shared/agentInputQueue';
 import { setCurrentDbClient,clearCurrentDbClient } from '../client/current';
@@ -258,6 +259,31 @@ for (const mode of ['inproc', 'file-worker'] as const) {
       expect(db.prepare('SELECT * FROM messages WHERE id=?').get('accepted-fixture')).toEqual(acceptedBefore);
       expect(db.prepare('SELECT result_json FROM project_work_item_executions WHERE input_id=?').get(acceptedInputId)).toEqual(receiptBefore);
       expect(await client.tx('projects.validateWorkItemDelivery',{sessionId:'work2',inputId:acceptedInputId})).toEqual({ok:true});
+      // Upgrade gap: a 0159 input can be unknown with no origin evidence. Its
+      // real discard must unblock an explicit new request, without replaying the old ID.
+      db.prepare('INSERT INTO project_automation_consents(working_dir,consented_at,config_hash) VALUES (?,1,?)').run(automationDir,digest(automationConfig));
+      db.prepare('UPDATE project_work_item_executions SET admission_kind=NULL,consent_working_dir=NULL,consent_config_hash=NULL WHERE input_id=?').run(first.inputId);
+      const legacyBefore=db.prepare('SELECT * FROM project_work_item_executions WHERE input_id=?').get(first.inputId);
+      const legacyItem={...queuedItem,clientId:first.inputId,workingDir:'/fixture/work',
+        chatMessage:{...queuedItem.chatMessage,clientId:first.inputId},createOpts:{...queuedItem.createOpts,workingDir:'/fixture/work'}};
+      await saveAgentInputQueueSnapshot('work',[legacyItem]);
+      expect(await client.tx('projects.validateWorkItemDelivery',{sessionId:'work',inputId:first.inputId})).toMatchObject(denied);
+      running=true;
+      const legacyDiscarded=new Promise<void>((resolve,reject)=>{discardedResolve=resolve;discardedReject=reject;});
+      await coordinator.ensureQueueRestored('work');
+      expect(coordinator.getProjection('work').pendingQueue).toHaveLength(1);
+      running=false;coordinator.wakeSession('work','legacy-evidence-missing');
+      await legacyDiscarded;await awaitAgentInputQueueSnapshotPersistence('work');
+      await client.dispose();client=await connect();setCurrentDbClient(client,'owner');
+      const page=await readProjectWorkItemExecution({projectId:'p'});
+      expect(page.items.find(row=>row.sessionId==='work')).toMatchObject({state:'failed',canRequest:true});
+      expect(await loadAgentInputQueueSnapshot('work')).toEqual([]);
+      expect(db.prepare('SELECT * FROM project_work_item_executions WHERE input_id=?').get(first.inputId)).toEqual(legacyBefore);
+      expect(await execute({...request,action:'inspect'})).toMatchObject({ok:false,errorCode:'INPUT_DELIVERY_CANCELLED'});
+      const fresh={...request,requestId:'explicit-after-legacy-discard'};
+      const freshView=requireView(await execute({...fresh,action:'inspect'}));
+      expect(await execute({...fresh,action:'admit',fingerprint:freshView.fingerprint,now:50})).toMatchObject({ok:true,newlyAdmitted:true});
+      expect(vendor).not.toHaveBeenCalled();expect(createUser).not.toHaveBeenCalled();
       db.prepare("UPDATE sessions SET working_dir='/fixture/caller' WHERE id='caller'").run();
       clearCurrentDbClient();
       // Same string, other principal kind does not acquire membership.
@@ -269,9 +295,9 @@ for (const mode of ['inproc', 'file-worker'] as const) {
       expect(await execute({ ...request, action: 'inspect' })).toMatchObject({ ok: false, errorCode: 'BINDING_CONFLICT' });
       await client.exec("UPDATE sessions SET project_binding_revision=7 WHERE id='work'");
       expect(db.prepare('SELECT * FROM sessions ORDER BY id').all()).toEqual(original);
-      expect(db.prepare('SELECT role,COUNT(*) n FROM messages GROUP BY role ORDER BY role').all()).toEqual([{role:'message_tombstone',n:1},{role:'user',n:1}]);
+      expect(db.prepare('SELECT role,COUNT(*) n FROM messages GROUP BY role ORDER BY role').all()).toEqual([{role:'message_tombstone',n:2},{role:'user',n:1}]);
       expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
-      expect(requireView(await execute({...request,action:'inspect'}))).toMatchObject({phase:'unknown',inputId:first.inputId});
+      expect(await execute({...request,action:'inspect'})).toMatchObject({ok:false,errorCode:'INPUT_DELIVERY_CANCELLED'});
     } finally { clearCurrentDbClient(); await client.dispose(); db.close(); h.db = undefined; }
   });
 }
