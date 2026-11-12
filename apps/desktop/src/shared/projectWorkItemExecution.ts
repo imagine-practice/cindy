@@ -26,6 +26,8 @@ export type ProjectWorkItemStartResult =
   | { ok: false; errorCode: string; message: string };
 export interface ProjectWorkItemExecutionScope extends ProjectWorkItemStartInput {
   actor: ProjectSubjectRef;
+  /** Captured by the host from the active turn, never accepted as a tool argument. */
+  automatic: boolean;
 }
 export interface ProjectWorkItemExecutionView {
   fingerprint: string;

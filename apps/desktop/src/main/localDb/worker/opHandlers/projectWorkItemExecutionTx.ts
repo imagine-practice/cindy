@@ -1,5 +1,8 @@
 import type Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { PROJECT_AUTOMATION_REL_SEGMENTS } from '../../../../shared/projectAutomationPaths.js';
 import type {
   ProjectWorkItemExecutionRequest,
   ProjectWorkItemExecutionResult,
@@ -12,6 +15,50 @@ const fail = (errorCode: string): Extract<ProjectWorkItemExecutionResult, { ok: 
   errorCode,
   message: 'Project work-item execution was not admitted',
 });
+type AdmissionRow = {
+  admissionKind: 'explicit' | 'automatic' | null;
+  consentWorkingDir: string | null;
+  consentConfigHash: string | null;
+};
+
+/** Read and freeze consent in the same host transaction that admits the input.
+ * Recovery checks the original basis, even if the active turn is now explicit.
+ * Pre-evidence rows have no trustworthy origin and must not resume automatically.
+ */
+function readAdmission(
+  db: Database.Database,
+  callerSessionId: string,
+  automatic: boolean,
+  stored?: AdmissionRow,
+): { ok: true; basis: AdmissionRow } | Extract<ProjectWorkItemExecutionResult, { ok: false }> {
+  const kind = stored ? stored.admissionKind : automatic ? 'automatic' : 'explicit';
+  if (kind === 'explicit')
+    return {
+      ok: true,
+      basis: { admissionKind: kind, consentWorkingDir: null, consentConfigHash: null },
+    };
+  if (kind !== 'automatic') return fail('AUTOMATION_CONSENT_REQUIRED');
+  const caller = db
+    .prepare('SELECT COALESCE(project_dir,working_dir) AS dir FROM sessions WHERE id=?')
+    .get(callerSessionId) as { dir: string | null } | undefined;
+  if (!caller?.dir || (stored && stored.consentWorkingDir !== caller.dir))
+    return fail('AUTOMATION_CONSENT_REQUIRED');
+  const consent = db
+    .prepare('SELECT config_hash AS hash FROM project_automation_consents WHERE working_dir=?')
+    .get(caller.dir) as { hash: string } | undefined;
+  if (!consent || (stored && stored.consentConfigHash !== consent.hash))
+    return fail('AUTOMATION_CONSENT_REQUIRED');
+  try {
+    const content = readFileSync(path.join(caller.dir, ...PROJECT_AUTOMATION_REL_SEGMENTS), 'utf8');
+    if (digest(content) !== consent.hash) return fail('AUTOMATION_CONSENT_REQUIRED');
+  } catch {
+    return fail('AUTOMATION_CONSENT_REQUIRED');
+  }
+  return {
+    ok: true,
+    basis: { admissionKind: kind, consentWorkingDir: caller.dir, consentConfigHash: consent.hash },
+  };
+}
 const config = [
   'id',
   'source',
@@ -51,6 +98,7 @@ export function runProjectWorkItemExecutionTransaction(
         !p.objective.trim() ||
         !Number.isSafeInteger(p.expectedBindingRevision) ||
         p.expectedBindingRevision < 0 ||
+        typeof p.automatic !== 'boolean' ||
         !['account', 'bot'].includes(p.actor.kind) ||
         !p.actor.id
       )
@@ -76,17 +124,25 @@ export function runProjectWorkItemExecutionTransaction(
       const id = `project-workitem:${digest(JSON.stringify([p.sessionId, p.targetBotId, key]))}`;
       const old = db
         .prepare(
-          `SELECT id,input_id AS inputId,body_digest AS body,phase,result_json AS receipt
+          `SELECT id,input_id AS inputId,body_digest AS body,phase,result_json AS receipt,
+      admission_kind AS admissionKind,consent_working_dir AS consentWorkingDir,consent_config_hash AS consentConfigHash
       FROM project_work_item_executions WHERE session_id=? AND executor_bot_id=? AND key_digest=?`,
         )
         .get(p.sessionId, p.targetBotId, key) as
-        | { id: string; inputId: string; body: string; phase: string; receipt: string | null }
+        | (AdmissionRow & { id: string; inputId: string; body: string; phase: string; receipt: string | null })
         | undefined;
       if (old && old.body !== body) return fail('IDEMPOTENCY_CONFLICT');
+      const inputId = old?.inputId ?? `project-workitem-input:${digest(id)}`;
+      if (db.prepare("SELECT 1 FROM messages WHERE session_id=? AND client_id=? AND role='message_tombstone'").get(p.sessionId, inputId))
+        return fail('INPUT_DELIVERY_CANCELLED');
+      // Recording an uncertain/completed outcome never grants permission to deliver.
+      const admission = p.action === 'unknown' || p.action === 'finish'
+        ? undefined : readAdmission(db, p.callerSessionId, p.automatic, old);
+      if (admission && !admission.ok) return admission;
       const view = {
         fingerprint,
         delegationId: id,
-        inputId: old?.inputId ?? `project-workitem-input:${digest(id)}`,
+        inputId,
         existing: !!old,
         receipt: old?.receipt ? (JSON.parse(old.receipt) as ProjectWorkItemStartResult) : null,
         phase: old?.phase ?? null,
@@ -94,6 +150,7 @@ export function runProjectWorkItemExecutionTransaction(
       if (p.action === 'inspect') return { ok: true, view };
       if (p.action === 'admit') {
         if (old) return { ok: true, view, newlyAdmitted: false };
+        if (!admission) return fail('INVALID_ARGS');
         if (
           db
             .prepare(
@@ -105,8 +162,9 @@ export function runProjectWorkItemExecutionTransaction(
         db.prepare(
           `INSERT INTO project_work_item_executions
         (id,project_id,session_id,binding_revision,executor_bot_id,caller_session_id,actor_kind,actor_id,
-         key_digest,body_digest,fingerprint,input_id,phase,created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'admitted',?,?)`,
+         key_digest,body_digest,fingerprint,input_id,phase,created_at,updated_at,
+         admission_kind,consent_working_dir,consent_config_hash)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'admitted',?,?,?,?,?)`,
         ).run(
           id,
           p.projectId,
@@ -122,6 +180,9 @@ export function runProjectWorkItemExecutionTransaction(
           view.inputId,
           p.now,
           p.now,
+          admission.basis.admissionKind,
+          admission.basis.consentWorkingDir,
+          admission.basis.consentConfigHash,
         );
         return { ok: true, view: { ...view, phase: 'admitted' }, newlyAdmitted: true };
       }
@@ -160,7 +221,7 @@ export function runProjectWorkItemExecutionTransaction(
 
 function readExecutionFacts(
   db: Database.Database,
-  p: import('../../../../shared/projectWorkItemExecution.js').ProjectWorkItemExecutionScope,
+  p: Omit<import('../../../../shared/projectWorkItemExecution.js').ProjectWorkItemExecutionScope, 'automatic'>,
 ): { ok: true; fingerprint: string } | { ok: false; errorCode: string; message: string } {
   const member = db.prepare(
     "SELECT 1 FROM project_members WHERE project_id=? AND subject_kind=? AND subject_id=? AND role IN ('owner','member')",
@@ -225,10 +286,11 @@ export function validateProjectWorkItemDelivery(
         .prepare(
           `SELECT project_id AS projectId,session_id AS sessionId,binding_revision AS expectedBindingRevision,
       executor_bot_id AS targetBotId,caller_session_id AS callerSessionId,actor_kind AS actorKind,actor_id AS actorId,
-      fingerprint,phase FROM project_work_item_executions WHERE session_id=? AND input_id=?`,
+      fingerprint,phase,admission_kind AS admissionKind,consent_working_dir AS consentWorkingDir,
+      consent_config_hash AS consentConfigHash FROM project_work_item_executions WHERE session_id=? AND input_id=?`,
         )
         .get(input.sessionId, input.inputId) as
-        | {
+        | (AdmissionRow & {
             projectId: string;
             sessionId: string;
             expectedBindingRevision: number;
@@ -238,10 +300,12 @@ export function validateProjectWorkItemDelivery(
             actorId: string;
             fingerprint: string;
             phase: string;
-          }
+          })
         | undefined;
       if (!row || !['dispatching', 'settled', 'unknown'].includes(row.phase))
         return { ok: false as const, errorCode: 'EXECUTION_CHANGED' };
+      if (db.prepare("SELECT 1 FROM messages WHERE session_id=? AND client_id=? AND role='message_tombstone'").get(input.sessionId, input.inputId))
+        return { ok: false as const, errorCode: 'INPUT_DELIVERY_CANCELLED' };
       const checked = readExecutionFacts(db, {
         ...row,
         intent: 'start',
@@ -250,9 +314,10 @@ export function validateProjectWorkItemDelivery(
         objective: 'delivery',
       });
       if (!checked.ok) return checked;
-      return checked.fingerprint === row.fingerprint
-        ? { ok: true as const }
-        : { ok: false as const, errorCode: 'SESSION_CONFIG_CHANGED' };
+      if (checked.fingerprint !== row.fingerprint)
+        return { ok: false as const, errorCode: 'SESSION_CONFIG_CHANGED' };
+      const admission = readAdmission(db, row.callerSessionId, false, row);
+      return admission.ok ? { ok: true as const } : admission;
     })
     .immediate();
 }

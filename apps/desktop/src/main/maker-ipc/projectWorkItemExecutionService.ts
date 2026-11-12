@@ -1,13 +1,9 @@
-import { createHash } from 'node:crypto';
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import type { DbClient } from '../localDb/client/DbClient.js';
 import {
   captureEntityProjectAuthority,
   type EntityProjectRuntime,
   EntityProjectAccessError,
 } from '../mcp-integrations/entityProjectAuthority.js';
-import { PROJECT_AUTOMATION_REL_SEGMENTS } from '../../shared/projectAutomationPaths.js';
 import type {
   ProjectWorkItemStartInput,
   ProjectWorkItemStartResult,
@@ -80,39 +76,17 @@ export function createProjectWorkItemExecutionService(deps: {
       let markUnknown: (() => Promise<unknown>) | undefined;
       try {
         const authority = await captureEntityProjectAuthority(input.callerSessionId, deps.runtime);
-        const scope = { ...input, actor: authority.actor };
+        const scope = {
+          ...input,
+          actor: authority.actor,
+          automatic: deps.runtime.input(input.callerSessionId).automatic === true,
+        };
         const refresh = async () => {
           await authority.refresh([input.projectId]);
           authority.assertCurrent();
         };
-        const automatic = deps.runtime.input(input.callerSessionId).automatic === true;
-        const checkConsent = async () => {
-          if (!automatic) return;
-          const row = await authority.client.queryOne<{ dir: string }>(
-            'SELECT COALESCE(project_dir,working_dir) AS dir FROM sessions WHERE id=?',
-            [input.callerSessionId],
-          );
-          if (!row?.dir) throw new EntityProjectAccessError('AUTOMATION_CONSENT_REQUIRED');
-          const consent = await authority.client.queryOne<{ hash: string }>(
-            'SELECT config_hash AS hash FROM project_automation_consents WHERE working_dir=?',
-            [row.dir],
-          );
-          let content: string;
-          try {
-            content = await fs.readFile(
-              path.join(row.dir, ...PROJECT_AUTOMATION_REL_SEGMENTS),
-              'utf8',
-            );
-          } catch {
-            throw new EntityProjectAccessError('AUTOMATION_CONSENT_REQUIRED');
-          }
-          if (!consent || consent.hash !== createHash('sha256').update(content).digest('hex'))
-            throw new EntityProjectAccessError('AUTOMATION_CONSENT_REQUIRED');
-          authority.assertCurrent();
-        };
         const tx = async (request: ProjectWorkItemExecutionRequest) => {
           await refresh();
-          await checkConsent();
           authority.assertCurrent();
           const result = await (
             deps.transact ?? ((client, request) => client.tx('projects.executeWorkItem', request))
@@ -121,7 +95,6 @@ export function createProjectWorkItemExecutionService(deps: {
           return result;
         };
         await refresh();
-        await checkConsent();
         if (deps.runtime.isExecutionPaused(input.sessionId)) return fail('TASK_PAUSED');
         const inspected = await tx({ ...scope, action: 'inspect' });
         if (!inspected.ok) return inspected;

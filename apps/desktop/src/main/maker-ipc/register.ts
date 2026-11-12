@@ -171,6 +171,7 @@ import type { BuiltinApiKeyBridgeDeps } from '../secrets/builtinApiKeyBridge.js'
 import { setBotInvitationWelcomeDispatch } from './botInvitation.js';
 import { createQueuedDispatchReceipts } from './queuedDispatchReceipts.js';
 import { discardQueuedInvitationWelcomes } from './queuedInvitationWelcome.js';
+import { validateWorkItemInputBeforePersistence, settleDiscardedInputDelivery } from './inputDeliveryLifecycle.js';
 import type { TurnUsageContext } from './turnUsageContext.js';
 import { retainProviderPresentationAfterAuthChange } from '../maker-host/provider-presentation-store.js';
 import { registerPluginListHandler } from './pluginListHandler.js';
@@ -20143,14 +20144,7 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
   }
 
   const inputCoordinator: AgentInputCoordinator = new AgentInputCoordinator({
-    validateInputBeforePersistence: async (sessionId,item) => {
-      if (!item.clientId.startsWith('project-workitem-input:')) return;
-      const owner=getCurrentDbClientSnapshot();
-      if (!owner) throw new Error('HOST_NOT_READY');
-      const valid=await owner.client.tx('projects.validateWorkItemDelivery',{sessionId,inputId:item.clientId});
-      if (getCurrentDbClientSnapshot()!==owner) throw new TaskActionAuthorizationError();
-      if (!valid.ok) throw new TaskActionAuthorizationError();
-    },
+    validateInputBeforePersistence: validateWorkItemInputBeforePersistence,
     sendToAgent: async (sessionId, message, createOpts, sendOpts) => {
       try {
         const result = await sendToAgentAccepted(sessionId, message, createOpts, sendOpts);
@@ -20748,11 +20742,9 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
     onDiscardedQueuedMessage: (sessionId, item) => {
       void settleTaskActionInput(item).catch(() => undefined);
       notePluginTaskLifecycle(service => service.discard(sessionId, item, 'cancelled'));
-      if (item.durableDelivery === true) {
-        void saveCancelledInputDelivery(sessionId, item.clientId).catch((error) => {
-          log.warn('input delivery cancellation persistence failed', { sessionId, error: String(error) });
-        });
-      }
+      void settleDiscardedInputDelivery(sessionId, item).catch((error) => {
+        log.warn('input delivery cancellation persistence failed', { sessionId, error: String(error) });
+      });
       welcomeDispatchReceipts.settle(sessionId, item.clientId, false);
       rollbackAgentIslandUserPrompt(sessionId, item.clientId, 'discarded');
       discardQueuedAttachmentOwnership(sessionId, item.clientId);

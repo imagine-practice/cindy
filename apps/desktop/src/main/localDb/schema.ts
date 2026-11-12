@@ -2933,6 +2933,10 @@ export const projectWorkItemExecutions = sqliteTable('project_work_item_executio
   bodyDigest: text('body_digest').notNull(),
   fingerprint: text('fingerprint').notNull(),
   inputId: text('input_id').notNull().unique(),
+  // Null on pre-evidence rows: queued inputs cannot infer explicit owner authority.
+  admissionKind: text('admission_kind', { enum: ['explicit', 'automatic'] }),
+  consentWorkingDir: text('consent_working_dir'),
+  consentConfigHash: text('consent_config_hash'),
   phase: text('phase', { enum: ['admitted', 'dispatching', 'settled', 'unknown'] }).notNull(),
   resultJson: text('result_json'),
   createdAt: integer('created_at').notNull(),

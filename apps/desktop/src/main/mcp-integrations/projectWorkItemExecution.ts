@@ -29,7 +29,9 @@ export function createProjectWorkItemExecution(runtime: EntityProjectRuntime & {
       await authority.refresh([intent.projectId]); await guard?.(); authority.assertCurrent(); sync?.();
       if (intent.action === 'recover') {
         // Read only. Deletion/races cannot turn reconciliation into a fresh admit.
-        const result = await authority.client.tx('projects.executeWorkItem', { ...input, actor: authority.actor, action: 'inspect' });
+        const result = await authority.client.tx('projects.executeWorkItem', {
+          ...input, actor: authority.actor, automatic: source.automatic === true, action: 'inspect',
+        });
         await authority.refresh([intent.projectId]); authority.assertCurrent(); sync?.();
         if (!result.ok) return failure(result.errorCode);
         if (!result.view.phase) return failure('REQUEST_NOT_FOUND');

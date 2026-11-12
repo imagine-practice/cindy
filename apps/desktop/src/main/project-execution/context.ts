@@ -176,10 +176,10 @@ export async function readDelegations(
     [projectId],
   );
   const current=await client.query<DelegationRow>(`SELECT e.id,s.id AS childSessionId,
-    CASE WHEN EXISTS(SELECT 1 FROM agent_input_queue_snapshots q,json_each(CASE WHEN json_valid(q.payload) THEN q.payload ELSE '[]' END) j
+    CASE WHEN cancelled.id IS NOT NULL OR json_extract(e.result_json,'$.ok')=0 THEN 'failed'
+      WHEN EXISTS(SELECT 1 FROM agent_input_queue_snapshots q,json_each(CASE WHEN json_valid(q.payload) THEN q.payload ELSE '[]' END) j
         WHERE q.session_id=s.id AND CASE WHEN j.type='object' THEN json_extract(j.value,'$.clientId') ELSE NULL END=e.input_id) THEN 'queued'
       WHEN e.phase IN ('admitted','dispatching','unknown') AND u.id IS NULL THEN 'queued'
-      WHEN json_extract(e.result_json,'$.ok')=0 THEN 'failed'
       WHEN u.id IS NOT NULL AND EXISTS(SELECT 1 FROM messages r WHERE r.session_id=s.id AND r.rowid>u.rowid
         AND r.rewind_at IS NULL AND r.role='error' AND r.rowid<COALESCE((SELECT MIN(n.rowid) FROM messages n
           WHERE n.session_id=s.id AND n.role='user' AND n.rowid>u.rowid),9223372036854775807)) THEN 'failed'
@@ -191,6 +191,7 @@ export async function readDelegations(
     CASE WHEN u.id IS NOT NULL THEN u.created_at ELSE NULL END AS acceptedAt,
     s.last_turn_ended_at AS completedAt,e.updated_at AS updatedAt,NULL AS pendingInteractionJson,'{}' AS permissionSnapshotJson
     FROM project_work_item_executions e JOIN sessions s ON s.id=e.session_id
+    LEFT JOIN messages cancelled ON cancelled.session_id=s.id AND cancelled.client_id=e.input_id AND cancelled.role='message_tombstone'
     LEFT JOIN messages u ON u.session_id=s.id AND u.client_id=e.input_id AND u.role='user' AND u.rewind_at IS NULL
       AND (s.cleared_at IS NULL OR u.created_at>s.cleared_at)
     WHERE s.project_id=? AND s.project_binding_revision=e.binding_revision AND s.status<>'deleted'
