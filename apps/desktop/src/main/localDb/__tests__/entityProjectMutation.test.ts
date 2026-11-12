@@ -328,6 +328,7 @@ describe('Desktop entity project mutation DB closure', () => {
     expect(await call('get_project_entity', { project_id: 'p' })).toMatchObject({ ok: true, project: { id: 'p' } });
   });
   it('defaults business owner in the real service and rejects injected identity before any dispatch', async () => {
+    expect(await call('start_session_task')).toMatchObject({ ok: false, errorCode: 'UNKNOWN_TOOL' });
     const result = await mutate({ action: 'create', input: { name: 'Default' } });
     expect(result.ok).toBe(true);
     expect(db.prepare('SELECT owner_id FROM projects WHERE id=?').get(result.projectId)).toEqual({ owner_id: 'owner' });
@@ -414,7 +415,9 @@ describe('Desktop entity project mutation DB closure', () => {
     if (mode === 'permission-revoked') afterQuery = sql => {
       if (sql.includes('SELECT owner_id AS ownerId FROM projects')) permissionCurrent = false;
     };
-    expect(await mutate({ action: 'update', projectId: 'p', name: 'Bad' })).toMatchObject({ ok: false });
+    const result = await mutate({ action: 'update', projectId: 'p', name: 'Bad' });
+    if (mode === 'permission-revoked') expect(permissionCurrent).toBe(false);
+    expect(result).toMatchObject({ ok: false });
     expect(dispatchCount).toBe(0);
     expect(query("SELECT name FROM projects WHERE id='p'")).toEqual([{ name: 'Same name' }]);
   });

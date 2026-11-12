@@ -38,9 +38,9 @@ vi.mock('../../../../main/device-link/broadcast-tap', () => ({ captureDataOwnerB
  isDataOwnerBroadcastScopeCurrent: (scope: { generation: number }) => scope.generation === h.generation }));
 vi.mock('../../../../main/logger', () => ({ createLogger: () => ({ warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() }) }));
 vi.mock('../../../../main/cindy-media/ingest', () => ({ ingestMedia: h.ingest }));
-vi.mock('../../../../main/cindy-media/blobStore', () => ({ openBlobFile: vi.fn() }));
+vi.mock('../../../../main/cindy-media/blobStore.desktop', () => ({ openBlobFile: vi.fn() }));
 vi.mock('../../../../main/cindy-media/ledger', () => ({ removeRefById: vi.fn() }));
-vi.mock('../../../../main/cindy-media/refCompensationJournal', () => ({ captureMediaRefCompensationScope: () => ({ assertStillValid() {} }) }));
+vi.mock('../../../../main/cindy-media/refCompensationJournal.desktop', () => ({ captureMediaRefCompensationScope: () => ({ assertStillValid() {} }) }));
 vi.mock('../../../../main/localFileProtocol', () => ({ isLocalFilePreviewPathSupported: () => false }));
 const api = createMaterialReferenceBridge();
 const owner = { kind: 'account' as const, id: 'owner' };

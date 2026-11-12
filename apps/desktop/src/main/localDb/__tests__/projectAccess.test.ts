@@ -142,11 +142,12 @@ describe('project access (M3-A)', () => {
        );
        INSERT INTO bot_profiles (id, display_name) VALUES ('bot-1', '测试伙伴'), ('bot-2', '新伙伴');`,
     );
-    db.exec(migrationSql('0146_'));
-    db.exec(migrationSql('0147_'));
-    db.exec(migrationSql('0148_'));
     db.exec(migrationSql('0149_'));
     db.exec(migrationSql('0150_'));
+    db.exec(migrationSql('0151_'));
+    db.exec(migrationSql('0152_'));
+    db.exec(migrationSql('0153_'));
+    db.exec(migrationSql('0158_'));
     // 删项目的级联要把定时任务的 project_id 置空；schedules 由项目之外的 migration
     // 建立，这里按它在本级联里用到的列最小建表（与 sessions 同一处理方式）。
     db.exec('CREATE TABLE schedules (id TEXT PRIMARY KEY, project_id TEXT)');
@@ -211,7 +212,7 @@ describe('project access (M3-A)', () => {
   });
 
   // Host regression: worker client is ready in local Profile while legacy inproc DB is not opened.
-  // Real services/transactions on generated 0146..0149 SQLite; no UI or real Host claim.
+  // Real services/transactions on generated 0149..0152 SQLite; no UI or real Host claim.
   it('uses the captured local Profile actor for create, list, detail, progress and material reads with no legacy DB user', async () => {
     boundary.legacyUserId = null;
     setCurrentDbClient(client, 'local-v1');

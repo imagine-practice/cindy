@@ -1,5 +1,5 @@
 /** R2 DB/integration boundary: real exported main functions -> real R1 SQLite transaction,
- * generated 0146..0149 schema, temporary real files and real source probes/SHA/text reads.
+ * generated 0149..0152 schema, temporary real files and real source probes/SHA/text reads.
  * Regression: duplicate fast paths skipped references; stale access and version-id cleanup
  * crossed scopes. Auth/owner/Electron and media broker/ledger are controlled; this is not
  * native worker transport, real media journal/recycler or UI/model coverage.
@@ -35,9 +35,9 @@ vi.mock('../client/current', () => ({ getDbClient: env.current, getCurrentDbClie
 // Controlled host identity, independently supplied; role/epoch authorization remains real SQLite.
 vi.mock('../ipc/projects', () => ({ resolveProjectActor: (actor: unknown) => actor === undefined ? { kind: 'account', id: 'owner' } : actor }));
 vi.mock('../../cindy-media/ingest', () => ({ ingestMedia: env.ingest }));
-vi.mock('../../cindy-media/blobStore', () => ({ openBlobFile: env.open }));
+vi.mock('../../cindy-media/blobStore.desktop', () => ({ openBlobFile: env.open }));
 vi.mock('../../cindy-media/ledger', () => ({ removeRefById: env.remove }));
-vi.mock('../../cindy-media/refCompensationJournal', () => ({ captureMediaRefCompensationScope: () => ({ assertStillValid() {} }) }));
+vi.mock('../../cindy-media/refCompensationJournal.desktop', () => ({ captureMediaRefCompensationScope: () => ({ assertStillValid() {} }) }));
 import { readMaterialPreviewPdfBytes } from '../../materialPreviewBytes';
 import { issueMaterialPreview } from '../../materialPreviewAccess';
 import { registerLocalFileProtocolHandler } from '../../localFileProtocol';
@@ -50,7 +50,7 @@ import {
 } from '../ipc/materials';
 import * as io from '../ipc/materialReferenceIo';
 const dir=path.resolve(__dirname,'../../../../drizzle');
-const ddl=['0146_','0147_','0148_','0149_'].map(prefix => readFileSync(path.join(dir,readdirSync(dir).find(n=>n.startsWith(prefix)&&n.endsWith('.sql'))!), 'utf8').split('--> statement-breakpoint').join(';')).join(';');
+const ddl=['0149_','0150_','0151_','0152_'].map(prefix => readFileSync(path.join(dir,readdirSync(dir).find(n=>n.startsWith(prefix)&&n.endsWith('.sql'))!), 'utf8').split('--> statement-breakpoint').join(';')).join(';');
 const owner={kind:'account' as const,id:'owner'}, member={kind:'account' as const,id:'member'};
 const s=(task: string | null='t1',epoch=1):MaterialScope=>task===null?{projectId:'p',workItemId:null,bindingRevision:null}:{projectId:'p',workItemId:task,bindingRevision:epoch};
 const png=Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489','hex');
@@ -122,7 +122,7 @@ describe('material main R2 with R1 database and real files',()=>{
     refs=new Map();blobs=new Map();calls=[];
     root=await fs.mkdtemp(path.join(tmpdir(),'cindy-material-main-'));
     db=createBetterSqliteDatabase(':memory:');db.pragma('foreign_keys=ON');
-    db.exec("CREATE TABLE sessions (id TEXT PRIMARY KEY,status TEXT NOT NULL DEFAULT 'active')");db.exec(ddl);
+    db.exec("CREATE TABLE sessions (id TEXT PRIMARY KEY,title TEXT,status TEXT NOT NULL DEFAULT 'active',updated_at INTEGER NOT NULL DEFAULT 1)");db.exec(ddl);
     for(const p of ['p','q'])runProjectsTransaction(db,{action:'create',actor:owner,newId:p,now:1,input:{name:p,owner,members:p==='p'?[member,{kind:'bot',id:'owner'}]:[]}});
     db.exec("INSERT INTO sessions (id) VALUES ('t1'),('t3')");bind('p','t1');bind('p');
     client={

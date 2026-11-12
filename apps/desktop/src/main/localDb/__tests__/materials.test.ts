@@ -1,4 +1,4 @@
-/** DB tier: frozen R1 references. Production worker + generated 0146..0149 SQL.
+/** DB tier: frozen R1 references. Production worker + generated 0149..0152 SQL.
  * Regression: project-level duplicates previously left the second task empty; entity-wide
  * removal/latest-version projection moved other tasks' references. Old tests lacked epochs
  * and authority revocation. Trusted byte descriptors here do not prove real file/media IO.
@@ -13,7 +13,7 @@ import { runMaterialsTransaction, type MaterialVersionInput, type MaterialsAddTx
 import { runProjectsTransaction } from '../worker/opHandlers/projectsTx';
 import type { Material, MaterialContext, MaterialScope, MaterialReference, MaterialVersion } from '../../../shared/materials';
 const dir = path.resolve(__dirname, '../../../../drizzle');
-const sql = ['0146_', '0147_', '0148_', '0149_'].map(prefix => {
+const sql = ['0149_', '0150_', '0151_', '0152_'].map(prefix => {
   const name = readdirSync(dir).find(n => n.startsWith(prefix) && n.endsWith('.sql'))!;
   return readFileSync(path.join(dir, name), 'utf8').split('--> statement-breakpoint').join(';');
 }).join(';');

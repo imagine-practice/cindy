@@ -34,8 +34,11 @@ vi.mock('react-router-dom', () => ({ useParams: () => h.route, useNavigate: () =
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }) }));
 vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: () => ({ dataOwnerId: h.user, dataOwnerGeneration: h.generation }), useOptionalDataOwnerGeneration: () => h.generation }));
 vi.mock('@/contexts/dataOwnerGeneration', () => ({ getDataOwnerGeneration: () => h.generation, isDataOwnerGenerationCurrent: (owner: number) => owner === h.generation }));
-vi.mock('@/features/bots/botStore', () => ({ useBotProfiles: () => [] }));
-vi.mock('../projectLabels', () => ({ useProjectSubjectLabel: () => (s: { id: string }) => s.id, projectSubjectAvatar: () => 'X', projectSubjectVisual: (subject: { kind: 'account' | 'bot' }, name: string) => ({ kind: subject.kind, name }) }));
+vi.mock('@/features/bots/botStore', () => ({ useBotProfiles: () => [], useBotProfilesStatus: () => 'ready' }));
+vi.mock('../projectLabels', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../projectLabels')>(),
+  useProjectSubjectLabel: () => (subject: { id: string } | null) => subject?.id ?? '',
+}));
 // 页面里的转交负责人/移除成员要二次确认：这个 provider 在应用树外层，测试里给一个恒定的实现。
 vi.mock('@/components/ui/confirm-dialog-provider', () => ({ useConfirmDialog: () => ({ confirm: async () => false }),
   useOptionalConfirmDialog: () => ({ confirm: async () => false }) }));

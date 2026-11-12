@@ -31,7 +31,8 @@ describe('project progress automation origin', () => {
       CREATE TABLE project_members (project_id TEXT, subject_kind TEXT, subject_id TEXT, role TEXT,
         PRIMARY KEY(project_id,subject_kind,subject_id));
       CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT NOT NULL, project_id TEXT,
-        status TEXT NOT NULL, project_binding_revision INTEGER NOT NULL DEFAULT 0);
+        status TEXT NOT NULL, project_binding_revision INTEGER NOT NULL DEFAULT 0,
+        assignee_kind TEXT, assignee_id TEXT);
       CREATE TABLE work_item_progress (
         session_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, binding_revision INTEGER NOT NULL,
         status TEXT, revision INTEGER NOT NULL, reason TEXT, unblock_condition TEXT,
@@ -58,7 +59,7 @@ describe('project progress automation origin', () => {
         ('auto-in-project','Nightly check','p'),
         ('auto-other-project','Other project check','q'),
         ('auto-unbound','Unbound check',NULL);
-      INSERT INTO sessions VALUES
+      INSERT INTO sessions (id,title,project_id,status,project_binding_revision) VALUES
         ('s-manual','Opened by hand','p','active',0),
         ('s-automated','Nightly check run','p','active',0),
         ('s-rebound','Nightly check run later','p','active',0),

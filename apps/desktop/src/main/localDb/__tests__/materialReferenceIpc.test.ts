@@ -35,9 +35,9 @@ vi.mock('../../device-link/broadcast-tap', () => ({ captureDataOwnerBroadcastSco
  isDataOwnerBroadcastScopeCurrent: (scope: { generation: number }) => scope.generation === h.generation }));
 vi.mock('../../logger', () => ({ createLogger: () => ({ warn: vi.fn(), info: vi.fn(), debug: vi.fn(), error: vi.fn() }) }));
 vi.mock('../../cindy-media/ingest', () => ({ ingestMedia: h.ingest }));
-vi.mock('../../cindy-media/blobStore', () => ({ openBlobFile: vi.fn() }));
+vi.mock('../../cindy-media/blobStore.desktop', () => ({ openBlobFile: vi.fn() }));
 vi.mock('../../cindy-media/ledger', () => ({ removeRefById: vi.fn() }));
-vi.mock('../../cindy-media/refCompensationJournal', () => ({ captureMediaRefCompensationScope: () => ({ assertStillValid() {} }) }));
+vi.mock('../../cindy-media/refCompensationJournal.desktop', () => ({ captureMediaRefCompensationScope: () => ({ assertStillValid() {} }) }));
 vi.mock('../../localFileProtocol', () => ({ isLocalFilePreviewPathSupported: () => false }));
 const api = createMaterialReferenceBridge();
 const owner = { kind: 'account' as const, id: 'owner' };

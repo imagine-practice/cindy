@@ -34,7 +34,7 @@ vi.mock('electron', () => ({ ipcMain: { handle: (n: string, f: (event: unknown, 
 vi.mock('../index', () => ({ getRawDb: () => h.db, getDrizzle: () => drizzle(h.db!, { schema }), getCurrentUserId: () => h.user }));
 vi.mock('../../appSessionState', () => ({ getActiveAppSession: () => ({ dataOwnerId: h.user, generation: h.epoch }), activeOwnerScopeKey: () => `${h.user}:${h.epoch}`, isAppSessionBoundaryPending: () => false }));
 vi.mock('../../logger', () => ({ createLogger: () => ({ debug() {}, info() {}, warn() {}, error() {} }) }));
-vi.mock('../../i18n', () => ({ t: (key: string) => key }));
+vi.mock('../../i18n.desktop', () => ({ t: (key: string) => key }));
 
 const group = { endpoint: 'https://chat.example/Case/API', roomId: 'aaaaaaaa-1111-4111-8111-111111111111' };
 const self = 'bbbbbbbb-1111-4111-8111-111111111111';

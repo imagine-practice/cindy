@@ -16,8 +16,11 @@ vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => k
 vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: () => ({ dataOwnerId: 'owner', dataOwnerGeneration: h.generation }), useOptionalDataOwnerGeneration: () => h.generation }));
 vi.mock('@/contexts/dataOwnerGeneration', () => ({ getDataOwnerGeneration: () => h.generation,
   isDataOwnerGenerationCurrent: (value: number) => value === h.generation }));
-vi.mock('@/features/bots/botStore', () => ({ useBotProfiles: () => [] }));
-vi.mock('../projectLabels', () => ({ useProjectSubjectLabel: () => (value: { id: string }) => value.id, projectSubjectAvatar: () => 'X', projectSubjectVisual: (subject: { kind: 'account' | 'bot' }, name: string) => ({ kind: subject.kind, name }) }));
+vi.mock('@/features/bots/botStore', () => ({ useBotProfiles: () => [], useBotProfilesStatus: () => 'ready' }));
+vi.mock('../projectLabels', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../projectLabels')>(),
+  useProjectSubjectLabel: () => (subject: { id: string } | null) => subject?.id ?? '',
+}));
 // 页面里的转交负责人/移除成员要二次确认：这个 provider 在应用树外层，测试里给一个恒定的实现。
 vi.mock('@/components/ui/confirm-dialog-provider', () => ({ useConfirmDialog: () => ({ confirm: async () => false }),
   useOptionalConfirmDialog: () => ({ confirm: async () => false }) }));

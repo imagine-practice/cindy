@@ -43,7 +43,7 @@ vi.mock('../../device-link/broadcast-tap', () => ({
   captureDataOwnerBroadcastScope: () => host.generation,
   isDataOwnerBroadcastScopeCurrent: (generation: number) => host.generation === generation,
 }));
-vi.mock('../../i18n', () => ({ t: (key: string) => key }));
+vi.mock('../../i18n.desktop', () => ({ t: (key: string) => key }));
 // Logging/profile storage is not under test and must not touch the owner's files.
 vi.mock('../../logger', () => ({ createLogger: () => ({
   trace() {}, debug() {}, info() {}, warn() {}, error() {},

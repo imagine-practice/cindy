@@ -3,7 +3,7 @@
  *
  * Value: a claimed folder gives new tasks their default project — but only for members.
  * Bug: the folder claim could otherwise be mistaken for an access grant.
- * Minimal input: real migration 0154 on an in-memory DB + a tiny queryOne adapter.
+ * Minimal input: real migrations 0149/0157 on an in-memory DB + a tiny queryOne adapter.
  * Tier: unit. No IPC; the create paths that call this are covered by their own suites.
  */
 import { readdirSync, readFileSync } from 'node:fs';
@@ -51,8 +51,8 @@ describe('default project binding', () => {
     db = createBetterSqliteDatabase(':memory:');
     db.pragma('foreign_keys=ON');
     db.exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'active');`);
-    applyMigration(db, '0146_');
-    applyMigration(db, '0154_');
+    applyMigration(db, '0149_');
+    applyMigration(db, '0157_');
     db.prepare(
       "INSERT INTO projects (id, name, owner_id, status, created_at, updated_at) VALUES ('p1','P1','acc-1','active',1,1)",
     ).run();

@@ -273,7 +273,8 @@ function desktopFixture(kind: 'private' | 'group' | 'automatic' = 'group') {
 const ownerWrites = [
   ['cindy_helper', 'mutate_project_entity'],
   ['cindy_helper', 'execute_project_work_item'],
-  ['cindy_helper', 'start_session_task'],
+  // V2 has no start_session_task; retain the permission matrix on a live write.
+  ['cindy_helper', 'set_teammate_project'],
   ['cindy_helper', 'send_to_session'],
   ['cindy_helper', 'set_session_runtime'],
   ['cindy_orca', 'create_worker'],
