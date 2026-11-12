@@ -111,6 +111,7 @@ const SESSION_SOURCES = [
   'wechat',
   'dingtalk',
   'wecom',
+  'imessage',
   'scheduler',
   'learn',
   'review',

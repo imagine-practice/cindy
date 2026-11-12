@@ -3,7 +3,7 @@ import type { DbClient } from '../localDb/client/DbClient';
 import type { MaterialContext, MaterialContextPurpose, MaterialContextsListResult, MaterialVersion } from '../../shared/materials';
 import { MATERIAL_CONTEXT_PURPOSES } from '../../shared/materials';
 import type { AgentInputSerializedFile } from '../../shared/agentInputQueue';
-import { openBlobFile } from '../cindy-media/blobStore';
+import { openBlobFile } from '../cindy-media/blobStore.desktop';
 import { sniffMediaMime } from '../cindy-media/sniffMediaMime';
 import { readVerifiedMaterialText, type PrivateMaterialVersion } from '../localDb/ipc/materialReferenceIo';
 import { readBoundedFileNoFollow } from '../utils/readBoundedFile';

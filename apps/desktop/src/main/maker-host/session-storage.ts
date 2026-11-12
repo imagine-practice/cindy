@@ -12,7 +12,6 @@
 
 import { and, eq, inArray, ne } from 'drizzle-orm';
 
-import { dbToMakerAgentKind, makerToDbAgentKind } from '../../shared/agentKindConversion.js';
 import { pruneSessionContextWindowBudget } from './session-context-budget-store.js';
 
 import type {
@@ -28,6 +27,8 @@ import { persistAuthorizedSession } from '../localDb/authorizedSessionPersistenc
 import { normalizeRemoteHostId } from '../localDb/mapper.js';
 import { resolveDefaultProjectId } from '../localDb/projectDirBinding.js';
 import { DESKTOP_VISIBLE_SESSION_SOURCES } from '../../shared/sessionSource.js';
+
+import { makerToDbAgentKind, dbToMakerAgentKind } from '../../shared/agentKindConversion.js';
 import { normalizeWorkingDirForStorage } from '../../shared/workingDir.js';
 
 type DbAgentKind = 'cc' | 'codex' | 'pi';

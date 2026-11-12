@@ -20,19 +20,6 @@ export function normalizeBotHarness(value: unknown): BotHarness {
 
 export const normalizeBotModelRoute = normalizeModelRoute;
 
-/** Optional task-specific route. Absence inherits the live primary route, never a stored copy. */
-export function readBotTaskModelOverride(value: unknown): BotModelRoute | null {
-  if (value === null || value === undefined) return null;
-  const record = value as Partial<BotModelRoute>;
-  const route = normalizeBotModelRoute(value);
-  if (!route || !['claude', 'codex', 'pi'].includes(String(record.harness))
-    || (record.providerId !== null && typeof record.providerId !== 'string')
-    || typeof record.effort !== 'string' || (typeof record.fastMode !== 'boolean' && record.fastMode !== 'ultrafast')) {
-    throw new Error('Invalid task model route');
-  }
-  return route;
-}
-
 /**
  * Read the ordered route chain while preserving every legacy single-model Bot.
  * Duplicate routes are dropped because retrying the same endpoint cannot recover it.
@@ -129,10 +116,10 @@ export function botProfileModelSelectionChanged(previous: Record<string, unknown
 export function normalizeBotProfileModelChain(
   value: Record<string, unknown>,
 ): Record<string, unknown> {
+  // `taskModelOverride` (the retired teammate task model) is not read here: a stored value stays as
+  // it is, opaque, so a profile carrying it loads and saves, and the cloud still carries it for an
+  // older computer (companion-cloud/capabilities.ts).
   const next = { ...value };
-  if (Object.prototype.hasOwnProperty.call(next, 'taskModelOverride')) {
-    next.taskModelOverride = readBotTaskModelOverride(next.taskModelOverride);
-  }
   if (Object.prototype.hasOwnProperty.call(next, 'modelChain')) {
     const chain = normalizeBotModelChain(next.modelChain);
     if (chain.length === 0 && next.modelChainOverride !== null && next.modelOverride !== null) {
@@ -163,4 +150,18 @@ export function normalizeBotProfileModelChain(
     throw new Error('modelChainOverride must be an ordered route list or null');
   }
   return next;
+}
+
+// COMPAT (frozen V1 delegation layer): task-model override reader upstream removed with V1.
+// Needed by botDelegationService.ts (project work-item execution). Delete with the V1 layer.
+export function readBotTaskModelOverride(value: unknown): BotModelRoute | null {
+  if (value === null || value === undefined) return null;
+  const record = value as Partial<BotModelRoute>;
+  const route = normalizeBotModelRoute(value);
+  if (!route || !['claude', 'codex', 'pi'].includes(String(record.harness))
+    || (record.providerId !== null && typeof record.providerId !== 'string')
+    || typeof record.effort !== 'string' || (typeof record.fastMode !== 'boolean' && record.fastMode !== 'ultrafast')) {
+    throw new Error('Invalid task model route');
+  }
+  return route;
 }

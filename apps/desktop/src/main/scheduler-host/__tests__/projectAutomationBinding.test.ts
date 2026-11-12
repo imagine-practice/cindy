@@ -47,7 +47,7 @@ vi.mock('../../maker-ipc/register.js', () => ({
 vi.mock('../workdir-resolver', () => ({ resolveWorkingDir: mocks.resolveWorkingDir }));
 vi.mock('../runners/_shared', () => ({ backfillSessionMeta: mocks.backfillSessionMeta }));
 
-import { MakerScheduleRunner } from '../runner';
+import { MakerScheduleRunner } from '../runner.desktop';
 import { clearCurrentDbClient, setCurrentDbClient } from '../../localDb/client/current';
 import type { DbClient } from '../../localDb/client/DbClient';
 import {
@@ -181,6 +181,7 @@ function createRunnerHarness(session: Session, opts: { sessionMeta?: Record<stri
     createSession: vi.fn(async () => session),
     getSessionMeta: vi.fn(async () => opts.sessionMeta ?? null),
     isSessionAlive: vi.fn(() => false),
+    recyclePiRuntimeIfResourcesDrifted: vi.fn(async () => false),
     closeSession: vi.fn(async () => undefined),
   } as unknown as Maker;
   const runner = new MakerScheduleRunner({

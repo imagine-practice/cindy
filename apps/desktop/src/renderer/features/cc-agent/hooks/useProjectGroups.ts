@@ -13,10 +13,10 @@ import { useProvisionalDraftProjectTaskId } from './useProvisionalDraftProjectTa
 
 import type { Session } from '@/lib/ccAgent.types';
 import { useRemoteSshHosts } from '@/hooks/useRemoteSshHosts';
-import { buildBotSessionOwners } from '@/features/bots/botSessionOwners';
-import { useBotProfiles } from '@/features/bots/botStore';
 import { remoteProjectAliases } from '@/features/device-link/remoteProjectAliases';
 import { projectsStore } from '@/features/projects/projectsStore';
+import { buildBotSessionOwners } from '@/features/bots/botSessionOwners';
+import { useBotProfiles } from '@/features/bots/botStore';
 import {
   type PersistentLocalProject,
   type ProjectGroupsResult,
@@ -67,7 +67,6 @@ export function useProjectGroups(
       remoteProjectAliases: hostProjectAliases,
       projectAliasMembers,
       includePinnedInProjects,
-      botOwnerBySessionId,
       persistentLocalProjects,
       entityProjects,
       localPlatform,
@@ -84,7 +83,6 @@ export function useProjectGroups(
     persistentLocalProjects,
     entityProjects,
     localPlatform,
-    botOwnerBySessionId,
     provisionalDraftTaskId,
   ]);
   const projectDevices = useMemo(

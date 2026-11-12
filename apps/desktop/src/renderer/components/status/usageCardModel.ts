@@ -5,6 +5,8 @@ import type { CodexRateLimitResetSummary } from '@cindy/maker-shared/session-con
 import type { RateLimitSnapshot } from '@/hooks/useAccountUsage';
 import type { XaiRateLimitSnapshot } from '@/hooks/useXaiRateLimit';
 import type { ClaudeSubscriptionUsageSnapshot } from '../../../shared/claudeSubscriptionUsage';
+import type { SubscriptionAccountUsage } from '../../../shared/subscriptionAccounts';
+import { matchCodexBucketForModel } from '@cindy/maker-shared/codex-usage-buckets';
 import type {
   DeepSeekAccountUsageSnapshot,
   ZhipuCodingPlanQuotaSnapshot,
@@ -47,6 +49,8 @@ export interface UsageCardAccount {
   notices?: Array<{ text: string; tone: 'warn' | 'crit' }>;
   emptyText?: string;
   updatedAt?: number | null;
+  /** Optional recovery for a failed read; counters and other usage stay intact. */
+  refreshFailure?: { retry: () => void; retrying: boolean };
 }
 
 /** Compact surfaces lead with time remaining; round up to minutes and show
@@ -57,8 +61,19 @@ export function formatQuotaResetCountdown(
   t: TFunction,
 ): string | null {
   if (typeof resetsAt !== 'number' || !Number.isFinite(resetsAt) || resetsAt <= 0) return null;
+  const duration = formatQuotaResetDuration(resetsAt, nowMs, t);
+  return duration === null ? t('quotaCard.resetPending') : t('quotaCard.resetIn', { duration });
+}
+
+/** The bare time left in a window, without the "resets in" wording; null when unknown or elapsed. */
+export function formatQuotaResetDuration(
+  resetsAt: number | null | undefined,
+  nowMs: number,
+  t: TFunction,
+): string | null {
+  if (typeof resetsAt !== 'number' || !Number.isFinite(resetsAt) || resetsAt <= 0) return null;
   const remainingMs = resetsAt * 1000 - nowMs;
-  if (remainingMs <= 0) return t('quotaCard.resetPending');
+  if (remainingMs <= 0) return null;
   const minutes = Math.ceil(remainingMs / 60_000);
   const days = Math.floor(minutes / 1440);
   const hours = Math.floor((minutes % 1440) / 60);
@@ -75,7 +90,7 @@ export function formatQuotaResetCountdown(
             ...(remainder ? [`${remainder}${t('todaySpend.unit.minute')}`] : []),
           ]
         : [`${minutes}${t('todaySpend.unit.minute')}`];
-  return t('quotaCard.resetIn', { duration: parts.join(' ') });
+  return parts.join(' ');
 }
 
 export function formatQuotaResetAt(
@@ -321,6 +336,33 @@ export function buildCodexUsageCard(
         : [],
     ...(!snapshot ? { emptyText: t('quotaCard.waiting') } : {}),
   };
+}
+
+/** One pooled subscription account's own snapshot, rendered with the provider's usage card. */
+export function buildSubscriptionAccountUsageCard(
+  usage: SubscriptionAccountUsage | undefined,
+  t: TFunction,
+  nowMs: number,
+  locale?: string,
+): UsageCardAccount | null {
+  if (usage?.claude) return buildClaudeUsageCard(usage.claude, t);
+  if (!usage?.codex) return null;
+  // As in the settings card, the generic bucket stands for the account; an empty one stays empty.
+  const bucket = matchCodexBucketForModel(usage.codex.buckets, undefined, nowMs);
+  const window = (value: NonNullable<typeof bucket>['primary'] | undefined) =>
+    value?.usedPercent === undefined ? null : { ...value, usedPercent: value.usedPercent };
+  return buildCodexUsageCard(
+    {
+      ...bucket,
+      primary: window(bucket?.primary),
+      secondary: window(bucket?.secondary),
+      credits: usage.codex.credits,
+    },
+    null,
+    t,
+    nowMs,
+    locale,
+  );
 }
 
 export function buildXaiUsageCard(

@@ -226,8 +226,6 @@ function dispatchTransaction(db: Database.Database, args: unknown): unknown {
       return botsPersistSessionPermission(db, txArgs);
     case 'bots.createGroupLane':
       return botsCreateGroupLane(db, txArgs as BotGroupsCreateLaneArgs);
-    case 'bots.createRoutineLane':
-      return botsCreateChannelLane(db, txArgs as BotsCreateChannelLaneArgs, 'routine');
     case 'bots.createChannelLane':
       return botsCreateChannelLane(db, txArgs as BotsCreateChannelLaneArgs);
     case 'bots.createThreadLane':
@@ -371,18 +369,27 @@ function expectOptionalFlag(value: unknown, name: string): boolean {
   return value;
 }
 
+/** Internal main → worker projection; omitted by older callers, preserving their singleton guard. */
+function inactiveCindyIds(value: unknown): Set<string> {
+  if (value === undefined) return new Set();
+  if (!Array.isArray(value)) throw invalidArgs('inactiveCindyIds must be a string array');
+  return new Set(value.map(id => expectString(id, 'inactiveCindyIds item')));
+}
+
 function botsCreateProfile(db: Database.Database, args: unknown): void {
   const p = asRecord(args, 'bots.createProfile args');
   const id = expectString(p.id, 'id');
   const now = expectNumber(p.now, 'now');
   const allowDuplicateName = expectOptionalFlag(p.allowDuplicateName, 'allowDuplicateName');
+  const inactive = inactiveCindyIds(p.inactiveCindyIds);
   db.transaction(() => {
     const config = JSON.parse(expectString(p.capabilitiesJson, 'capabilitiesJson'));
-    const rows = db.prepare(`SELECT p.id, p.display_name AS name, v.capabilities_json AS config, v.identity_source AS identity
+    const rows = db.prepare(`SELECT p.id, p.status, p.display_name AS name, v.capabilities_json AS config, v.identity_source AS identity
       FROM bot_profiles p JOIN bot_profile_versions v ON v.bot_id = p.id AND v.version = p.current_version
-      WHERE p.status != 'archived'`).all() as Array<{ id: string; name: string; config: string; identity: string }>;
+      WHERE p.status != 'archived'`).all() as Array<{ id: string; status: string; name: string; config: string; identity: string }>;
     if ((!allowDuplicateName && rows.some(row => normalizeBotName(row.name) === normalizeBotName(expectString(p.displayName, 'displayName')))) ||
-        (config.templateId === 'cindy' && rows.some(row => JSON.parse(row.config).templateId === 'cindy' || inferBotTemplatePresetId(row.identity) === 'cindy'))) {
+        (config.templateId === 'cindy' && rows.some(row => (row.status === 'deleting' || !inactive.has(row.id))
+          && (JSON.parse(row.config).templateId === 'cindy' || inferBotTemplatePresetId(row.identity) === 'cindy')))) {
       throw Object.assign(new Error('A matching companion already exists'), { code: 'ALREADY_EXISTS' });
     }
     db.prepare(`INSERT INTO bot_profiles
@@ -418,6 +425,7 @@ function botsUpdateProfile(db: Database.Database, args: unknown): { currentVersi
   const expectedVersion = expectNumber(p.expectedCurrentVersion, 'expectedCurrentVersion');
   const now = expectNumber(p.now, 'now');
   const allowDuplicateName = expectOptionalFlag(p.allowDuplicateName, 'allowDuplicateName');
+  const inactive = inactiveCindyIds(p.inactiveCindyIds);
   const avatarRef = p.botAvatarRef === undefined
     ? null
     : asRecord(p.botAvatarRef, 'botAvatarRef');
@@ -476,17 +484,28 @@ function botsUpdateProfile(db: Database.Database, args: unknown): { currentVersi
     if (permissionMode !== undefined && !['ask', 'auto', 'bypassPermissions'].includes(permissionMode)) {
       throw new Error('Invalid canonical permission mode');
     }
-    const latest = editsContent || permissionMode !== undefined || p.clearScheduledModelBaseline === true
+    const latest = editsContent || permissionMode !== undefined || p.clearScheduledModelBaseline === true || p.inactiveCindyIds !== undefined
       ? db.prepare('SELECT capabilities_json AS json, identity_source AS identity FROM bot_profile_versions WHERE bot_id = ? AND version = ?')
         .get(id, expectedVersion) as { json: string; identity: string } | undefined
       : undefined;
-    if ((editsContent || permissionMode !== undefined || p.clearScheduledModelBaseline === true) && !latest) {
+    if ((editsContent || permissionMode !== undefined || p.clearScheduledModelBaseline === true || p.inactiveCindyIds !== undefined) && !latest) {
       throw Object.assign(new Error('Bot profile version missing'), { code: 'PRECONDITION_FAILED' });
     }
     const latestConfig = latest ? asRecord(JSON.parse(latest.json), 'capabilities') : undefined;
     const nextConfig = editsContent
       ? asRecord(JSON.parse(expectString(p.capabilitiesJson, 'capabilitiesJson')), 'capabilities')
       : latestConfig ? { ...latestConfig } : undefined;
+    // A cloud restoration can reactivate an existing copy as well as create one. Do not
+    // race a new local Cindy into existence after the host's asynchronous preflight.
+    if (p.inactiveCindyIds !== undefined && nextConfig?.templateId === 'cindy') {
+      const others = db.prepare(`SELECT p.id, p.status, v.capabilities_json AS config, v.identity_source AS identity
+        FROM bot_profiles p JOIN bot_profile_versions v ON v.bot_id = p.id AND v.version = p.current_version
+        WHERE p.id != ? AND p.status != 'archived'`).all(id) as Array<{ id: string; status: string; config: string; identity: string }>;
+      if (others.some(row => (row.status === 'deleting' || !inactive.has(row.id))
+        && (JSON.parse(row.config).templateId === 'cindy' || inferBotTemplatePresetId(row.identity) === 'cindy'))) {
+        throw Object.assign(new Error('A matching companion already exists'), { code: 'ALREADY_EXISTS' });
+      }
+    }
     const permission = permissionMode === 'bypassPermissions' ? 'trusted' : permissionMode;
     if (nextConfig && latestConfig) {
       // Composer saves can change permissions in place without losing the version
@@ -931,11 +950,12 @@ function botsCreateGroupLane(db: Database.Database, args: BotGroupsCreateLaneArg
  * of creating a second. Unlike group lanes there is no member table: the
  * connection binding (owner-scoped setting) is the authority, checked by Main.
  */
-function botsCreateChannelLane(db: Database.Database, args: BotsCreateChannelLaneArgs, role: 'channel' | 'routine' = 'channel'): BotGroupsCreateLaneResult {
+function botsCreateChannelLane(db: Database.Database, args: BotsCreateChannelLaneArgs): BotGroupsCreateLaneResult {
+  const role = 'channel';
   const p = asRecord(args, 'bots.createChannelLane args');
   const botId = expectString(p.botId, 'botId');
   const routeKey = expectString(p.routeKey, 'routeKey');
-  if (!routeKey.startsWith(role === 'routine' ? 'routine:' : 'im:')) throw new Error('Invalid companion lane route key');
+  if (!routeKey.startsWith('im:')) throw new Error('Invalid companion lane route key');
   const s = asRecord(p.session, 'session');
   const sessionId = expectString(s.id, 'session.id');
   const createdAt = expectNumber(s.createdAt, 'session.createdAt');
@@ -1480,6 +1500,9 @@ function botsDeleteProfile(
   }
   const keepTaskHistory = p.keepTaskHistory;
   const at = expectNumber(p.at, 'at');
+  const projectSessionIds = [...new Set((p.projectSessionIds === undefined ? [] : expectArray(p.projectSessionIds, 'projectSessionIds'))
+    .map((value, index) => expectString(value, `projectSessionIds.${index}`)))]
+    .filter((id) => !sessionIds.includes(id));
   const status: 'archived' | 'deleted' = keepTaskHistory ? 'archived' : 'deleted';
   return db.transaction(() => {
     const profile = db.prepare('SELECT status FROM bot_profiles WHERE id = ?').get(botId) as
@@ -1523,6 +1546,17 @@ function botsDeleteProfile(
           (SELECT session_id FROM bot_session_links WHERE bot_id = ? AND role IN ('group', 'channel'))` : ''}`)
         .run(status, at, ...sessionIds, ...(hasLinkRoles ? [botId] : []));
     }
+    // The teammate's project goes with it: its other tasks follow the same keep-or-delete choice.
+    let projectChanged: string[] = [];
+    if (projectSessionIds.length > 0) {
+      const placeholders = projectSessionIds.map(() => '?').join(',');
+      projectChanged = (db.prepare(`SELECT id FROM sessions WHERE status != 'deleted' AND id IN (${placeholders})`)
+        .all(...projectSessionIds) as Array<{ id: string }>).map((row) => row.id);
+      if (projectChanged.length > 0) {
+        db.prepare(`UPDATE sessions SET status = ?, updated_at = ? WHERE id IN (${projectChanged.map(() => '?').join(',')})`)
+          .run(status, at, ...projectChanged);
+      }
+    }
 
     const hasMediaRefs = Boolean(db.prepare(
       "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'media_refs'",
@@ -1539,7 +1573,7 @@ function botsDeleteProfile(
       new Error('Bot 生命周期已被另一处操作更新'),
       { code: 'PRECONDITION_FAILED' },
     );
-    return { sessionIds: allSessionIds, status };
+    return { sessionIds: [...allSessionIds, ...projectChanged], status };
   })();
 }
 
@@ -3789,6 +3823,11 @@ function orcaReserveWorkerCreation(db: Database.Database, args: unknown): unknow
   return db.transaction(() => {
     // DELETE 即使没有命中也会先取得 writer lock，后续检查与 INSERT 因而跨连接串行。
     db.prepare('DELETE FROM orca_worker_creation_reservations WHERE expires_at <= ?').run(now);
+    // 已归档／已删除任务的 Worker 不再占用名字：把它的 label 改成带自身 id 的唯一值后放行
+    // （`~` 不在可填写的 label 字符集内，不会与任何新名字相撞）。记录、历史与关联都保留。
+    db.prepare(`UPDATE orca_workers SET label = label || '~' || id, updated_at = ?
+      WHERE team_id = ? AND label = ? COLLATE NOCASE
+        AND session_id IN (SELECT id FROM sessions WHERE status != 'active')`).run(now, teamId, label);
     const duplicateWorker = db.prepare(
       'SELECT 1 FROM orca_workers WHERE team_id = ? AND label = ? COLLATE NOCASE LIMIT 1',
     ).get(teamId, label);

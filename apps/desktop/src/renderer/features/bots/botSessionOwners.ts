@@ -1,17 +1,17 @@
 /**
- * sessionId → 它属于哪个伙伴。
+ * Session → 所属伙伴的查找与路由。
  *
- * 会话行本身不带 botId(归属存在 `bot_session_links` 里),而侧栏分组要按伙伴分组,
- * 所以需要这样一张表。它从 botStore 已有的会话投影现拼 —— **不走新的 IPC、不给
- * 会话列表那条热路径加 join**:伙伴数量是个位数,投影本来就在内存里。
- *
- * 主对话、渠道任务、归档历史三种都算进来:用户要找"小柴昨天干的那件事",不会先
- * 想清楚那是主对话还是 Telegram 里的对话。
+ * 会话行本身不带 botId(归属存在 `bot_session_links` 里),所以从 botStore 已有的
+ * 会话投影现查 —— **不走新的 IPC、不给会话列表那条热路径加 join**:伙伴数量是
+ * 个位数,投影本来就在内存里。
  */
 
-import type { BotSessionOwner } from '@/features/cc-agent/lib/projectGrouping';
 import type { BotProfile } from './botStore';
 import type { RemoteBot } from './remoteBotRoster';
+// COMPAT (frozen V1 delegation layer): bot-ownership projection used by the preserved
+// project grouping (useProjectGroups/projectGrouping). Upstream removed it with V1 bot
+// ownership grouping. Delete with the V1 layer after V2 migration.
+import type { BotSessionOwner } from '@/features/cc-agent/lib/projectGrouping';
 
 /** The durable registry has exactly one canonical link; kind is only presentation. */
 export function canonicalBotSession<T extends { role?: unknown }>(bot: { sessions: readonly T[] }): T | undefined {
@@ -234,6 +234,10 @@ export function createSessionEntryNavigator(
   });
 }
 
+/**
+ * COMPAT (frozen V1 delegation layer): session → owning-bot projection for the preserved
+ * project grouping. Upstream removed it with V1 bot-ownership grouping. Delete with the V1 layer.
+ */
 export function buildBotSessionOwners(
   profiles: readonly BotProfile[],
 ): Map<string, BotSessionOwner> {
@@ -245,8 +249,6 @@ export function buildBotSessionOwners(
       avatar: profile.avatar,
       avatarColor: profile.avatarColor,
     };
-    // 归属只认 bot_session_links 的 sessions[] 投影。顶层
-    // canonicalSessionId 是旧数据迁移镜像，投影缺失时不能用它抢占一条普通任务。
     for (const session of profile.sessions) {
       if (session.id) map.set(session.id, owner);
     }

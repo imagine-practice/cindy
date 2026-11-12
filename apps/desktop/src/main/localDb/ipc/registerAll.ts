@@ -4,9 +4,6 @@ import { readMaterialPreviewPdfBytes } from '../../materialPreviewBytes';
 import { MATERIALS_READ_PREVIEW_BYTES_CHANNEL } from '../../../shared/materials';
 import { registerCompanionImport } from '../../bot-import/registration.js';
 import { registerTaskTagsIpc } from './taskTags';
-import { registerRoutineRemoteResources } from '../../routines/remote.js';
-import { registerRoutinesIpc } from '../../routines/service.js';
-import { registerNightlyLearningIpc } from '../../routines/nightlyLearningIpc.js';
 /**
  * chat-data-localization F2/F5：聚合注册所有 localDb IPC handlers + ensure-ready。
  *
@@ -37,11 +34,11 @@ import { registerProjectsIpc } from './projects';
 import { registerProjectRemoteResourceProvider } from './projectRemoteResourceProvider';
 import { registerProjectMembershipRecoveryIpc } from './projectMembershipRecovery';
 import { registerMaterialsIpc } from './materials';
-import { registerRightSidebarTabsIpc } from './rightSidebarTabs';
+import { registerRightSidebarTabsIpc } from './rightSidebarTabs.desktop';
 import { registerSubagentRunsIpc } from './subagentRuns';
-import { enqueueDurableWrite } from '../../messagePersistBroadcaster';
+import { enqueueDurableWrite } from '../../messagePersistBroadcaster.desktop';
 import { registerDevSqliteVecIpc } from './dev/sqliteVec';
-import { registerSearchIpc } from './search';
+import { registerSearchIpc } from './search.desktop';
 import { registerRemoteHistoryIpc } from './history';
 import { registerHistoryQueryIpc } from './historyQuery';
 import { recoverActiveTeammateInvitations, registerBotIpc } from './bots';
@@ -55,7 +52,7 @@ import { createOwnerEnsureCoordinator } from './ownerEnsureCoordinator';
 import { replyToEnsureReady, type EnsureReadyReply } from '../ensureReadyReply.js';
 import { reconcileSessionMediaRefsForDeletedSessions } from '../../cindy-media/sessionCleanup';
 import { reconcileGeneratedImageRecovery } from '../../cindy-media/generatedImageRecovery';
-import { reconcileMediaRefCompensationsForOwner } from '../../cindy-media/refCompensationJournal';
+import { reconcileMediaRefCompensationsForOwner } from '../../cindy-media/refCompensationJournal.desktop';
 import { setSessionRouteLockImplementation } from '../sessionRouteLock';
 import { LOCAL_DATA_OWNER_ID } from '../../appSessionState';
 import { ensureDialogueWorkspaceDir } from '../dialogueWorkspace';
@@ -233,9 +230,6 @@ export function registerLocalDbIpc(opts: RegisterLocalDbIpcOpts = {}): void {
   registerBotIpc();
   registerBotSkillSettingsIpc();
   registerCompanionImport();
-  registerRoutinesIpc();
-  registerNightlyLearningIpc();
-  registerRoutineRemoteResources(botRemoteManagement);
   registerBotRemoteResourceProvider(botRemoteManagement);
   registerSessionImportIpc();
   registerSessionShareIpc();

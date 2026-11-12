@@ -1,7 +1,7 @@
 /** Material-only byte verification. No writes and no storage reference projection. */
 import fs from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import * as blobStore from '../../cindy-media/blobStore';
+import * as blobStore from '../../cindy-media/blobStore.desktop';
 import { verifyMaterialSource, TEXT_PREVIEW_MAX_BYTES } from '../../cindy-media/materialSource';
 import type { MaterialStorageKind } from '../../../shared/materials';
 import { getSensitiveMediaBlocklist, isPathAllowedAgainst } from '../../filePathPolicy';

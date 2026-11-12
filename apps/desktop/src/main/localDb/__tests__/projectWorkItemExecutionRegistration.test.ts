@@ -57,7 +57,7 @@ for (const mode of ['inproc', 'file-worker'] as const) {
     const requireView = (r: ProjectWorkItemExecutionResult) => { expect(r.ok).toBe(true); if (!r.ok) throw new Error(r.errorCode); return r.view; };
     const original = db.prepare('SELECT * FROM sessions ORDER BY id').all();
     try {
-      expect(await client.queryOne("SELECT value FROM migration_meta WHERE key='schema_version'")).toEqual({ value: '157' });
+      expect(await client.queryOne("SELECT value FROM migration_meta WHERE key='schema_version'")).toEqual({ value: '158' });
       const first = requireView(await execute({ ...request, action: 'inspect' }));
       const plan = JSON.stringify({ permission: { mode: 'ask' }, targetBotId: null, taskInput: { inputId: first.inputId },
         projectWorkItemExecution: { version: 1, projectId: 'p', sessionId: 'work', bindingRevision: 7, targetBotId: 'executor', actor: request.actor } });

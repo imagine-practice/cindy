@@ -30,7 +30,7 @@ Cindy 已有项目目录归属、普通任务、伙伴待办与跟进、群分�
 
 - [项目管理实现](../../apps/desktop/src/main/mcp-integrations/projectManagement.ts)
 - [本地数据模型](../../apps/desktop/src/main/localDb/schema.ts)
-- [伙伴工作台](../../apps/desktop/src/main/maker-ipc/botWorkbenchService.ts)
+- [伙伴运行时（V1 工作台已退役）](../product-rules/cindy-bots-runtime.md)
 - [Orca 架构](../dev-rules/orca-team-architecture.md)
 - [插件任务 API 及限制](../dev-rules/plugin-task-api-implementation.md)
 - [项目代码知识包](../../packages/project-context/README.md)

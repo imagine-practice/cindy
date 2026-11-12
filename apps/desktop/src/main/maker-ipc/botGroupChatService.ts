@@ -192,6 +192,8 @@ export interface BotGroupChatServiceDeps {
   onChanged?: (payload: BotGroupChangedPayload, ownerScope?: DataOwnerBroadcastScope) => void;
   onChatMessageNotification?: (payload: import('./chatMessageNotifications.js').ChatMessageNotification, current: () => boolean) => void;
   onChatGroupAttention?: (groupId: string, input: import('../agent-island/groupChat.js').AgentIslandGroupChatInput | null, current: () => boolean) => void;
+  /** The signed-in account's own preference `key` changed (written by this or another device). */
+  onAccountPreferenceChanged?: (key: string) => void;
   /** Cloud companions (cloud-companions.md); absent keeps the Chat Server per-computer only. */
   companionCloud?: import('../companion-cloud/runtime.js').CompanionCloudHost;
   now?: () => number;
@@ -2249,27 +2251,25 @@ export function createBotGroupChatService(deps: BotGroupChatServiceDeps) {
     editPlanStep,
     settleLaneTurn,
     refreshPendingInteraction,
-    /** Only a server room has a message channel a teammate can post into outside a turn. */
+    // COMPAT (frozen V1 delegation layer): companion task-posting stub. Upstream removed it with
+    // V1; kept because the retained chatServer wrapper + botDelegationService reference it and the
+    // post types below. Delete with the V1 layer after V2 migration.
     postCompanionTaskMessage: async (_input: BotGroupTaskPostInput): Promise<BotGroupTaskPostResult> =>
       ({ ok: false, errorCode: 'GROUP_CHANNEL_UNAVAILABLE', retryable: false }),
     dispose,
   };
 }
 
-/** One message a teammate posts into its group about an independent task (bot-group-chat.md §10). */
+/** COMPAT (frozen V1 delegation layer): one message a teammate posts into its group about an independent task. */
 export interface BotGroupTaskPostInput {
   groupId: string;
   botId: string;
-  /** Idempotent per event: retries return the message the server already stored. */
   clientId: string;
   text: string;
   card?: BotGroupTaskCard;
-  /** Generic task outboxes freeze the same wire payload without a delegation row. */
   preparePost?: (prepare: () => Promise<import('./botGroupTaskPostSnapshot.js').BotGroupTaskPostSnapshot>,
     destination: { endpoint: string; selfId: string; roomId: string; clientId: string }) => Promise<import('./botGroupTaskPostSnapshot.js').BotGroupTaskPostSnapshot>;
-  /** Delivered files, uploaded as this teammate's attachments; unreadable ones are skipped. */
   files?: Array<{ absolutePath: string }>;
-  /** A task started in a Thread reports back into that Thread. */
   threadRootId?: string;
 }
 export type BotGroupTaskPostResult =

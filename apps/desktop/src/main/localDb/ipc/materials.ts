@@ -17,7 +17,7 @@ import {
 } from '../../../shared/materials';
 import { captureDataOwnerBroadcastScope, isDataOwnerBroadcastScopeCurrent } from '../../device-link/broadcast-tap';import { ingestMedia } from '../../cindy-media/ingest';
 import { probeMaterialSource } from '../../cindy-media/materialSource';
-import { captureMediaRefCompensationScope } from '../../cindy-media/refCompensationJournal';
+import { captureMediaRefCompensationScope } from '../../cindy-media/refCompensationJournal.desktop';
 import { isLocalFilePreviewPathSupported } from '../../localFileProtocol';
 import { issueMaterialPreview } from '../../materialPreviewAccess';
 import { MATERIAL_PREVIEW_MAX_BYTES, readMaterialPreviewBytes } from './materialReferenceIo';

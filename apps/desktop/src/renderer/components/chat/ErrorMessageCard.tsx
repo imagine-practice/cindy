@@ -25,6 +25,7 @@ import {
   isCindyGatewayProxyTokenInvalidError,
   isResponsesLiteParallelToolCallsError,
   redactSensitiveText,
+  localizeSubscriptionAccountError,
 } from '@cindy/maker-shared/error-redaction';
 import { isStreamInterruptedErrorMessage } from '@/utils/streamInterruptError';
 import { isContentInspectionErrorMessage } from '@/utils/contentInspectionError';
@@ -86,20 +87,22 @@ export function ErrorMessageCard({
   // 材料发送被源文件变更拦下：这不是"回复失败"，而是"没发出去"，要说清下一步。
   const materialSourceStale = kind === 'reply-error'
     && /\[(SOURCE_CHANGED|SOURCE_MISSING|VERSION_NOT_READABLE)\]/.test(decoded);
-  const text = materialSourceStale
-    ? t('ccAgent.materials.dispatch.sendBlockedStale')
-    : kind === 'blocked-input'
-    ? redactSensitiveText(decoded)
-    : isResponsesLiteParallelToolCallsError(decoded)
-      ? t('chat.errorBanner.requestFormatError')
-      : isStreamInterrupted
-        ? t('chat.errorBanner.streamInterruptedNoRetry')
-        : isContentInspection
-          ? t('chat.errorBanner.contentInspectionRejected')
+  const subscriptionGuidance = localizeSubscriptionAccountError(message, t, i18n.resolvedLanguage ?? i18n.language);
+  const fallbackText = isResponsesLiteParallelToolCallsError(decoded)
+    ? t('chat.errorBanner.requestFormatError')
+    : isStreamInterrupted
+      ? t('chat.errorBanner.streamInterruptedNoRetry')
+      : isContentInspection
+        ? t('chat.errorBanner.contentInspectionRejected')
         : isGatewayProxyTokenInvalid
           ? t('chat.errorBanner.gatewayProxyTokenInvalidNoRetry')
           : (parsedRemoteKey?.startsWith('sharedTaskRecovery.') ? remoteGuidance : undefined)
             ?? localizedReasonError ?? remoteGuidance ?? t('chat.errorBanner.replyFailed');
+  const text = materialSourceStale
+    ? t('ccAgent.materials.dispatch.sendBlockedStale')
+    : kind === 'blocked-input'
+      ? redactSensitiveText(decoded)
+      : subscriptionGuidance ?? fallbackText;
   const showRawToggle = kind === 'reply-error' && Boolean(decoded);
 
   if (!text) return null;

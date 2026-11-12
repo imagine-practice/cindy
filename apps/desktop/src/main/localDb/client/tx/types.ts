@@ -677,6 +677,8 @@ export interface ImDeleteBindingsArgs {
 
 export interface BotsCreateProfileArgs {
   id: string;
+  /** Main-owned, already shadowed copies that do not run on this computer; not a public input. */
+  inactiveCindyIds?: string[];
   displayName: string;
   description: string;
   avatar: string;
@@ -694,6 +696,8 @@ export interface BotsCreateProfileArgs {
 
 export interface BotsUpdateProfileArgs {
   id: string;
+  /** Cloud restore only: recheck the effective Cindy singleton atomically with the profile write. */
+  inactiveCindyIds?: string[];
   /** A saved model choice supersedes automation restores in the same commit. */
   clearScheduledModelBaseline?: boolean;
   /** Explicit settings changes also update the permanent chat in this transaction. */
@@ -1072,6 +1076,8 @@ export interface BotsDeleteProfileArgs {
   sessionIds: string[];
   keepTaskHistory: boolean;
   at: number;
+  /** Tasks in the teammate's own project (automation runs, tasks it opened there); kept or deleted like its own. */
+  projectSessionIds?: string[];
 }
 export interface ImRotateSessionArgs {
   previousSessionId: string | null;

@@ -1,3 +1,7 @@
+import { parseAgentMetaRecord, patchMessageAgentMetaWithResultRow, findVisibleToolUseMessageByAliasesRow,
+  writeMessageContentRow, rollbackAssistantMessageRow, readVisiblePiUserEntry } from '../messageMutations.js';
+import type { MessageAgentMetaPatchResult, VisibleToolUseMessageLink } from '../messageMutations.js';
+export type { MessageAgentMetaPatchResult, VisibleToolUseMessageLink } from '../messageMutations.js';
 /**
  * chat-data-localization F5：Messages IPC handlers（C7）。
  *
@@ -33,6 +37,7 @@ import type { DbClient } from '../client/DbClient';
 import type { MaterialMessageWriteAuthority } from '../materialDispatchQueue';
 import type { ContextRebuildArgs } from '../client/tx/types';
 import { latestVisiblePreviewRow } from '../latestMessageText';
+import { isEmptyAssistantContent } from '../sessionListProjection.sql';
 import { messages, sessions } from '../schema';
 import {
   messageToCamel,
@@ -76,6 +81,9 @@ import { scheduleBotRemoteResourceChangedForSession } from '../../maker-ipc/botR
 import { assertTrustedAppRendererEvent } from '../../security/trustedAppRenderer';
 import { createHistoryViewReader, MAX_HISTORY_SCAN_ROWS, type HistoryPageShape } from './historyViewReader';
 import { setHistoryWorkPageReader } from '../../device-link/historyViewPush';
+import { createMessageClearRecovery } from '../messageClearRecovery.js';
+
+export { listMessagesForAgentHandoff } from '../agentHandoffHistory.js';
 
 const log = createLogger('localDb/messages');
 
@@ -203,6 +211,7 @@ function isVisibleSessionListPreviewRow(row: MessageRow): boolean {
 /**
  * 可见 user/assistant 落库后立刻刷新侧栏 preview,不等 turn-done / 全量 reseed。
  * 只广播当前仍是该会话最近可见消息的那一行:改写旧回复不得盖住已经更新的预览。
+ * 空正文的 assistant 行不参与预览:改写或写入这种行时广播列表实际会显示的那一条。
  */
 async function maybeBroadcastSessionListPreview(
   sessionId: string,
@@ -222,9 +231,12 @@ async function maybeBroadcastSessionListPreview(
     });
     return;
   }
-  if (isCurrent?.() === false || latest?.clientId !== row.clientId) return;
+  const emptyRow = row.role === 'assistant' && isEmptyAssistantContent(row.content);
+  if (isCurrent?.() === false || (!emptyRow && latest?.clientId !== row.clientId)) return;
   if (!isOwnerBroadcastScopeCurrent(ownerScope)) return;
-  const preview = extractMessagePreview(row.content, row.role);
+  const preview = emptyRow
+    ? extractMessagePreview(latest?.content, latest?.role)
+    : extractMessagePreview(row.content, row.role);
   // 不在这里落库。insert/update 事务已经把 list_preview 置空；事后 persist 无法
   // 校验同一 clientId 的内容版本，交错改写会把旧正文写回非 NULL 缓存。
   // 侧栏即时刷新靠广播；下次 list/回填从 messages 现算。
@@ -822,7 +834,7 @@ export function registerMessageIpc(
       const cid = requireString(clientId, 'clientId');
       // 动态 import:messagePersistBroadcaster 已静态依赖本模块 createMessage,
       // 静态反向 import 会成环。落库前点关闭/重试时先等同一 persistId 写完。
-      const { whenTurnErrorPersisted } = await import('../../messagePersistBroadcaster.js');
+      const { whenTurnErrorPersisted } = await import('../../messagePersistBroadcaster.desktop.js');
       await whenTurnErrorPersisted(sid, cid);
       const msg = await dismissErrorMessage(sid, cid);
       if (!msg) throwIpcError('NOT_FOUND', 'Error message 不存在');
@@ -1297,80 +1309,18 @@ export function broadcastMessageDeleted(
   }
 }
 
-/**
- * Hide a user row that was persisted after the session crossed `/clear`.
- *
- * This is deliberately narrower than `commitMessageDeletion`: a clear-race
- * cleanup must not create a context-rebuild marker, reset the native session,
- * or touch any other turn.  The row stays as a rewind tombstone so the same
- * clientId remains idempotent across a weak-link retry.
- */
-export async function rewindPersistedUserMessageAfterClear(
-  sessionId: string,
-  clientId: string,
-  options?: { discard?: boolean },
-): Promise<void> {
-  const ownerScope = captureOwnerBroadcastScope();
-  if (!isOwnerBroadcastScopeCurrent(ownerScope)) return;
-  const dbClient = getDbClient();
-  const db = dbClient.drizzle;
-  const [row] = await db
-    .select({ id: messages.id, clientId: messages.clientId, content: messages.content })
-    .from(messages)
-    .where(
-      and(
-        eq(messages.sessionId, sessionId),
-        eq(messages.clientId, clientId),
-        eq(messages.role, 'user'),
-        isNull(messages.rewindAt),
-      ),
-    )
-    .limit(1);
-  if (!isOwnerBroadcastScopeCurrent(ownerScope)) return;
-  if (!row) return;
-
-  const rewoundAt = Date.now();
-  const updated = await dbClient.tx('message.rewindUserAfterClear', {
-    sessionId,
-    clientId,
-    rewoundAt,
-    ...(options?.discard ? { discard: true } : {}),
-  });
-  if (!isOwnerBroadcastScopeCurrent(ownerScope)) return;
-  if (updated.changes === 0) return;
-
-  const mediaCleanup = await Promise.allSettled(
-    [...new Set([row.id, row.clientId])].map((refId) =>
-      removeMediaRefs({ refKind: 'message', refId }),
-    ),
-  );
-  for (const [index, cleanup] of mediaCleanup.entries()) {
-    if (cleanup.status === 'fulfilled') continue;
-    log.warn('clear-race user media ref cleanup failed', {
-      sessionId,
-      clientId,
-      refId: [row.id, row.clientId][index],
-      error: cleanup.reason instanceof Error ? cleanup.reason.message : String(cleanup.reason),
-    });
-  }
-  const mediaHashes = collectCindyMediaHashes(row.content);
-  const mediaHashCleanup = await Promise.allSettled(
-    mediaHashes.map((hash) =>
-      removeSessionAttachmentRefIfUnreferencedByLiveMessage({ sessionId, hash }),
-    ),
-  );
-  for (const [index, cleanup] of mediaHashCleanup.entries()) {
-    if (cleanup.status === 'fulfilled') continue;
-    log.warn('clear-race session media ref reconcile failed', {
-      sessionId,
-      clientId,
-      hash: mediaHashes[index],
-      error: cleanup.reason instanceof Error ? cleanup.reason.message : String(cleanup.reason),
-    });
-  }
-  broadcastMessageDeleted({ sessionId, clientId, clientIds: [clientId] }, ownerScope);
-  void recomputePrRefsForSession(sessionId).catch(() => undefined);
-}
+/** Shared clear-race tombstone; Desktop retains its existing broadcast scope. */
+export const rewindPersistedUserMessageAfterClear = createMessageClearRecovery({
+  captureOwnerBroadcastScope: () => captureOwnerBroadcastScope(),
+  isOwnerBroadcastScopeCurrent: scope => isOwnerBroadcastScopeCurrent(scope),
+  getDbClient: () => getDbClient(),
+  removeMediaRefs: params => removeMediaRefs(params),
+  collectCindyMediaHashes: content => collectCindyMediaHashes(content),
+  removeSessionAttachmentRefIfUnreferencedByLiveMessage: params => removeSessionAttachmentRefIfUnreferencedByLiveMessage(params),
+  broadcastMessageDeleted: (payload, scope) => broadcastMessageDeleted(payload, scope),
+  recomputePrRefsForSession: id => recomputePrRefsForSession(id),
+  log,
+});
 
 export async function purgeRewoundSchedulerPrompts(
   limit = 100,
@@ -1575,18 +1525,9 @@ export async function discardPersistedAssistantMessage(
   const ownerScope = captureOwnerBroadcastScope();
   const dbClient = getDbClient();
   if (!isCurrent() || !isOwnerBroadcastScopeCurrent(ownerScope)) return false;
-  const [row] = await dbClient.drizzle.select().from(messages).where(and(
-    eq(messages.sessionId, sessionId), eq(messages.clientId, clientId),
-    eq(messages.role, 'assistant'), isNull(messages.rewindAt),
-  )).limit(1);
-  if (!row || !isCurrent() || !isOwnerBroadcastScopeCurrent(ownerScope)) return false;
-  const result = await dbClient.tx('message.insert', {
-    id: row.id, clientId: row.clientId, sessionId: row.sessionId,
-    role: row.role, content: row.content, toolUseId: row.toolUseId,
-    agentMeta: row.agentMeta, agentKind: row.agentKind, createdAt: row.createdAt,
-    guarded: false, publication: 'rollback',
-  });
-  if (result.changes === 0) return false;
+  const row = await rollbackAssistantMessageRow(dbClient, sessionId, clientId,
+    () => isCurrent() && isOwnerBroadcastScopeCurrent(ownerScope));
+  if (!row) return false;
   await reconcileAssistantDerivedState(row, dbClient,
     () => isCurrent() && isOwnerBroadcastScopeCurrent(ownerScope), ownerScope, true);
   return true;
@@ -1608,41 +1549,9 @@ export async function updateMessageContent(
       eq(messages.clientId, clientId), eq(messages.role, 'assistant'), isNull(messages.rewindAt))).limit(1)
     : [];
   if (finalSnapshot && (!original || !isCurrent())) return null;
-  const serialized = safeStringify(content);
-  if (autoReviewAnswer !== undefined) {
-    // Host-only interaction result: keep content and its authorization evidence atomic.
-    await db.update(messages).set({
-      content: serialized,
-      agentMeta: sql`json_set(CASE WHEN json_valid(${messages.agentMeta}) THEN ${messages.agentMeta} ELSE '{}' END,
-        '$.autoReviewUserText', json(${JSON.stringify(autoReviewAnswer)}))`,
-    }).where(and(eq(messages.sessionId, sessionId), eq(messages.clientId, clientId),
-      inArray(messages.role, ['ask_user', 'plan_review'])));
-  } else await dbClient.tx('message.updateContent', {
-    sessionId,
-    clientId,
-    content: serialized,
-  });
-  // 窄回读:刻意不选 content——tool_result 全文可达 MB 级,整行回读会把大字段
-  // 经 DB worker 的 postMessage 结构化克隆再送回主进程一次。content 就是本次
-  // 写入值,用 serialized 回填;行不存在(clientId 未落库)仍以回读判 null。
-  const [narrow] = await db
-    .select({
-      id: messages.id,
-      clientId: messages.clientId,
-      sessionId: messages.sessionId,
-      role: messages.role,
-      toolUseId: messages.toolUseId,
-      agentMeta: messages.agentMeta,
-      agentKind: messages.agentKind,
-      createdAt: messages.createdAt,
-      rewindAt: messages.rewindAt,
-    })
-    .from(messages)
-    .where(and(eq(messages.sessionId, sessionId), eq(messages.clientId, clientId)))
-    .limit(1);
-  const row: MessageRow | undefined = narrow
-    ? (await restoreTaskImageRows(dbClient, [{ ...narrow, content: serialized }]))[0]
-    : undefined;
+  const updated = await writeMessageContentRow(dbClient, sessionId, clientId, content, autoReviewAnswer);
+  const row: MessageRow | undefined = updated
+    ? (await restoreTaskImageRows(dbClient, [updated]))[0] : undefined;
   if (row && (!finalSnapshot || isCurrent())) {
     // 挂账钩子同样覆盖"先摘要 create、后全文 update"的 tool_result 顺序
     // (review P2:vendor 事件顺序一变,首现于 update 的 blob URL 若不在这里
@@ -1967,13 +1876,13 @@ export async function createMessage(
   // 确定时点,覆盖所有落库来源(renderer IPC / hook / im / agent echo / 合成
   // tool_result)。生成产物(art/mivo/codex)入仓时零引用,在这里补挂
   // session-attachment 引用;用户附件已在发送链路 commit 过,hasRef 幂等跳过。
-  // 传 insertRow.content(已序列化字符串)避免二次 stringify(review P2)。
+  // 传 row.content(已序列化字符串)避免二次 stringify(review P2)。
   const commitMediaRefs = async (): Promise<void> => {
     try {
       await commitMessageMediaRefs({
         sessionId,
         role: body.role,
-        content: insertRow.content,
+        content: row.content,
       });
     } catch (err) {
       log.warn('message media ref commit failed', {
@@ -2120,86 +2029,27 @@ export function extractEstimatedSessionValueEntries(
  *
  * 用于 turnCostBroadcaster:turn 结束后把 per-turn 费用挂到该轮最后一条 assistant。
  */
-export interface MessageAgentMetaPatchResult {
-  previous: Record<string, unknown>;
-  next: Record<string, unknown>;
-}
+
 
 /** Stable native identity of a visible user input; do not match retries by text. */
 export async function readPiUserEntry(sessionId: string, clientId: string): Promise<string | undefined> {
-  const [row] = await getDbClient().drizzle
-    .select({ agentMeta: messages.agentMeta })
-    .from(messages)
-    .innerJoin(sessions, eq(messages.sessionId, sessions.id))
-    .where(and(
-      eq(messages.sessionId, sessionId), eq(messages.clientId, clientId),
-      eq(messages.role, 'user'), isNull(messages.rewindAt),
-      or(isNull(sessions.clearedAt), gt(messages.createdAt, sessions.clearedAt)),
-    ))
-    .limit(1);
-  const id = row && parseAgentMetaRecord(row.agentMeta)?.piEntryId;
-  return typeof id === 'string' && id.length > 0 && id.length <= 128 ? id : undefined;
+  return readVisiblePiUserEntry(getDbClient(), sessionId, clientId);
 }
 
 /** 与 patchMessageAgentMeta 相同，但返回补丁前后的元数据供幂等账本计算。 */
-export async function patchMessageAgentMetaWithResult(
-  sessionId: string,
-  clientId: string,
-  patch: Record<string, unknown>,
-): Promise<MessageAgentMetaPatchResult | null> {
-  const db = getDbClient().drizzle;
-  const rows = await db
-    .select({ agentMeta: messages.agentMeta })
-    .from(messages)
-    .where(and(eq(messages.sessionId, sessionId), eq(messages.clientId, clientId)))
-    .limit(1);
-  if (rows.length === 0) return null;
-  // 损坏的 JSON 以 {} 为底重建(补丁字段仍写入,旧字段无法挽救)。
-  const previous = parseAgentMetaRecord(rows[0].agentMeta) ?? {};
-  const next = { ...previous, ...patch };
-  // Keep the read and write on the same owner even if login changes across await.
-  await db.update(messages).set({ agentMeta: JSON.stringify(next) })
-    .where(and(eq(messages.sessionId, sessionId), eq(messages.clientId, clientId)));
-  return { previous, next };
+export async function patchMessageAgentMetaWithResult(sessionId: string, clientId: string, patch: Record<string, unknown>): Promise<MessageAgentMetaPatchResult | null> {
+  return patchMessageAgentMetaWithResultRow(getDbClient(), sessionId, clientId, patch);
 }
 
-export interface VisibleToolUseMessageLink {
-  clientId: string;
-  toolUseId: string;
-}
+
 
 /**
  * Recover a durable tool-use row after process-local event linkage was lost.
  * The session clear boundary is part of visibility: a restart must not make a
  * pre-clear row eligible for a late background terminal update again.
  */
-export async function findVisibleToolUseMessageByAliases(
-  sessionId: string,
-  aliases: readonly string[],
-): Promise<VisibleToolUseMessageLink | null> {
-  const normalizedAliases = [...new Set(aliases.filter((alias) => alias.length > 0))];
-  if (!sessionId || normalizedAliases.length === 0) return null;
-  const [row] = await getDbClient()
-    .drizzle.select({
-      clientId: messages.clientId,
-      toolUseId: messages.toolUseId,
-    })
-    .from(messages)
-    .innerJoin(sessions, eq(messages.sessionId, sessions.id))
-    .where(
-      and(
-        eq(messages.sessionId, sessionId),
-        eq(messages.role, 'tool_use'),
-        inArray(messages.toolUseId, normalizedAliases),
-        isNull(messages.rewindAt),
-        or(isNull(sessions.clearedAt), gt(messages.createdAt, sessions.clearedAt)),
-      ),
-    )
-    .orderBy(desc(messages.createdAt))
-    .limit(1);
-  return row?.clientId && row.toolUseId
-    ? { clientId: row.clientId, toolUseId: row.toolUseId }
-    : null;
+export async function findVisibleToolUseMessageByAliases(sessionId: string, aliases: readonly string[]): Promise<VisibleToolUseMessageLink | null> {
+  return findVisibleToolUseMessageByAliasesRow(getDbClient(), sessionId, aliases);
 }
 
 export async function patchMessageAgentMeta(
@@ -2620,17 +2470,7 @@ function isHiddenContinuationUserMessage(agentMeta: string | null, content: stri
   return isAutoResumeUserMessage(agentMeta) || isSyntheticTriggerText(readMessageText(content));
 }
 
-function parseAgentMetaRecord(agentMeta: string | null): Record<string, unknown> | null {
-  if (!agentMeta) return null;
-  try {
-    const parsed = JSON.parse(agentMeta);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
-}
+
 
 /**
  * 查是否有尚未随首条 user 消息发送的内部 handoff。
@@ -2809,121 +2649,6 @@ export async function findForkParentSessionId(sessionId: string): Promise<string
   if (!sessRow?.parentSessionId) return null;
   if (sessRow.clearedAt !== null && sessRow.clearedAt >= sessRow.createdAt) return null;
   return sessRow.parentSessionId;
-}
-
-/**
- * session-agent-switch:读取交接素材——本会话未被 rewind、晚于 /clear 边界的
- * 最近 limit 行(时间正序返回),只取交接需要的最小投影；null 读取边界内完整历史。
- *
- * `after`(Phase 2 增量交接):只取严格晚于该水位线(createdAt + rowid 决序,
- * 与 findPendingAgentHandoff 同 tie-break 口径)的行——即目标引擎停泊
- * 边界行之后、它"离开期间"的进展。
- */
-export async function listMessagesForAgentHandoff(
-  sessionId: string,
-  limit: number | null = 400,
-  after?: { createdAt: number; rowid: number },
-  role?: 'user' | 'authorization',
-): Promise<
-  Array<{
-    clientId: string;
-    role: string;
-    content: unknown;
-    createdAt: number;
-    agentMeta: Record<string, unknown> | null;
-    toolUseId: string | null;
-  }>
-> {
-  const db = getDbClient().drizzle;
-  const [sessRow] = await db
-    .select({ clearedAt: sessions.clearedAt, source: sessions.source, createdAt: sessions.createdAt })
-    .from(sessions)
-    .where(eq(sessions.id, sessionId))
-    .limit(1);
-  const clearedAt = sessRow?.clearedAt ?? null;
-  const afterClear = clearedAt === null ? undefined : gt(messages.createdAt, clearedAt);
-  const afterWatermark =
-    after === undefined
-      ? undefined
-      : or(
-          gt(messages.createdAt, after.createdAt),
-          and(eq(messages.createdAt, after.createdAt), gt(messageRowid, after.rowid)),
-        );
-  // Bound authorization history by answer acceptance, not the earlier question time.
-  const authorityTime = sql<number>`CASE WHEN ${messages.role} IN ('ask_user', 'plan_review')
-    AND json_valid(${messages.agentMeta}) THEN CASE
-      WHEN json_type(${messages.agentMeta}, '$.autoReviewUserText.acceptedAt') IN ('integer', 'real')
-      AND json_type(${messages.agentMeta}, '$.autoReviewUserText.text') = 'text'
-      THEN json_extract(${messages.agentMeta}, '$.autoReviewUserText.acceptedAt')
-      ELSE ${messages.createdAt} END ELSE ${messages.createdAt} END`;
-  // Scheduled executions are not owner messages. Exclude them before LIMIT so
-  // a long-running heartbeat cannot push its authorizing request out of history.
-  // Empty human receipts can reset resource authorization; only protected typed continuations are skipped.
-  // Keep malformed/unknown rows: restoration must still invalidate ambiguous consent.
-  const notScheduledExecution = sql`CASE WHEN ${messages.role} = 'user'
-    AND json_valid(${messages.agentMeta}) THEN CASE
-      WHEN json_extract(${messages.agentMeta}, '$.autoReviewUserText.kind') IN ('scheduled-continuation', 'delegated-continuation')
-      THEN 0 ELSE 1 END ELSE 1 END`;
-  const query = db
-    .select({
-      rowid: messageRowid,
-      clientId: messages.clientId,
-      role: messages.role,
-      content: messages.content,
-      createdAt: messages.createdAt,
-      agentMeta: messages.agentMeta,
-      toolUseId: messages.toolUseId,
-    })
-    .from(messages)
-    .where(
-      and(eq(messages.sessionId, sessionId), isNull(messages.rewindAt), afterClear, afterWatermark,
-        // A copied parent instruction is context, never authorization for a side task.
-        role === 'authorization' && sessRow?.source === 'side-chat' ? gte(messages.createdAt, sessRow.createdAt) : undefined,
-        role === 'authorization' ? and(inArray(messages.role, ['user', 'ask_user', 'plan_review']), notScheduledExecution)
-          : role ? eq(messages.role, role) : undefined),
-    )
-    .orderBy(desc(role === 'authorization' ? authorityTime : messages.createdAt), desc(messageRowid));
-  // Authority replay must start at the clear/rewind boundary: the shared intent
-  // budget is stateful, so an arbitrary row suffix has a different projection.
-  const rows = await (limit === null ? query : query.limit(limit));
-  rows.reverse();
-  return rows
-    .map((r) => {
-      let content: unknown = r.content;
-      try {
-        content = JSON.parse(r.content);
-      } catch {
-        // 与 messageToCamel 同口径:非法 JSON 保留原字符串
-      }
-      let agentMeta: Record<string, unknown> | null = null;
-      if (r.agentMeta) {
-        try {
-          const parsed: unknown = JSON.parse(r.agentMeta);
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            agentMeta = parsed as Record<string, unknown>;
-          }
-        } catch {
-          // 非法 JSON 视为无 meta
-        }
-      }
-      if (agentMeta?.voiceCall) return null;
-      if (agentMeta && typeof agentMeta.contextRebuild === 'object' && agentMeta.contextRebuild) {
-        return null;
-      }
-      // 任务导入的时间线标记只用于显示。
-      if (agentMeta && typeof agentMeta.sessionImport === 'object' && agentMeta.sessionImport) {
-        return null;
-      }
-      return {
-        clientId: r.clientId,
-        role: r.role,
-        content,
-        createdAt: r.createdAt,
-        agentMeta,
-        toolUseId: r.toolUseId ?? null,
-      };
-    })
-    .filter((row): row is NonNullable<typeof row> => row !== null);
 }
 
 /** 换窗身份用：不受 handoff 400 行窗口限制，找最近一条非 rewind 的 user。 */

@@ -2212,14 +2212,8 @@
       },
       "create-agent-control-bg-pressed": {
         "$type": "color",
-        "$value": "{reference.themes.cindy-light.value-surface-hover-soft}",
-        "$extensions": {
-          "com.cindy.desktop": {
-            "cssAlias": "surface-hover-soft",
-            "wrapper": "var",
-            "mode": "light"
-          }
-        }
+        "$value": "{reference.themes.cindy-light.value-perm-item-selected-bg}",
+        "$description": "墨水 黑 8%: 选中/按下(2026-11-07 用户裁决,按下不再比悬停浅)"
       },
       "create-agent-send-icon": {
         "$type": "color",
@@ -4407,6 +4401,10 @@
       "sidebar-item-active": {
         "$type": "color",
         "$value": "{reference.themes.one-dark-pro.palette-CHIP_BG_HSL}"
+      },
+      "sidebar-item-active-border": {
+        "$type": "color",
+        "$value": "{reference.themes.one-dark-pro.palette-BLUE_PRIMARY}"
       },
       "splash-bg": {
         "$type": "color",

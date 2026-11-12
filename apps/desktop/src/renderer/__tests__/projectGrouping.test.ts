@@ -312,9 +312,9 @@ describe('extractDisplayName', () => {
 describe('groupSessions', () => {
   it('returns empty result for empty input', () => {
     expect(groupSessions([])).toEqual({
+      bots: [],
       pinned: [],
       dialogues: [],
-      bots: [],
       unclassified: [],
       projects: [],
     });

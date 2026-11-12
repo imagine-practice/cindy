@@ -199,6 +199,8 @@ export interface SchedulerOptions {
    * 未注入时拒绝新设插件前置检查,已保存的不受影响。
    */
   resolvePreRunPlugin?: (pluginId: string) => string;
+  /** Read-only model admission before create/update persistence; never starts a task. */
+  validateModelSelection?: (schedule: Schedule, previous?: Schedule) => Promise<void>;
   /**
    * Host-owned validation for a persisted bound-session target. The scheduler
    * calls it before CRUD persistence and again immediately before every fire,
@@ -459,6 +461,7 @@ export class Scheduler extends EventEmitter {
   private readonly resolvePreRunPlugin?: (pluginId: string) => string;
   private readonly validateTargetSession?: SchedulerOptions['validateTargetSession'];
   private readonly validateProjectBinding?: SchedulerOptions['validateProjectBinding'];
+  private readonly validateModelSelection?: SchedulerOptions['validateModelSelection'];
   private readonly passive: boolean;
   private lastDbSyncAt = 0;
 
@@ -510,6 +513,7 @@ export class Scheduler extends EventEmitter {
     this.resolvePreRunPlugin = opts.resolvePreRunPlugin;
     this.validateTargetSession = opts.validateTargetSession;
     this.validateProjectBinding = opts.validateProjectBinding;
+    this.validateModelSelection = opts.validateModelSelection;
     this.notifyForcedFailureHook = opts.notifyForcedFailure;
     this.passive = opts.passive ?? false;
     this.maxConcurrentRuns = Math.max(1, opts.maxConcurrentRuns ?? DEFAULT_MAX_CONCURRENT_RUNS);
@@ -1666,6 +1670,7 @@ export class Scheduler extends EventEmitter {
     if (schedule.projectId) {
       await this.validateProjectBinding?.(schedule.projectId, 'create');
     }
+    await this.validateModelSelection?.(schedule);
     const inserted = await this.storage.insert(schedule);
     if (inserted.status === 'active') this.activeSchedules.set(id, inserted);
     this.emitEvent({ type: 'changed', scheduleId: id });
@@ -1794,6 +1799,7 @@ export class Scheduler extends EventEmitter {
     if (candidate.projectId) {
       await this.validateProjectBinding?.(candidate.projectId, 'update');
     }
+    await this.validateModelSelection?.(candidate, existing);
     // 到期但尚未执行的 Once 可以通过修改截止时间恢复；已经消费的 Once 保持终态。
     // 改成循环任务也可恢复。状态恢复集中在引擎层，让各调用方共享相同语义。
     const shouldReactivateExpired =

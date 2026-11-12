@@ -1,5 +1,5 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron';
-import { t } from '../../i18n';
+import { t } from '../../i18n.desktop.js';
 import { assertTrustedAppRendererEvent } from '../../security/trustedAppRenderer';
 import { createProductionProjectMembershipRecovery } from '../projectMembershipRecoveryProduction';
 import type { ProjectMembershipRecoveryPreviewResult, ProjectMembershipRecoveryApplyResult } from '../../../shared/projectMembershipRecovery';

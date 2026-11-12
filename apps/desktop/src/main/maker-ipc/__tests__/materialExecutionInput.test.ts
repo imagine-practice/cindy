@@ -21,7 +21,7 @@ import { runMaterialsTransaction, type MaterialVersionInput } from '../../localD
 import { runProjectsTransaction } from '../../localDb/worker/opHandlers/projectsTx';
 import type { DbClient } from '../../localDb/client/DbClient';
 import type { MaterialContextCreateResult, MaterialContextCreateParams } from '../../../shared/materials';
-import { writeBlob, resolveSafe } from '../../cindy-media/blobStore';
+import { writeBlob, resolveSafe } from '../../cindy-media/blobStore.desktop';
 import { buildMakerUserMessage, type AgentInputQueuedMessage } from '../../../shared/agentInputQueue';
 import { prepareMaterialExecutionInput, type MaterialExecutionHost, type MaterialExecutionRequest } from '../materialExecutionInput';
 import * as schema from '../../localDb/schema';

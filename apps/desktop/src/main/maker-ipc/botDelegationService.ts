@@ -1,3 +1,22 @@
+/**
+ * COMPAT — frozen V1 teammate-delegation layer (isolation fork).
+ *
+ * Upstream removed the V1 teammate delegation subsystem (commit cacdb2bc91
+ * "refactor(teammate): remove V1 teammate delegation") and replaced it with V2
+ * `send_to_session`. This fork keeps V1 alive ONLY because our project work-item
+ * execution (projectWorkItemHost / projectWorkItemExecution / projectWorkItemExecutionService
+ * + the `bots.adoptProjectWorkItem` tx op) still writes and reads `bot_delegations`
+ * through `getSessionTask` / `adoptProjectWorkItem`.
+ *
+ * This file and its closure (bot-autonomy/*, botDelegation{Lifecycle,CompletionMessage,
+ * DispatchOutcome}, botSessionTaskRouteBridge, botRuntimeRestore, botWorkbench*,
+ * taskCompletionDeliveryHost, routines/deliveryDispatch, botGroupTaskPostSnapshot) are a
+ * FROKEN fork: do not extend or refactor them. Upstream's `botDelegationHistory.ts` keeps
+ * `bot_delegations` read-only for old cards; this layer remains the only writer.
+ *
+ * DELETE this whole layer once project work-item execution is ported to V2 send_to_session.
+ * Migration touchpoints: see docs/dev-rules/v1-delegation-compat-layer.md.
+ */
 import type { WorkItemExecutionHost } from './projectWorkItemExecutionService.js';
 import type { ProjectWorkItemStartInput, ProjectWorkItemStartResult } from '../../shared/projectWorkItemExecution.js';
 import type { BotFollowupScope, BotFollowupReceipt, BotFollowupRequestRecord, BotsReopenDelegationArgs } from '../localDb/client/tx/types.js';
@@ -56,7 +75,7 @@ import type {
 } from '../../shared/botCollaboration.js';
 import { BOT_DELEGATION_CLIENT_ID, BOT_INTERJECTION_MAX_CHARS as MAX_INTERJECTION_CHARS, botInterjectionPreview } from '../../shared/botCollaboration.js';
 import { buildBotGroupTaskCard, parseBotGroupThreadRouteKey, type BotGroupTaskCardLabels, type BotGroupTaskCardState } from '../../shared/botGroupChat.js';
-import { t } from '../i18n.js';
+import { t } from '../i18n.desktop.js';
 import type { BotGroupTaskPostInput, BotGroupTaskPostResult } from './botGroupChatService.js';
 import { ensureBotWorkspaceDir } from './botProfileFolder.js';
 import type { SessionQueuedMessageControlResult, SessionSteerResult, SessionStopResult } from './sessionControlService.js';
