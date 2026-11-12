@@ -1,0 +1,94 @@
+{
+  "title": "Projets",
+  "list": {
+    "hostCount": "{{count}} ordinateurs",
+    "emptyTitle": "Aucun projet pour l’instant",
+    "emptyCopy": "Créez un projet sur votre ordinateur pour réunir son objectif, ses membres et ses tâches.",
+    "loadFailed": "Impossible de charger les projets",
+    "stale": "Non actualisé. Affichage du dernier contenu connu.",
+    "retry": "Réessayer",
+    "noHosts": "Aucun ordinateur disponible pour l’instant"
+  },
+  "goal": {
+    "none": "Aucun objectif défini"
+  },
+  "status": {
+    "active": "En cours",
+    "archived": "Archivé",
+    "unknown": "État inconnu"
+  },
+  "updated": {
+    "unknown": "Date inconnue"
+  },
+  "summary": {
+    "goal": "Objectif",
+    "owner": "Responsable",
+    "updated": "Mis à jour"
+  },
+  "progress": {
+    "title": "Avancement",
+    "history": "Avancement récent",
+    "historyEmpty": "Aucun historique d’avancement",
+    "actorUnknown": "Auteur inconnu",
+    "stage": {
+      "todo": "Non commencé",
+      "doing": "En cours",
+      "blocked": "Bloqué",
+      "review": "En attente de confirmation",
+      "done": "Achèvement confirmé"
+    }
+  },
+  "workItems": {
+    "title": "Tâches",
+    "empty": "Aucune tâche dans ce projet pour l’instant",
+    "unassigned": "Non attribué"
+  },
+  "members": {
+    "title": "Membres",
+    "owner": "Responsable",
+    "member": "Membre",
+    "unknown": "Un membre"
+  },
+  "group": {
+    "title": "Groupe lié",
+    "statusNone": "État inconnu"
+  },
+  "form": {
+    "progressTitle": "Enregistrer l’avancement",
+    "assigneeTitle": "Définir l’assignation",
+    "task": "Tâche",
+    "stage": "Étape",
+    "reason": "Motif du blocage",
+    "unblockCondition": "Condition de déblocage",
+    "resolution": "Explication du déblocage",
+    "completionNote": "Confirmation d’achèvement",
+    "assignee": "Assigné à",
+    "unassigned": "Non attribué",
+    "doneOwnerOnly": "Seul le responsable du projet peut confirmer l’achèvement.",
+    "required": "Renseignez les champs obligatoires.",
+    "submit": "Envoyer",
+    "saving": "Envoi…",
+    "cancel": "Annuler",
+    "offline": "L’ordinateur est déconnecté. Reconnectez-le avant d’envoyer.",
+    "noTasks": "Ce projet n’a encore aucune tâche à mettre à jour."
+  },
+  "confirm": {
+    "archiveTitle": "Archiver le projet ?",
+    "archiveBody": "Un projet archivé n’accepte plus de nouvelles tâches et ne s’exécute plus automatiquement. Les membres et l’avancement restent consultables.",
+    "unarchiveTitle": "Restaurer le projet ?",
+    "unarchiveBody": "Un projet restauré accepte de nouveau des tâches et peut s’exécuter automatiquement.",
+    "confirm": "Confirmer",
+    "cancel": "Annuler"
+  },
+  "errors": {
+    "NOT_PROJECT_OWNER": "Seul le responsable du projet peut confirmer l’achèvement ou archiver le projet.",
+    "NOT_PROJECT_MEMBER": "Vous n’êtes pas membre de ce projet.",
+    "PRECONDITION_FAILED": "Le projet a changé. Actualisez puis réessayez.",
+    "REVISION_CONFLICT": "L’avancement a été mis à jour ailleurs. Actualisez puis réessayez.",
+    "ILLEGAL_TRANSITION": "Impossible de passer directement à cette étape depuis l’étape actuelle.",
+    "INVALID_PARAMS": "L’envoi n’a pas passé les vérifications. Vérifiez-le puis réessayez.",
+    "NOT_FOUND": "Ce projet ou cette tâche n’existe plus.",
+    "UNAVAILABLE": "L’ordinateur ne peut pas terminer cette action pour le moment.",
+    "failed": "L’action n’a pas abouti. Réessayez."
+  }
+}

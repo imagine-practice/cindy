@@ -1,0 +1,94 @@
+{
+  "title": "プロジェクト",
+  "list": {
+    "hostCount": "{{count}} 台のコンピューター",
+    "emptyTitle": "プロジェクトはまだありません",
+    "emptyCopy": "コンピューターでプロジェクトを作成すると、目標・メンバー・タスクをまとめられます。",
+    "loadFailed": "プロジェクトを読み込めませんでした",
+    "stale": "更新されていません。前回の内容を表示しています。",
+    "retry": "再試行",
+    "noHosts": "利用できるコンピューターがまだありません"
+  },
+  "goal": {
+    "none": "目標は未設定"
+  },
+  "status": {
+    "active": "進行中",
+    "archived": "アーカイブ済み",
+    "unknown": "状態不明"
+  },
+  "updated": {
+    "unknown": "日時不明"
+  },
+  "summary": {
+    "goal": "目標",
+    "owner": "責任者",
+    "updated": "更新日"
+  },
+  "progress": {
+    "title": "進捗",
+    "history": "最近の進捗",
+    "historyEmpty": "進捗履歴はありません",
+    "actorUnknown": "不明な操作者",
+    "stage": {
+      "todo": "未着手",
+      "doing": "進行中",
+      "blocked": "ブロック中",
+      "review": "確認待ち",
+      "done": "完了確認済み"
+    }
+  },
+  "workItems": {
+    "title": "タスク",
+    "empty": "このプロジェクトにはまだタスクがありません",
+    "unassigned": "未割り当て"
+  },
+  "members": {
+    "title": "メンバー",
+    "owner": "責任者",
+    "member": "メンバー",
+    "unknown": "いずれかのメンバー"
+  },
+  "group": {
+    "title": "関連グループ",
+    "statusNone": "状態不明"
+  },
+  "form": {
+    "progressTitle": "進捗を記録",
+    "assigneeTitle": "担当者を設定",
+    "task": "タスク",
+    "stage": "段階",
+    "reason": "ブロックの理由",
+    "unblockCondition": "解除条件",
+    "resolution": "解除の説明",
+    "completionNote": "完了確認の説明",
+    "assignee": "担当者",
+    "unassigned": "未割り当て",
+    "doneOwnerOnly": "完了を確認できるのは責任者だけです。",
+    "required": "必須項目を入力してください。",
+    "submit": "送信",
+    "saving": "送信中…",
+    "cancel": "キャンセル",
+    "offline": "コンピューターが切断されています。再接続してから送信してください。",
+    "noTasks": "このプロジェクトには送信できるタスクがまだありません。"
+  },
+  "confirm": {
+    "archiveTitle": "プロジェクトをアーカイブしますか？",
+    "archiveBody": "アーカイブすると新しいタスクを作成できず、自動実行も止まります。メンバーと進捗は引き続き確認できます。",
+    "unarchiveTitle": "プロジェクトを復元しますか？",
+    "unarchiveBody": "復元すると新しいタスクの作成と自動実行が再び可能になります。",
+    "confirm": "実行",
+    "cancel": "キャンセル"
+  },
+  "errors": {
+    "NOT_PROJECT_OWNER": "完了の確認やアーカイブはプロジェクトの責任者だけが行えます。",
+    "NOT_PROJECT_MEMBER": "このプロジェクトのメンバーではありません。",
+    "PRECONDITION_FAILED": "プロジェクトの状態が変わりました。更新して再試行してください。",
+    "REVISION_CONFLICT": "進捗が更新されています。更新して再試行してください。",
+    "ILLEGAL_TRANSITION": "現在の段階からその段階へは直接移れません。",
+    "INVALID_PARAMS": "送信内容が条件を満たしていません。確認して再試行してください。",
+    "NOT_FOUND": "このプロジェクトまたはタスクは存在しません。",
+    "UNAVAILABLE": "コンピューターが今この操作を完了できません。",
+    "failed": "操作は完了しませんでした。再試行してください。"
+  }
+}

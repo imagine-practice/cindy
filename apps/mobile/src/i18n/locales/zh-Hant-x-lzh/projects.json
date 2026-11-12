@@ -1,0 +1,94 @@
+{
+  "title": "案",
+  "list": {
+    "hostCount": "{{count}} 臺電腦",
+    "emptyTitle": "尚無案",
+    "emptyCopy": "於電腦上立一案，則目標、成員、差事皆聚一處。",
+    "loadFailed": "案未能載入",
+    "stale": "清單未更新，所示者乃前次之內容。",
+    "retry": "再試",
+    "noHosts": "尚無可用之電腦"
+  },
+  "goal": {
+    "none": "未書目標"
+  },
+  "status": {
+    "active": "進行中",
+    "archived": "已歸檔",
+    "unknown": "狀態未明"
+  },
+  "updated": {
+    "unknown": "時刻未明"
+  },
+  "summary": {
+    "goal": "目標",
+    "owner": "負責人",
+    "updated": "更新於"
+  },
+  "progress": {
+    "title": "進度",
+    "history": "近事",
+    "historyEmpty": "尚無進度之記",
+    "actorUnknown": "不知誰為",
+    "stage": {
+      "todo": "未始",
+      "doing": "進行",
+      "blocked": "受阻",
+      "review": "待決",
+      "done": "完成"
+    }
+  },
+  "workItems": {
+    "title": "差事",
+    "empty": "此案尚無差事",
+    "unassigned": "未指派"
+  },
+  "members": {
+    "title": "成員",
+    "owner": "負責人",
+    "member": "成員",
+    "unknown": "某位成員"
+  },
+  "group": {
+    "title": "關聯之群",
+    "statusNone": "狀態未明"
+  },
+  "form": {
+    "progressTitle": "記進度",
+    "assigneeTitle": "定處理人",
+    "task": "差事",
+    "stage": "階段",
+    "reason": "阻塞之因",
+    "unblockCondition": "解除之條件",
+    "resolution": "解除之說",
+    "completionNote": "完成之證",
+    "assignee": "處理人",
+    "unassigned": "未指派",
+    "doneOwnerOnly": "唯負責人可確認完成。",
+    "required": "請補必填之項。",
+    "submit": "呈",
+    "saving": "方呈…",
+    "cancel": "罷",
+    "offline": "電腦已斷，續通而後可呈。",
+    "noTasks": "此案尚無可呈之差事。"
+  },
+  "confirm": {
+    "archiveTitle": "欲歸檔此案乎？",
+    "archiveBody": "歸檔之後不能新立差事，亦不再自運；成員與進度仍可覽。",
+    "unarchiveTitle": "欲復此案乎？",
+    "unarchiveBody": "復之則可再立差事，再自運。",
+    "confirm": "善",
+    "cancel": "罷"
+  },
+  "errors": {
+    "NOT_PROJECT_OWNER": "唯案之負責人可確認完成或歸檔。",
+    "NOT_PROJECT_MEMBER": "君非此案之成員。",
+    "PRECONDITION_FAILED": "案已變，請重讀而後再試。",
+    "REVISION_CONFLICT": "進度已在他處更新，請重讀而後再試。",
+    "ILLEGAL_TRANSITION": "自此階段不能徑至所擇之階段。",
+    "INVALID_PARAMS": "所呈不合程式，請察而後再試。",
+    "NOT_FOUND": "此案或此差事已不存。",
+    "UNAVAILABLE": "電腦一時不能畢此事。",
+    "failed": "事未畢，請再試。"
+  }
+}

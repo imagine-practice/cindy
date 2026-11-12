@@ -14,7 +14,9 @@ import type { LiziMcpSessionContext } from '../types.js';
 const parse = (result: unknown) => JSON.parse((result as { content: { text: string }[] }).content[0].text);
 async function connect(wired = true) {
   let context: LiziMcpSessionContext | undefined = { agentKind: 'pi', workingDir: '/repo', sessionId: 'trusted' };
-  const mutate = vi.fn<EntityProjectMutationCallback>(async () => ({ ok: true, projectId: 'p1', sessionId: null }));
+  const mutate = vi.fn<EntityProjectMutationCallback>(async ({ intent }) => intent.action === 'recordProgress'
+    ? { ok: true, projectId: intent.projectId, sessionId: intent.sessionId, progressReceipt: { eventId: 1, revision: 1, replayed: false } }
+    : { ok: true, projectId: 'p1', sessionId: null });
   const server = createXdtHelperMcpServer(wired ? { entityProjectMutation: mutate } : {},
     { agentKind: 'pi', workingDir: '/repo', getSessionContext: () => context });
   const client = new Client({ name: 'mutations-test', version: '1' });
@@ -35,19 +37,38 @@ const intents = [
   { action: 'addMember', projectId: 'p1', subject: { kind: 'bot', id: 'b1' } },
   { action: 'removeMember', projectId: 'p1', subject: { kind: 'bot', id: 'b1' } },
   { action: 'transferOwner', projectId: 'p1', subject: { kind: 'account', id: 'a2' } },
+  { action: 'createWorkItem', projectId: 'p1', sessionId: 'draft-task', title: 'Check', taskObjective: 'Verify the result', assignee: {kind:'account',id:'owner'} },
   { action: 'bindSession', sessionId: 's1', projectId: 'p1' },
   { action: 'setAssignee', sessionId: 's1', assignee: { kind: 'bot', id: 'b1' } },
   { action: 'bindSession', sessionId: 's1', projectId: null },
   { action: 'setAssignee', sessionId: 's1', assignee: null },
   { action: 'create', input: { name: 'Default owner' } },
+  { action: 'recordProgress', projectId: 'p1', sessionId: 's1', expectedRevision: 0, expectedBindingRevision: 0, requestId: 'progress-request', to: 'doing' },
+  { action: 'updateWorkItem', projectId: 'p1', sessionId: 's1', expectedBindingRevision: 0, expectedUpdatedAt: '2026-11-09T00:00:00.000Z', taskObjective: 'Clarified goal' },
 ];
 describe('public entity mutations', () => {
+  // A malformed/version-mismatched host success is not a committed progress receipt.
+  it.each([
+    { ok: true, projectId: 'p1', sessionId: 's1' },
+    { ok: true, projectId: 'wrong', sessionId: 's1', progressReceipt: { eventId: 1, revision: 1, replayed: false } },
+    { ok: true, projectId: 'p1', sessionId: 'wrong', progressReceipt: { eventId: 1, revision: 1, replayed: false } },
+  ])('fails closed for an incomplete or mismatched progress receipt %j', async result => {
+    const h = await connect();
+    try {
+      h.mutate.mockResolvedValueOnce(result as never);
+      expect(await h.call('mutate_project_entity', { intent: intents.find(intent => intent.action === 'recordProgress') })).toMatchObject({
+        ok: false, errorCode: 'WRITE_OUTCOME_UNKNOWN', data: { writeOutcome: 'unknown' },
+      });
+    } finally { await h.close(); }
+  });
   it('passes all seven intents once with trusted caller, preserving stable subjects and nullable clearing', async () => {
     const h = await connect();
     try {
       expect((await h.discover()).tools.map((t: { name: string }) => t.name)).toContain('mutate_project_entity');
       for (const intent of intents) {
-        expect(await h.call('mutate_project_entity', { intent })).toEqual({ ok: true, projectId: 'p1', sessionId: null });
+        expect(await h.call('mutate_project_entity', { intent })).toEqual(intent.action === 'recordProgress'
+          ? { ok: true, projectId: 'p1', sessionId: 's1', progressReceipt: { eventId: 1, revision: 1, replayed: false } }
+          : { ok: true, projectId: 'p1', sessionId: null });
         expect(h.mutate).toHaveBeenLastCalledWith({ callerSessionId: 'trusted', intent });
       }
       expect(h.mutate).toHaveBeenCalledTimes(intents.length);
@@ -80,6 +101,13 @@ describe('public entity mutations', () => {
         { intent: { action: 'update', projectId: 'p1', goal: 'x'.repeat(2001) } },
         { intent: { action: 'cancel', sessionId: 's1' } },
         { intent: { action: 'create', input: { name: 'P', members: [{ kind: 'bot', id: 'b1', role: 'owner' }] } } },
+        // Bounded here instead of failing later inside the worker, where the same input
+        // would be reported as an unknown write outcome.
+        { intent: { action: 'recordProgress', projectId: 'p1', sessionId: 's1', expectedRevision: 0, expectedBindingRevision: 0, requestId: 'r1', to: 'done', completionNote: 'x'.repeat(4001) } },
+        // `expectedUpdatedAt` is an equality observation: only the canonical form the host
+        // returns from a read can round-trip through Date.parse/toISOString.
+        { intent: { action: 'updateWorkItem', projectId: 'p1', sessionId: 's1', expectedBindingRevision: 0, expectedUpdatedAt: '2026-11-09T08:00:00+08:00', title: 'T' } },
+        { intent: { action: 'updateWorkItem', projectId: 'p1', sessionId: 's1', expectedBindingRevision: 0, expectedUpdatedAt: '2026-11-09T00:00:00Z', title: 'T' } },
       ];
       for (const args of invalid) expect((await h.call('mutate_project_entity', args)).errorCode).toBe('INVALID_ARGS');
       expect(h.mutate).not.toHaveBeenCalled();

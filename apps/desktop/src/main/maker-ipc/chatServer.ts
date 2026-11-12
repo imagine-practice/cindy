@@ -17,7 +17,7 @@ import { createChatGroupAuthority, selectChatManagementActor } from './chatGroup
 import { retryAfterDeadline } from '@cindy/auth-client';
 import { parseChatInvitationShareId, parseChatInvitationToken } from '@cindy/device-link';
 import { CURRENT_CINDY_REGION } from '../../shared/brandRegion.js';
-import { existsSync, readFileSync, promises as fsp } from 'node:fs';
+import { promises as fsp } from 'node:fs';
 import { MIRROR_ATTACHMENT_MAX_BYTES } from '../companion-cloud/mirror.js';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
@@ -32,7 +32,7 @@ import { buildPlanStepBrief, draftPlanSteps, type PlanStepDraft } from './botGro
 import { botGroupMentionAudience, splitBotGroupRelaySteps } from '@cindy/maker-shared/botGroupMentions';
 import { chatMigrationReceipts } from './chatMigrationReceipts.js';
 import { chatLocalHistory } from './chatLocalHistory.js';
-import { chatSendJournal } from './chatSendJournal.js';
+import { chatSendJournal, chatSendJournalEndpoint, chatSendJournalKey } from './chatSendJournal.js';
 import { prepareBotGroupTaskPost, type BotGroupTaskPostSnapshot } from './botGroupTaskPostSnapshot.js';
 import { registerGroupToolAuthority, GroupToolAuthorizationError } from './botGroupToolAuthorization.js';
 import path from 'node:path';
@@ -325,15 +325,8 @@ const discussionSource = (m: Message) => !m.deleted && m.origin !== 'system' && 
   && !m.content.some(b => b.namespace === 'cindy.plan') && !readBotGroupThreadShareCard(m);
 
 export function withChatServer(local: BotGroupChatService, deps: BotGroupChatServiceDeps): BotGroupChatService {
-  const endpoint = () => {
-    // Explicit isolated testing remains possible; an installed app never reads it.
-    const file = path.join(app.getPath('userData'), 'chat-server-dev.json');
-    if (!app.isPackaged && process.env.XDT_ISOLATED === '1' && existsSync(file)) {
-      return z.object({ baseUrl: z.literal('http://127.0.0.1:3018'), auth: z.literal('cindy') }).strict()
-        .parse(JSON.parse(readFileSync(file, 'utf8'))).baseUrl;
-    }
-    return getClientEndpoint('chatApiBaseUrl');
-  };
+  // One resolution for the send path and the settled-receipt reader (chatSendJournal.ts).
+  const endpoint = () => chatSendJournalEndpoint();
   let baseUrl = endpoint();
   let wrapperDisposed = false;
   const isEndpointCurrent = (captured: string) => !wrapperDisposed && endpoint() === captured;
@@ -3572,7 +3565,7 @@ function createChatServer(local: BotGroupChatService, deps: BotGroupChatServiceD
     const i = z.object({ conversationKind: z.literal('direct').optional(), groupId: id, text: z.string().max(8000), clientId: z.string().min(8).max(160),
       mentions: z.object({ all: z.boolean(), allBots: z.boolean().optional(), botIds: z.array(z.string()) }), division: z.boolean().optional(), attachments: z.array(z.unknown()).optional(),
       quote: z.object({ messageId: id }).strict().optional() }).parse(input);
-    const journalKey = JSON.stringify([i.groupId, i.clientId, origin?.controllerDeviceId ?? null]);
+    const journalKey = chatSendJournalKey(i.groupId, i.clientId, origin?.controllerDeviceId ?? null);
     const signature = createHash('sha256').update(JSON.stringify({ ...i, attachments: undefined })).digest('hex');
     const journal = sendJournal.read(journalKey, signature);
     if (journal?.receipt) return { ok: true as const, messageId: journal.receipt };

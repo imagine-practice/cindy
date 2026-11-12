@@ -1,3 +1,5 @@
+import type { ProjectMember } from '../../../../shared/projects';
+import { useProjectSubjectName } from '../projectLabels';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -26,6 +28,8 @@ export type ProjectProgressState =
     };
 
 export interface ProjectProgressViewProps {
+  /** Members of this project: the only offline source of another account's display name. */
+  members?: readonly ProjectMember[];
   projectId: string;
   state: ProjectProgressState;
   onOpenWorkItem: (sessionId: string) => void;
@@ -70,6 +74,7 @@ export function ProjectProgressView(props: ProjectProgressViewProps) {
 
 function ProgressContent({
   projectId,
+  members = [],
   state,
   onOpenWorkItem,
   onRefresh,
@@ -87,6 +92,17 @@ function ProgressContent({
 }: ProjectProgressViewProps) {
   const { t, i18n } = useTranslation();
   const label = (key: string) => t(`${PREFIX}.${key}`);
+  const subjectName = useProjectSubjectName();
+  /** History actors are kind/id only from Main; resolve a readable name, never print the id. */
+  const actorName = (actor: ProjectProgressHistoryEntry['actor']): string => {
+    const named = actor.displayName?.trim();
+    if (named) return named;
+    const member = members.find(
+      (item) => item.subject.kind === actor.kind && item.subject.id === actor.id,
+    );
+    return subjectName(member?.subject ?? { kind: actor.kind, id: actor.id, displayName: null, avatar: null, avatarColor: null })
+      ?? label('unknownActor');
+  };
   const [filter, setFilter] = useState<'all' | 'unknown' | WorkItemStatus>('all');
   /**
    * 执行动作默认收起：标题/状态一眼可见，动作点开再给。
@@ -364,10 +380,8 @@ function ProgressContent({
                   )}
                 </p>
                 <p className={detailClass}>
-                  <span>{event.actor.displayName?.trim() || label('unknownActor')}</span>{' '}
-                  <span>
-                    {event.actor.kind}:{event.actor.id}
-                  </span>{' '}
+                  {/* Never print the raw subject id: it is an internal identifier, not a name. */}
+                  <span>{actorName(event.actor)}</span>{' '}
                   ·{' '}
                   <time dateTime={new Date(event.createdAt).toISOString()}>
                     {new Date(event.createdAt).toLocaleString(i18n.language)}

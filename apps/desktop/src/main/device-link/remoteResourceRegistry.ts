@@ -37,7 +37,12 @@ export type RemoteResourceRegistryErrorCode =
   | 'ALREADY_EXISTS'
   | 'NOT_FOUND'
   | 'UNSUPPORTED_CAPABILITY'
-  | 'INTERNAL';
+  | 'INTERNAL'
+  /** 项目级拒绝：既有的对外码，控制端可据此显示「只有负责人能做」/「不是成员」。 */
+  | 'NOT_PROJECT_OWNER'
+  | 'NOT_PROJECT_MEMBER'
+  /** 状态/版本冲突：控制端提示重读后重试。 */
+  | 'PRECONDITION_FAILED';
 
 export class RemoteResourceRegistryError extends Error {
   constructor(

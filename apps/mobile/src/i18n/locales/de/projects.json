@@ -1,0 +1,94 @@
+{
+  "title": "Projekte",
+  "list": {
+    "hostCount": "{{count}} Computer",
+    "emptyTitle": "Noch keine Projekte",
+    "emptyCopy": "Erstelle ein Projekt auf deinem Computer, um Ziel, Mitglieder und Aufgaben zusammenzuhalten.",
+    "loadFailed": "Projekte konnten nicht geladen werden",
+    "stale": "Nicht aktualisiert. Angezeigt wird der letzte bekannte Stand.",
+    "retry": "Erneut versuchen",
+    "noHosts": "Noch kein Computer verfügbar"
+  },
+  "goal": {
+    "none": "Kein Ziel festgelegt"
+  },
+  "status": {
+    "active": "Laufend",
+    "archived": "Archiviert",
+    "unknown": "Status unbekannt"
+  },
+  "updated": {
+    "unknown": "Zeit unbekannt"
+  },
+  "summary": {
+    "goal": "Ziel",
+    "owner": "Verantwortlich",
+    "updated": "Aktualisiert"
+  },
+  "progress": {
+    "title": "Fortschritt",
+    "history": "Letzter Fortschritt",
+    "historyEmpty": "Kein Fortschrittsverlauf",
+    "actorUnknown": "Unbekannte Person",
+    "stage": {
+      "todo": "Nicht begonnen",
+      "doing": "Läuft",
+      "blocked": "Blockiert",
+      "review": "Wartet auf Bestätigung",
+      "done": "Abschluss bestätigt"
+    }
+  },
+  "workItems": {
+    "title": "Aufgaben",
+    "empty": "Dieses Projekt hat noch keine Aufgaben",
+    "unassigned": "Nicht zugewiesen"
+  },
+  "members": {
+    "title": "Mitglieder",
+    "owner": "Verantwortlich",
+    "member": "Mitglied",
+    "unknown": "Ein Mitglied"
+  },
+  "group": {
+    "title": "Verknüpfte Gruppe",
+    "statusNone": "Status unbekannt"
+  },
+  "form": {
+    "progressTitle": "Fortschritt erfassen",
+    "assigneeTitle": "Zuständige Person festlegen",
+    "task": "Aufgabe",
+    "stage": "Phase",
+    "reason": "Grund der Blockade",
+    "unblockCondition": "Bedingung zum Aufheben",
+    "resolution": "Erläuterung zum Aufheben",
+    "completionNote": "Abschlussbestätigung",
+    "assignee": "Zuständig",
+    "unassigned": "Nicht zugewiesen",
+    "doneOwnerOnly": "Nur die verantwortliche Person kann den Abschluss bestätigen.",
+    "required": "Fülle die Pflichtfelder aus.",
+    "submit": "Senden",
+    "saving": "Wird gesendet…",
+    "cancel": "Abbrechen",
+    "offline": "Der Computer ist getrennt. Stelle die Verbindung vor dem Senden wieder her.",
+    "noTasks": "Dieses Projekt hat noch keine Aufgabe zum Aktualisieren."
+  },
+  "confirm": {
+    "archiveTitle": "Projekt archivieren?",
+    "archiveBody": "Archivierte Projekte nehmen keine neuen Aufgaben mehr an und laufen nicht mehr automatisch. Mitglieder und Fortschritt bleiben lesbar.",
+    "unarchiveTitle": "Projekt wiederherstellen?",
+    "unarchiveBody": "Wiederhergestellte Projekte nehmen wieder neue Aufgaben an und laufen wieder automatisch.",
+    "confirm": "Bestätigen",
+    "cancel": "Abbrechen"
+  },
+  "errors": {
+    "NOT_PROJECT_OWNER": "Nur die verantwortliche Person kann den Abschluss bestätigen oder das Projekt archivieren.",
+    "NOT_PROJECT_MEMBER": "Du bist kein Mitglied dieses Projekts.",
+    "PRECONDITION_FAILED": "Das Projekt hat sich geändert. Aktualisiere und versuche es erneut.",
+    "REVISION_CONFLICT": "Der Fortschritt wurde anderswo aktualisiert. Aktualisiere und versuche es erneut.",
+    "ILLEGAL_TRANSITION": "Aus der aktuellen Phase ist diese Phase nicht direkt erreichbar.",
+    "INVALID_PARAMS": "Die Angaben haben die Prüfung nicht bestanden. Prüfe sie und versuche es erneut.",
+    "NOT_FOUND": "Dieses Projekt oder diese Aufgabe existiert nicht mehr.",
+    "UNAVAILABLE": "Der Computer kann das gerade nicht abschließen.",
+    "failed": "Die Aktion wurde nicht abgeschlossen. Versuche es erneut."
+  }
+}

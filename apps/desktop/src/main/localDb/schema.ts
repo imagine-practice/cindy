@@ -127,6 +127,7 @@ export const sessions = sqliteTable(
   {
     id: text('id').primaryKey(),
     title: text('title').notNull().default('New Maker'),
+    taskObjective: text('task_objective'),
     workingDir: text('working_dir'),
     /** Explicit project membership; null retains the legacy cwd-based grouping. */
     projectDir: text('project_dir'),

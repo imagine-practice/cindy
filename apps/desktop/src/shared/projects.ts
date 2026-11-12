@@ -75,6 +75,9 @@ export interface ProjectRecord {
 export interface ProjectWorkItem {
   sessionId: string;
   title: string;
+  taskObjective?: string | null;
+  /** Observed project binding generation; required for guarded supplementation. */
+  bindingRevision?: number;
   status: string;
   /** null = 未分配。不会回落到项目负责人。 */
   assignee: ProjectSubject | null;
@@ -104,6 +107,9 @@ export interface ProjectCreateInput {
  * renderer 也就无从伪造时间或覆盖别人的项目 id。
  */
 export type ProjectsAction =
+  | { action: 'updateWorkItem'; projectId: string; sessionId: string; expectedUpdatedAt: string; expectedBindingRevision: number;
+      title?: string; taskObjective?: string }
+  | { action: 'createWorkItem'; projectId: string; sessionId: string; title: string; taskObjective: string; assignee: ProjectSubjectRef | null }
   | { action: 'create'; input: ProjectCreateInput }
   | {
       action: 'update';

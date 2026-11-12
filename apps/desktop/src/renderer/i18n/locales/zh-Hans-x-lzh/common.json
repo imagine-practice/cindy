@@ -14091,6 +14091,10 @@
   },
   "ccAgent": {
     "projectCore": {
+      "recovery": {
+        "title": "复登录前项目成员身份",
+        "confirmBody": "将 {{project}} 内登录前本地账号之成员身份归于当前已认证账号，仍为普通成员，保留伙伴负责人及 {{count}} 条任务记录。Cindy 先建备份并验之，再仅改此项目成员身份。是否继续？"
+      },
       "metadataEdit": {
         "title": "编辑项目",
         "description": "更项目之名与目标。",
@@ -14163,12 +14167,24 @@
         "ownerRequired": "请择负责人",
         "currentAccount": "今帐"
       },
+      "taskCreate": {
+        "name": "任務名",
+        "goal": "任務之旨",
+        "required": "請具任務名與旨",
+        "hint": "建畢歸項目任務表；不發訊，不自行。",
+        "submit": "建任務",
+        "discardPending": "捨此未決之創",
+        "discardPendingNote": "此創或未成。捨之則可更書而新創；已成之務不刪。",
+        "discardPendingConfirm": "果捨之"
+      },
       "detail": {
         "goal": "Goal",
         "noGoal": "No goal set",
         "members": "Members",
         "addMember": "Add member",
         "ownerBadge": "Owner",
+        "subjectUnavailable": "資料暫不可得",
+        "claimOwner": "領項目之責",
         "transferOwner": "Make owner",
         "removeMember": "Remove",
         "assignee": "Assignee",
@@ -14193,7 +14209,13 @@
         "notFound": "This project no longer exists",
         "back": "Back",
         "projectLabel": "项目",
-        "noProject": "Not in a project"
+        "noProject": "Not in a project",
+        "membersLoading": "方录可增之员……",
+        "membersLoadFailed": "未能录可增之员",
+        "membersRetry": "再试",
+        "noAddableMembers": "无可增之员",
+        "memberRemoved": "已去 {{name}}",
+        "archiveNotice": "已藏：员与设仍可理，进仍可记；新务与自执已止。"
       },
       "deleteProject": {
         "title": "删除项目",
@@ -14205,7 +14227,8 @@
         "confirmTypePlaceholder": "项目名",
         "confirm": "删除",
         "cancel": "取消",
-        "success": "项目已删除"
+        "success": "项目已删除",
+        "archiveWarning": "此项目已藏。删则永去项目、务之关联与进记，不可复。"
       },
       "error": {
         "ownerMustTransfer": "Transfer ownership before removing the current owner.",
@@ -14351,7 +14374,8 @@
         "automationOrigin": "自动化所立",
         "automationOriginNamed": "自动化所立 · {{name}}",
         "expandActions": "启其行",
-        "collapseActions": "敛"
+        "collapseActions": "敛",
+        "unknownMember": "一员"
       },
       "progressEdit": {
         "title": "记工作进度",
@@ -20214,6 +20238,7 @@
     "progressUnavailable": "此项目之进度不可读，故暂无可同步者。",
     "hostNotReady": "此机今不能发群中之言。",
     "unknownOutcome": "发之结果未知。再试无妨：此一次之发不致再现于群。",
+    "inFlight": "此发或已达于群。再决则仍用此发，不至于两见。",
     "summary": {
       "heading": "项目之进度 · {{name}}",
       "empty": "暂无进度之记",
@@ -20228,6 +20253,7 @@
       "itemOmitted": "……另有 {{count}} 项差事未列",
       "latest": "近之进度：{{time}}",
       "latestNone": "近之进度：暂无记"
-    }
+    },
+    "recheck": "再核此發"
   }
 }

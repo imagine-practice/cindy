@@ -630,7 +630,9 @@ export function groupSessions(
   const groups = new Map<string, Session[]>();
   const identityByKey = new Map<string, ProjectIdentity>();
   for (const s of remaining) {
-    if (s.workspaceKind === 'dialogue') {
+    // A managed dialogue directory describes execution storage, not membership.
+    // Explicit entity binding must reach the existing project grouping below.
+    if (s.workspaceKind === 'dialogue' && !(s.projectId && entityProjectsById.has(s.projectId))) {
       dialogues.push(s);
       continue;
     }

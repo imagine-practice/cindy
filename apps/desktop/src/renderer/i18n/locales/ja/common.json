@@ -14091,6 +14091,10 @@
   },
   "ccAgent": {
     "projectCore": {
+      "recovery": {
+        "title": "ログイン前のプロジェクトメンバー情報を復元",
+        "confirmBody": "{{project}} のログイン前ローカルアカウントのメンバー情報を、現在認証済みのアカウントに一般メンバーとして復元します。担当のパートナーと {{count}} 件のタスク記録は維持されます。Cindy はバックアップを作成・検証してから、このプロジェクトのメンバー識別情報だけを更新します。続行しますか？"
+      },
       "metadataEdit": {
         "title": "プロジェクトを編集",
         "description": "プロジェクトの名前と目標を変更します。",
@@ -14163,12 +14167,24 @@
         "ownerRequired": "担当者を選択してください",
         "currentAccount": "現在のアカウント"
       },
+      "taskCreate": {
+        "name": "タスク名",
+        "goal": "タスクの目標",
+        "required": "タスク名と目標を入力してください",
+        "hint": "作成後はプロジェクトのタスク一覧に戻ります。メッセージの送信や実行は開始しません。",
+        "submit": "タスクを作成",
+        "discardPending": "この未確定の作成を破棄",
+        "discardPendingNote": "この作成は完了していない可能性があります。破棄すると入力し直して新しいタスクを作成できます。作成済みのタスクは削除されません。",
+        "discardPendingConfirm": "破棄する"
+      },
       "detail": {
         "goal": "Goal",
         "noGoal": "No goal set",
         "members": "Members",
         "addMember": "Add member",
         "ownerBadge": "Owner",
+        "subjectUnavailable": "プロフィールを取得できません",
+        "claimOwner": "プロジェクト責任者になる",
         "transferOwner": "Make owner",
         "removeMember": "Remove",
         "assignee": "Assignee",
@@ -14193,7 +14209,13 @@
         "notFound": "This project no longer exists",
         "back": "Back",
         "projectLabel": "プロジェクト",
-        "noProject": "Not in a project"
+        "noProject": "Not in a project",
+        "membersLoading": "追加できるメンバーを読み込み中…",
+        "membersLoadFailed": "追加できるメンバーを読み込めませんでした",
+        "membersRetry": "再試行",
+        "noAddableMembers": "追加できるメンバーはいません",
+        "memberRemoved": "{{name}} を削除しました",
+        "archiveNotice": "アーカイブ済み: メンバーと設定の整理、進捗の記録は引き続きできます。新しいタスクの作成と自動実行は停止しています。"
       },
       "deleteProject": {
         "title": "プロジェクトを削除",
@@ -14205,7 +14227,8 @@
         "confirmTypePlaceholder": "プロジェクト名",
         "confirm": "削除",
         "cancel": "キャンセル",
-        "success": "プロジェクトを削除しました"
+        "success": "プロジェクトを削除しました",
+        "archiveWarning": "このプロジェクトはアーカイブ済みです。削除するとプロジェクト、タスクの関連付け、進捗履歴が完全に削除され、元に戻せません。"
       },
       "error": {
         "ownerMustTransfer": "Transfer ownership before removing the current owner.",
@@ -14351,7 +14374,8 @@
         "automationOrigin": "自動化による作成",
         "automationOriginNamed": "自動化による作成 · {{name}}",
         "expandActions": "操作を表示",
-        "collapseActions": "操作を閉じる"
+        "collapseActions": "操作を閉じる",
+        "unknownMember": "メンバー"
       },
       "progressEdit": {
         "title": "作業の進捗を記録",
@@ -20214,6 +20238,7 @@
     "progressUnavailable": "このプロジェクトの進捗を読み取れないため、同期できる内容がありません。",
     "hostNotReady": "このコンピューターは現在グループメッセージを送信できません。",
     "unknownOutcome": "送信結果が不明です。この送信が二重に投稿されることはないため、再試行しても安全です。",
+    "inFlight": "この送信はすでにグループに届いている可能性があります。もう一度確認しても同じ送信の続きになるため、二重には表示されません。",
     "summary": {
       "heading": "プロジェクト進捗 · {{name}}",
       "empty": "進捗の記録はまだありません",
@@ -20228,6 +20253,7 @@
       "itemOmitted": "……ほかに {{count}} 件の作業は未掲載",
       "latest": "最新の進捗：{{time}}",
       "latestNone": "最新の進捗：記録なし"
-    }
+    },
+    "recheck": "この送信をもう一度確認する"
   }
 }

@@ -100,8 +100,8 @@ export async function setSessionAssignee(
 }
 
 /** `newId` / `now` are filled in by main; the renderer only shapes the action. */
-async function mutateProject(mutation: ProjectsAction): Promise<void> {
-  await wrap(window.electronAPI.localDb.projects.mutate(mutation));
+export async function mutateProject(mutation: ProjectsAction) {
+  return wrap(window.electronAPI.localDb.projects.mutate(mutation));
 }
 
 export function onProjectsChanged(cb: () => void): () => void {

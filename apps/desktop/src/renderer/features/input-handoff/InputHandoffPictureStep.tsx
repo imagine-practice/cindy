@@ -136,7 +136,7 @@ export function InputHandoffPictureStep({
       {state === 'shown' && src ? (
         <>
           <p className="mb-2 text-12 text-[var(--text-tertiary)]">{t('inputHandoff.picture.hint')}</p>
-          <div className="max-h-[60vh] overflow-auto rounded-[8px] border border-[var(--border-default)] bg-[var(--surface-sunken)]">
+          <div className="max-h-[60vh] overflow-auto rounded-[8px] border border-[var(--border-default)] bg-[var(--surface-chip)]">
             <button
               type="button"
               className="block w-full cursor-crosshair disabled:cursor-default disabled:opacity-60"

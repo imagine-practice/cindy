@@ -10,6 +10,7 @@ import { runPluginUsageTransaction } from '../worker/opHandlers/pluginUsageTx.js
 import { runSessionImportTransaction } from '../worker/opHandlers/sessionImportTx.js';
 import { runTaskTagsTransaction } from '../worker/opHandlers/taskTagsTx.js';
 import { runProjectsTransaction } from '../worker/opHandlers/projectsTx.js';
+import { runProjectMembershipRecoveryTransaction } from '../worker/opHandlers/projectMembershipRecoveryTx.js';
 import { runMaterialsTransaction } from '../worker/opHandlers/materialsTx.js';
 import { recordMediaSpend } from '../worker/opHandlers/mediaSpendTx.js';
 import { recordPiUsage } from '../worker/opHandlers/piUsageTx.js';
@@ -46,6 +47,7 @@ const runPluginUsageTransaction = ${runPluginUsageTransaction.toString()};
 const runSessionImportTransaction = ${runSessionImportTransaction.toString()};
 const runTaskTagsTransaction = ${runTaskTagsTransaction.toString()};
 const runProjectsTransaction = ${runProjectsTransaction.toString()};
+const runProjectMembershipRecoveryTransaction = ${runProjectMembershipRecoveryTransaction.toString()};
 const runMaterialDispatchTransaction = ${runMaterialDispatchTransaction.toString()};
 const runProjectGroupLinksTransaction = ${runProjectGroupLinksTransaction.toString()};
 const runMaterialsTransaction = ${runMaterialsTransaction.toString()};
@@ -510,6 +512,7 @@ function dispatchTransaction(readyDb, payload) {
       return readProjectGroupLinksByProjectTransaction(readyDb, read.request, read.context);
     }
     case 'projects.execute': return runProjectsTransaction(readyDb, request.args);
+    case 'projectMembershipRecovery.execute': return runProjectMembershipRecoveryTransaction(readyDb, request.args);
     case 'projectProgress.read': {
       const read = request.args || {};
       return readProjectProgressTransaction(readyDb, read.request, read.context);

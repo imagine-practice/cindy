@@ -12,6 +12,7 @@ import type { WorkItemProgressIntent, WorkItemProgressContext, WorkItemProgressR
 import type { PluginUsageTransaction, PluginUsageHandle } from '../../../../shared/pluginUsage.js';
 import type { TaskTagRequest, TaskTagResult } from '@cindy/maker-shared';
 import type { ProjectsMutation, ProjectsMutationResult } from '../../../../shared/projects';
+import type { ProjectMembershipRecoveryRequest, ProjectMembershipRecoveryResult } from '../../worker/opHandlers/projectMembershipRecoveryTx';
 import type { ChatCacheTransaction, ChatCacheResult } from '../../worker/opHandlers/chatCacheTx.js';
 import type { MaterialsTxRequest, MaterialsTxResult } from '../../worker/opHandlers/materialsTx.js';
 
@@ -24,6 +25,7 @@ export type DbTxName =
   | 'sessionImport.execute'
   | 'taskTags.execute'
   | 'projects.execute'
+  | 'projectMembershipRecovery.execute'
   | 'materials.execute'
   | 'workItemProgress.execute'
   | 'sessions.createAuthorized'
@@ -1466,6 +1468,7 @@ export type DbTxArgsByName = {
   'chatCache.execute': ChatCacheTransaction;
   'taskTags.execute': TaskTagRequest & { newId?: string; callerSessionId?: string };
   'projects.execute': ProjectsMutation;
+  'projectMembershipRecovery.execute': ProjectMembershipRecoveryRequest;
   'materialDispatch.execute': MaterialDispatchRequest;
   'projectGroupLinks.execute': ProjectGroupLinksTxRequest;
   /** Main-only envelope: the public `action` field never reaches the transaction. */
@@ -1580,6 +1583,7 @@ export type DbTxResultByName = {
   'chatCache.execute': ChatCacheResult;
   'taskTags.execute': TaskTagResult;
   'projects.execute': ProjectsMutationResult;
+  'projectMembershipRecovery.execute': ProjectMembershipRecoveryResult;
   'materialDispatch.execute': MaterialDispatchResult;
   'projectGroupLinks.execute': ProjectGroupLinksResult;
   'projectGroupLinks.listProject': ProjectGroupLinksProjectListResult;

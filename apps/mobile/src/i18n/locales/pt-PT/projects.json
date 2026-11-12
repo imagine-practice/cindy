@@ -1,0 +1,94 @@
+{
+  "title": "Projetos",
+  "list": {
+    "hostCount": "{{count}} computadores",
+    "emptyTitle": "Ainda não há projetos",
+    "emptyCopy": "Crie um projeto no seu computador para reunir o objetivo, os membros e as tarefas.",
+    "loadFailed": "Não foi possível carregar os projetos",
+    "stale": "Sem atualização. A mostrar o último conteúdo conhecido.",
+    "retry": "Tentar novamente",
+    "noHosts": "Ainda não há nenhum computador disponível"
+  },
+  "goal": {
+    "none": "Sem objetivo definido"
+  },
+  "status": {
+    "active": "Em curso",
+    "archived": "Arquivado",
+    "unknown": "Estado desconhecido"
+  },
+  "updated": {
+    "unknown": "Data desconhecida"
+  },
+  "summary": {
+    "goal": "Objetivo",
+    "owner": "Responsável",
+    "updated": "Atualizado"
+  },
+  "progress": {
+    "title": "Progresso",
+    "history": "Progresso recente",
+    "historyEmpty": "Sem histórico de progresso",
+    "actorUnknown": "Autor desconhecido",
+    "stage": {
+      "todo": "Não iniciado",
+      "doing": "Em curso",
+      "blocked": "Bloqueado",
+      "review": "A aguardar confirmação",
+      "done": "Conclusão confirmada"
+    }
+  },
+  "workItems": {
+    "title": "Tarefas",
+    "empty": "Este projeto ainda não tem tarefas",
+    "unassigned": "Não atribuído"
+  },
+  "members": {
+    "title": "Membros",
+    "owner": "Responsável",
+    "member": "Membro",
+    "unknown": "Um membro"
+  },
+  "group": {
+    "title": "Grupo associado",
+    "statusNone": "Estado desconhecido"
+  },
+  "form": {
+    "progressTitle": "Registar progresso",
+    "assigneeTitle": "Definir responsável",
+    "task": "Tarefa",
+    "stage": "Fase",
+    "reason": "Motivo do bloqueio",
+    "unblockCondition": "Condição para desbloquear",
+    "resolution": "Explicação do desbloqueio",
+    "completionNote": "Confirmação de conclusão",
+    "assignee": "Responsável pela tarefa",
+    "unassigned": "Não atribuído",
+    "doneOwnerOnly": "Só o responsável do projeto pode confirmar a conclusão.",
+    "required": "Preencha os campos obrigatórios.",
+    "submit": "Enviar",
+    "saving": "A enviar…",
+    "cancel": "Cancelar",
+    "offline": "O computador está desligado da ligação. Restabeleça a ligação antes de enviar.",
+    "noTasks": "Este projeto ainda não tem tarefas para atualizar."
+  },
+  "confirm": {
+    "archiveTitle": "Arquivar o projeto?",
+    "archiveBody": "Um projeto arquivado deixa de aceitar tarefas novas e de ser executado automaticamente. Os membros e o progresso continuam visíveis.",
+    "unarchiveTitle": "Restaurar o projeto?",
+    "unarchiveBody": "Um projeto restaurado volta a aceitar tarefas novas e a ser executado automaticamente.",
+    "confirm": "Confirmar",
+    "cancel": "Cancelar"
+  },
+  "errors": {
+    "NOT_PROJECT_OWNER": "Só o responsável do projeto pode confirmar a conclusão ou arquivá-lo.",
+    "NOT_PROJECT_MEMBER": "Não é membro deste projeto.",
+    "PRECONDITION_FAILED": "O projeto mudou. Atualize e tente novamente.",
+    "REVISION_CONFLICT": "O progresso foi atualizado noutro local. Atualize e tente novamente.",
+    "ILLEGAL_TRANSITION": "Não é possível passar diretamente para essa fase a partir da atual.",
+    "INVALID_PARAMS": "O envio não passou nas verificações. Reveja-o e tente novamente.",
+    "NOT_FOUND": "Este projeto ou esta tarefa já não existe.",
+    "UNAVAILABLE": "O computador não consegue concluir esta ação agora.",
+    "failed": "A ação não foi concluída. Tente novamente."
+  }
+}

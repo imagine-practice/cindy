@@ -43,6 +43,9 @@ import {
   type DataOwnerBroadcastScope,
 } from '../../device-link/broadcast-tap';
 import { broadcastSessionPatched } from './sessions';
+import { openSession } from '../sessionOpening';
+import { buildAuthorizedSessionCreate } from '../authorizedSessionPersistence';
+import { emitSessionCreated } from './sessionCreatedBroadcast';
 
 const log = createLogger('projects');
 
@@ -371,12 +374,14 @@ export async function readProjectDetail(
   const rows = await client.query<{
     sessionId: string;
     title: string;
+    taskObjective: string | null;
+    bindingRevision: number;
     status: string;
     assigneeKind: ProjectSubjectKind | null;
     assigneeId: string | null;
     updatedAt: number;
   }>(
-    `SELECT id AS sessionId, title, status, assignee_kind AS assigneeKind, assignee_id AS assigneeId, updated_at AS updatedAt
+    `SELECT id AS sessionId, title, task_objective AS taskObjective, project_binding_revision AS bindingRevision, status, assignee_kind AS assigneeKind, assignee_id AS assigneeId, updated_at AS updatedAt
        FROM sessions
       WHERE project_id = ? AND status <> 'deleted'
       ORDER BY updated_at DESC, id ASC`,
@@ -393,6 +398,8 @@ export async function readProjectDetail(
   const workItems: ProjectWorkItem[] = rows.map((row) => ({
     sessionId: row.sessionId,
     title: row.title,
+    taskObjective: row.taskObjective,
+    bindingRevision: row.bindingRevision,
     status: row.status,
     // 未分配就是 null；绝不回落到负责人。
     assignee:
@@ -461,6 +468,34 @@ function toMutation(raw: unknown, now: number): ProjectMutationIntent {
   const body = requireObject(raw, 'mutation');
   const action = requireString(body.action, 'action');
   switch (action) {
+    case 'updateWorkItem': {
+      if (!Number.isSafeInteger(body.expectedBindingRevision) || (body.expectedBindingRevision as number) < 0)
+        throwIpcError('INVALID_PARAMS', 'Invalid observed task binding');
+      const expectedUpdatedAt = requireString(body.expectedUpdatedAt, 'expectedUpdatedAt');
+      const stamp = Date.parse(expectedUpdatedAt);
+      if (!Number.isSafeInteger(stamp) || new Date(stamp).toISOString() !== expectedUpdatedAt)
+        throwIpcError('INVALID_PARAMS', 'Invalid observed task timestamp');
+      const title = body.title === undefined ? undefined : requireString(body.title, 'title').trim();
+      const taskObjective = body.taskObjective === undefined ? undefined : requireString(body.taskObjective, 'taskObjective').trim();
+      if ((title === undefined && taskObjective === undefined) || (title !== undefined && (!title || title.length > 120))
+        || (taskObjective !== undefined && (!taskObjective || taskObjective.length > 2000)))
+        throwIpcError('INVALID_PARAMS', 'Invalid task supplement');
+      return { action, projectId: requireString(body.projectId, 'projectId'),
+        sessionId: requireString(body.sessionId, 'sessionId'), expectedUpdatedAt,
+        expectedBindingRevision: body.expectedBindingRevision as number, title, taskObjective, now };
+    }
+    case 'createWorkItem': {
+      const sessionId = requireString(body.sessionId, 'sessionId');
+      if (sessionId.length > 200 || !/^[a-zA-Z0-9_-]+$/.test(sessionId))
+        throwIpcError('INVALID_PARAMS', 'Invalid session id');
+      const title = requireString(body.title, 'title').trim();
+      const taskObjective = requireString(body.taskObjective, 'taskObjective').trim();
+      if (!title || title.length > 120 || !taskObjective || taskObjective.length > 2000)
+        throwIpcError('INVALID_PARAMS', 'Invalid task metadata');
+      return { action, projectId: requireString(body.projectId, 'projectId'),
+        sessionId, title, taskObjective,
+        assignee: body.assignee == null ? null : requireSubjectRef(body.assignee, 'assignee'), now };
+    }
     case 'create': {
       const input = requireObject(body.input, 'input');
       const membersRaw = input.members;
@@ -594,17 +629,41 @@ export async function mutateProjects(
   const mutation = toMutation(raw, Date.now());
   await assertProjectMutationAllowed(mutation, subject, client);
   const envelope: ProjectMutationEnvelope = { ...mutation, actor: subject };
-  if (guard) await guard.beforeDispatch();
-  guard?.dispatching();
-  const result = await client.tx('projects.execute', envelope);
+  const taskDirectory = mutation.action === 'createWorkItem' ? await client.queryOne<{ dirPath: string }>(
+    "SELECT dir_path AS dirPath FROM project_dirs WHERE project_id=? AND dir_key LIKE 'local:%' LIMIT 1", [mutation.projectId]) : null;
+  if (mutation.action !== 'createWorkItem') {
+    if (guard) await guard.beforeDispatch();
+    guard?.dispatching();
+  }
+  const result = mutation.action === 'createWorkItem'
+    ? (await openSession({ id: mutation.sessionId, now: mutation.now, deferGitInit: true,
+        body: { title: mutation.title, projectId: mutation.projectId,
+          workspaceKind: taskDirectory ? 'project' : 'dialogue', workingDir: taskDirectory?.dirPath },
+        assertCurrent: () => {
+          if (!isDataOwnerBroadcastScopeCurrent(scope)) throwIpcError('NOT_FOUND', 'Owner changed');
+        },
+      }, async (row, assertCurrent) => {
+        assertCurrent();
+        const prepared = { ...row, taskObjective: mutation.taskObjective.trim(), title: mutation.title.trim(),
+          assigneeKind: mutation.assignee?.kind ?? null, assigneeId: mutation.assignee?.id ?? null };
+        const insert = buildAuthorizedSessionCreate(client, prepared, subject).insert;
+        if (guard) await guard.beforeDispatch();
+        assertCurrent();
+        guard?.dispatching();
+        return client.tx<ProjectsMutationResult>('projects.execute', { ...envelope, insert });
+      })).value
+    : await client.tx('projects.execute', envelope);
   if (!isDataOwnerBroadcastScopeCurrent(scope)) throwIpcError('NOT_FOUND', 'Owner changed');
+  if (mutation.action === 'createWorkItem') emitSessionCreated(mutation.sessionId);
   if (result.sessionId) {
     const row = await client.queryOne<{
       projectId: string | null;
       assigneeKind: ProjectSubjectKind | null;
       assigneeId: string | null;
+      title: string;
+      taskObjective: string | null;
     }>(
-      'SELECT project_id AS projectId, assignee_kind AS assigneeKind, assignee_id AS assigneeId FROM sessions WHERE id = ?',
+      'SELECT project_id AS projectId, assignee_kind AS assigneeKind, assignee_id AS assigneeId, title, task_objective AS taskObjective FROM sessions WHERE id = ?',
       [result.sessionId],
     );
     broadcastSessionPatched(
@@ -613,6 +672,7 @@ export async function mutateProjects(
         projectId: row?.projectId ?? null,
         assigneeKind: row?.assigneeKind ?? null,
         assigneeId: row?.assigneeId ?? null,
+        ...(mutation.action === 'updateWorkItem' && row ? { title: row.title, taskObjective: row.taskObjective } : {}),
       },
       scope,
     );
@@ -643,6 +703,10 @@ async function assertProjectMutationAllowed(
   client: DbClient,
 ): Promise<void> {
   switch (mutation.action) {
+    case 'updateWorkItem':
+    case 'createWorkItem':
+      await requireProjectAction('manageWorkItems', mutation.projectId, subject, client);
+      return;
     case 'create':
       // 新项目没有既有成员可判：负责人跟着项目一起落库（缺省是当前账号），
       // 但仍然要求调用方有身份，否则会出现「匿名建的项目谁都看不见」。
@@ -704,7 +768,7 @@ async function assertProjectMutationAllowed(
   }
 }
 
-function broadcastProjectsChanged(scope: DataOwnerBroadcastScope, notificationFailed?: () => void): void {
+export function broadcastProjectsChanged(scope: DataOwnerBroadcastScope, notificationFailed?: () => void): void {
   if (!isDataOwnerBroadcastScopeCurrent(scope)) return;
   for (const window of BrowserWindow.getAllWindows()) {
     try {

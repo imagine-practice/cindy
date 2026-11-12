@@ -1,8 +1,45 @@
 import { createHash } from 'node:crypto';
-import { mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { app } from 'electron';
+import { z } from 'zod';
 import { ownerScopedUserDataPath } from '../appSessionState.js';
+import { getClientEndpoint } from '../clientEndpointsService.js';
 import { atomicWriteFileSync, readAtomicFileSync } from '../utils/atomicWriteFile.js';
+
+/** One journal key format, shared by the send path and the settled-receipt reader. */
+export function chatSendJournalKey(groupId: string, clientId: string, controllerDeviceId: string | null = null): string {
+  return JSON.stringify([groupId, clientId, controllerDeviceId ?? null]);
+}
+
+/** The chat endpoint whose journal applies: the same resolution the send path uses.
+ * An explicitly isolated dev run may point at a loopback chat server; a packaged app never reads
+ * that file. Keeping the rule here means the reader below cannot drift from the writer. */
+export function chatSendJournalEndpoint(): string {
+  const file = path.join(app.getPath('userData'), 'chat-server-dev.json');
+  if (!app.isPackaged && process.env.XDT_ISOLATED === '1' && existsSync(file)) {
+    return z.object({ baseUrl: z.literal('http://127.0.0.1:3018'), auth: z.literal('cindy') }).strict()
+      .parse(JSON.parse(readFileSync(file, 'utf8'))).baseUrl;
+  }
+  return getClientEndpoint('chatApiBaseUrl');
+}
+
+/** A confirmed receipt for one chat message, read across process restarts.
+ * `null` for a missing, corrupt or unreadable journal: callers then keep their ordinary
+ * behaviour (rebuild and send), which is exactly the pre-journal guarantee. Reading never throws.
+ */
+export function readChatSendReceipt(
+  endpoint: string, groupId: string, clientId: string, controllerDeviceId: string | null = null,
+): string | null {
+  try {
+    const root = ownerScopedUserDataPath('chat-send-journal', createHash('sha256').update(endpoint).digest('hex'));
+    const file = path.join(root, `${createHash('sha256').update(chatSendJournalKey(groupId, clientId, controllerDeviceId)).digest('hex')}.json`);
+    const raw = readAtomicFileSync(file);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as { version?: unknown; receipt?: unknown };
+    return value?.version === 1 && typeof value.receipt === 'string' && value.receipt ? value.receipt : null;
+  } catch { return null; }
+}
 
 /** Immutable HTTP intent survives a lost response and a client restart. */
 export function chatSendJournal<T>(endpoint: string, current: () => boolean) {

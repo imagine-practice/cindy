@@ -35,6 +35,8 @@ const detail = z.object({
     z.object({
       sessionId: z.string(),
       title: z.string(),
+      taskObjective: z.string().nullable().optional(),
+      bindingRevision: z.number().int().nonnegative().optional(),
       status: z.string(),
       assignee: subject.nullable(),
       updatedAt: z.string(),

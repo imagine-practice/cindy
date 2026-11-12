@@ -4,7 +4,7 @@
 // two windows consume the same hold. Unit tier: isolated tmp files, no network/SQLite/process.
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
@@ -30,9 +30,10 @@ let release: ReturnType<typeof vi.fn>;
 const id = (row: BotGroupOutboxStoredEntry) => JSON.stringify([row.input.groupId, row.input.clientId]);
 const file = (row: BotGroupOutboxStoredEntry) => path.join(root, owner.dataOwnerId,
   `${createHash('sha256').update(id(row)).digest('hex')}.json`);
-const make = (publish?: () => void) => createBotGroupOutboxStorage({ currentOwner: () => owner, boundaryPending: () => boundary,
-  ownerRoot: () => path.join(root, owner.dataOwnerId), retain: (entry, check) => retain(entry, check),
-  release: (groupId, clientId) => release(groupId, clientId), publish });
+const make = (publish?: () => void, settledReceipt?: (groupId: string, clientId: string) => string | null) =>
+  createBotGroupOutboxStorage({ currentOwner: () => owner, boundaryPending: () => boundary,
+    ownerRoot: () => path.join(root, owner.dataOwnerId), retain: (entry, check) => retain(entry, check),
+    release: (groupId, clientId) => release(groupId, clientId), settledReceipt, publish });
 function windowSender() {
   const emitter = new EventEmitter();
   let dead = false;
@@ -165,6 +166,69 @@ it('rechecks the admitted owner at the service call edge and settles an invalida
   const settled = await command(storage, sender, { action: 'snapshot' });
   expect(settled.entries[0]).toMatchObject({ status: 'failed', retryable: true });
   expect(await claim(storage, sender, row)).toBeDefined();
+});
+
+// Plan B for the settled-identity memory: `protected` dies with the process, but the durable send
+// journal keeps the receipt. These cover the gate semantics, not the journal file itself
+// (readChatSendReceipt has its own test).
+it('treats a journal receipt as settled when memory no longer has the row: no rebuild, receipt returned', async () => {
+  const receipts = new Map([['room', 'journal-receipt']]);
+  const storage = make(undefined, (groupId, clientId) => receipts.get(groupId === 'room' ? 'room' : `${groupId}/${clientId}`) ?? null);
+  const a = windowSender().sender;
+  const row = draft('settled');
+  const result = await enqueue(storage, a, row);
+  expect(result).toMatchObject({ accepted: true, entry: { status: 'sent', messageId: 'journal-receipt' } });
+  // The receipt is exposed to the renderer as an already-sent row, and nothing is written to disk.
+  expect(result.entries.map(entry => [entry.input.clientId, entry.status, entry.messageId]))
+    .toEqual([['settled', 'sent', 'journal-receipt']]);
+  const dir = path.join(root, owner.dataOwnerId);
+  expect(existsSync(dir) ? readdirSync(dir).filter(name => name.endsWith('.json')) : []).toEqual([]);
+  // A snapshot afterwards does not resurrect a row for it.
+  expect((await command(storage, a, { action: 'snapshot' })).entries).toEqual([]);
+});
+
+it('rebuilds the row when the journal has no receipt for that clientId', async () => {
+  const storage = make(undefined, () => null);
+  const a = windowSender().sender;
+  const row = draft('fresh');
+  const result = await enqueue(storage, a, row);
+  expect(result).toMatchObject({ accepted: true, entry: { status: 'sending' } });
+  expect((await command(storage, a, { action: 'snapshot' })).entries.map(entry => entry.input.clientId)).toEqual(['fresh']);
+});
+
+it('keeps a settled clientId refused across a restart, and returns its receipt without sending again', async () => {
+  const receipts = new Map([['room/settled', 'journal-receipt']]);
+  const stub = (groupId: string, clientId: string) => receipts.get(`${groupId}/${clientId}`) ?? null;
+  let storage = make(undefined, stub);
+  const a = windowSender().sender;
+  const row = draft('settled');
+  await enqueue(storage, a, row);
+  // Restart: a new storage instance re-reads the directory, which has no row for this clientId.
+  storage = make(undefined, stub);
+  expect((await enqueue(storage, a, row)).entry).toMatchObject({ status: 'sent', messageId: 'journal-receipt' });
+  expect(success).not.toHaveBeenCalled();
+  // A legacy resend (no execution token) gets the receipt back instead of posting again.
+  expect(await storage.send(a, row.input as unknown as BotGroupSendInput, undefined, success))
+    .toEqual({ ok: true, messageId: 'journal-receipt' });
+  expect(success).not.toHaveBeenCalled();
+});
+
+it('degrades to the ordinary rebuild when the receipt source throws, without failing the enqueue', async () => {
+  // `readChatSendReceipt` already swallows its own errors; this proves the gate is safe even if a
+  // future source throws, i.e. an unreadable journal can never block a legitimate send.
+  const storage = make(undefined, () => { throw new Error('journal unreadable'); });
+  const a = windowSender().sender;
+  expect(await enqueue(storage, a, draft('boom'))).toMatchObject({ accepted: true, entry: { status: 'sending' } });
+  expect((await command(storage, a, { action: 'snapshot' })).entries.map(entry => entry.input.clientId)).toEqual(['boom']);
+});
+
+it('refuses to resurrect a settled clientId through the legacy whole-row writer', async () => {
+  const storage = make(undefined, (groupId, clientId) => groupId === 'room' && clientId === 'settled' ? 'journal-receipt' : null);
+  const a = windowSender().sender;
+  await expect(storage.access({ action: 'put', owner: { ...owner }, entry: draft('settled') }))
+    .rejects.toThrow('EXECUTION_REQUIRED');
+  const dir = path.join(root, owner.dataOwnerId);
+  expect(existsSync(dir) ? readdirSync(dir).filter(name => name.endsWith('.json')) : []).toEqual([]);
 });
 
 it('does not hold the storage queue over a network promise, and sending wins its edit race', async () => {

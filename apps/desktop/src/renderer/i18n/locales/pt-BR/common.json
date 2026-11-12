@@ -14289,6 +14289,10 @@
   },
   "ccAgent": {
     "projectCore": {
+      "recovery": {
+        "title": "Restaurar participação no projeto anterior ao login",
+        "confirmBody": "Restaurar a participação da conta local anterior ao login em {{project}} para a conta autenticada atual como membro comum, mantendo o parceiro responsável e {{count}} registros de tarefas. Cindy criará e verificará um backup antes de atualizar apenas essa identidade de membro. Continuar?"
+      },
       "metadataEdit": {
         "title": "Editar projeto",
         "description": "Alterar o nome e o objetivo do projeto.",
@@ -14361,12 +14365,24 @@
         "ownerRequired": "Selecione um responsável",
         "currentAccount": "Conta atual"
       },
+      "taskCreate": {
+        "name": "Nome da tarefa",
+        "goal": "Objetivo da tarefa",
+        "required": "Informe o nome e o objetivo da tarefa",
+        "hint": "Voltar à lista do projeto após criar. Nenhuma mensagem será enviada e a execução não será iniciada.",
+        "submit": "Criar tarefa",
+        "discardPending": "Descartar esta criação não confirmada",
+        "discardPendingNote": "Esta criação pode não ter sido concluída. Ao descartá-la, você pode preencher o formulário novamente; as tarefas já criadas não são excluídas.",
+        "discardPendingConfirm": "Descartar"
+      },
       "detail": {
         "goal": "Goal",
         "noGoal": "No goal set",
         "members": "Members",
         "addMember": "Add member",
         "ownerBadge": "Owner",
+        "subjectUnavailable": "Perfil indisponível",
+        "claimOwner": "Assumir a responsabilidade do projeto",
         "transferOwner": "Make owner",
         "removeMember": "Remove",
         "assignee": "Assignee",
@@ -14391,7 +14407,13 @@
         "notFound": "This project no longer exists",
         "back": "Back",
         "projectLabel": "Projeto",
-        "noProject": "Not in a project"
+        "noProject": "Not in a project",
+        "membersLoading": "Carregando membros que você pode adicionar…",
+        "membersLoadFailed": "Não foi possível carregar os membros que você pode adicionar",
+        "membersRetry": "Tentar novamente",
+        "noAddableMembers": "Não há ninguém para adicionar",
+        "memberRemoved": "{{name}} foi removido",
+        "archiveNotice": "Arquivado: você ainda pode organizar membros e configurações e registrar progresso; criar tarefas e a execução automática estão desativadas."
       },
       "deleteProject": {
         "title": "Excluir projeto",
@@ -14403,7 +14425,8 @@
         "confirmTypePlaceholder": "Nome do projeto",
         "confirm": "Excluir",
         "cancel": "Cancelar",
-        "success": "Projeto excluído"
+        "success": "Projeto excluído",
+        "archiveWarning": "Este projeto está arquivado. Excluí-lo remove permanentemente o projeto, as tarefas vinculadas e o histórico de progresso. Não é possível desfazer."
       },
       "error": {
         "ownerMustTransfer": "Transfer ownership before removing the current owner.",
@@ -14549,7 +14572,8 @@
         "automationOrigin": "Criado por uma automação",
         "automationOriginNamed": "Criado por uma automação · {{name}}",
         "expandActions": "Mostrar ações",
-        "collapseActions": "Ocultar ações"
+        "collapseActions": "Ocultar ações",
+        "unknownMember": "Um membro"
       },
       "progressEdit": {
         "title": "Registrar progresso",
@@ -20473,6 +20497,7 @@
     "progressUnavailable": "Não foi possível ler o andamento deste projeto, então ainda não há nada para sincronizar.",
     "hostNotReady": "Este computador não consegue enviar mensagens ao grupo agora.",
     "unknownOutcome": "O resultado é desconhecido. Tentar de novo é seguro: este envio nunca é publicado duas vezes.",
+    "inFlight": "Este envio pode já ter chegado ao grupo. Confirmar novamente continua este mesmo envio, por isso nunca aparece duas vezes.",
     "summary": {
       "heading": "Andamento do projeto · {{name}}",
       "empty": "Ainda não há andamento registrado",
@@ -20487,6 +20512,7 @@
       "itemOmitted": "……e mais {{count}} tarefas não listadas",
       "latest": "Último andamento: {{time}}",
       "latestNone": "Último andamento: sem registro"
-    }
+    },
+    "recheck": "Verificar este envio novamente"
   }
 }

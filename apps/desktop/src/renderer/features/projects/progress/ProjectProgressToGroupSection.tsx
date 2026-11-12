@@ -12,6 +12,9 @@
  * - **同内容可以再发**：每次确认发送生成一枚新的 sendId；失败/未知时重试复用同一枚
  *   （不会产生第二条），成功后作废。发送中与确认框打开期间都不能再点第二次。
  * - 结果如实：已发送 / 已发送过（这一枚此前已入库）/ 失败原因；失败保留可重试。
+ * - 等不到回执而显示「发送中，结果未知」时，只做**只读对账**：界面重新获得焦点、标签页转为
+ *   可见、或页面刷新时读一次群发送回执；回执已到就改说「已发送过」。对账绝不重发、不入队，
+ *   也不改发送标识：回执没到就继续显示未知，等下一次对账。
  * - 读不到项目进展（含非成员）时整块不出现：没有摘要就没有这个入口。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -24,13 +27,16 @@ import { Spinner } from '@/components/ui/spinner';
 import { useOptionalConfirmDialog } from '@/components/ui/confirm-dialog-provider';
 import { getDataOwnerGeneration, isDataOwnerGenerationCurrent } from '@/contexts/dataOwnerGeneration';
 import type { ProjectProgressReadResult } from '../../../../shared/projectProgressApi';
+import type { ProjectMember } from '../../../../shared/projects';
+import { getBotGroupOutboxReceipt } from '@/features/bots/botGroupOutbox';
 import { projectGroupLinkAvailable } from '../projectGroupLinkClient';
 import { useProjectLinkedGroups } from '../useProjectLinkedGroups';
-import { useProjectSubjectLabel } from '../projectLabels';
+import { useProjectSubjectName } from '../projectLabels';
 import { readProjectProgress } from './projectProgressService';
 import {
   buildProjectProgressSummary,
   createProjectProgressSendId,
+  projectProgressClientId,
   sendProjectProgressSummary,
   type ProjectProgressSummary,
   type ProjectProgressSubjectRef,
@@ -46,6 +52,8 @@ type ReadState =
 type Notice =
   | { kind: 'sent' }
   | { kind: 'alreadySent' }
+  /** 等不到回执但仍在队列/飞行中：不是失败，保留这一次发送以便对账。 */
+  | { kind: 'inFlight' }
   | { kind: 'failed'; reasonKey: string; retryable: boolean };
 
 /** 一次已确认的发送：摘要 + 目标群 + 这一次点击的发送标识（重试复用同一枚）。 */
@@ -55,18 +63,21 @@ interface Attempt {
   sendId: string;
 }
 
-export function ProjectProgressToGroupSection({ projectId, projectName, refreshKey }: {
+export function ProjectProgressToGroupSection({ projectId, projectName, refreshKey, members = [] }: {
   projectId: string;
   projectName: string;
   refreshKey: number;
+  members?: readonly ProjectMember[];
 }): React.ReactElement | null {
   const { t } = useTranslation();
   const dialog = useOptionalConfirmDialog();
-  const knownSubjectLabel = useProjectSubjectLabel();
-  // main 只给 kind/id；账号昵称与伙伴名由界面按已知主体补，解析不到时用 id。
-  const subjectLabel = useCallback((ref: ProjectProgressSubjectRef): string => knownSubjectLabel({
-    ...ref, displayName: null, avatar: null, avatarColor: null,
-  }), [knownSubjectLabel]);
+  const knownSubjectName = useProjectSubjectName();
+  // main 只给 kind/id；账号昵称与伙伴名由界面按已知主体补。解析不到时返回空串，让群摘要
+  // 用它自己面向对方的措辞（「某位成员」），不要把内部的「资料暂不可用」发进群里。
+  const subjectLabel = useCallback((ref: ProjectProgressSubjectRef): string => knownSubjectName(
+    members.find(member => member.subject.kind === ref.kind && member.subject.id === ref.id)?.subject
+      ?? { ...ref, displayName: null, avatar: null, avatarColor: null },
+  ) ?? '', [knownSubjectName, members]);
   const accountId = getDataOwnerGeneration().dataOwnerId;
   const available = projectGroupLinkAvailable();
   const links = useProjectLinkedGroups(projectId, refreshKey);
@@ -132,6 +143,36 @@ export function ProjectProgressToGroupSection({ projectId, projectName, refreshK
     }
   }, [projectId, projectName, read, subjectLabel, t]);
 
+  /**
+   * 只读对账：这一次发送只等到超时（`inFlight`），回执可能随后才落库。群发送回执是本地已有的
+   * 只读记录（main 的 (group, clientId) 回执）；页面刷新、窗口重新获得焦点、标签页转为可见时
+   * 各读一次：回执到了就说「已发送过」，没到就继续显示未知。
+   *
+   * 这里**不发送、不入队、不重试**，也不换发送标识：重发只能由用户显式点按（发送 / 重新核对）。
+   */
+  const inFlightAttempt = notice?.kind === 'inFlight' ? attempt : null;
+  useEffect(() => {
+    if (!inFlightAttempt) return;
+    const clientId = projectProgressClientId(projectId, inFlightAttempt.summary.text, inFlightAttempt.sendId);
+    const lookup = () => {
+      const messageId = getBotGroupOutboxReceipt(inFlightAttempt.groupId, clientId);
+      // 卸载或换了账号：这一次对账说的已经不是屏幕上的那个项目。
+      if (!messageId || !mounted.current || !isDataOwnerGenerationCurrent(owner.current)) return;
+      setNotice({ kind: 'alreadySent' });
+      setAttempt(null);
+    };
+    lookup();
+    const onVisible = () => { if (document.visibilityState === 'visible') lookup(); };
+    const onFocus = () => lookup();
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+    // 对账只认这一次发送与它所在的项目；每次刷新 / 焦点都重新读一次回执。
+  }, [inFlightAttempt, projectId, refreshKey]);
+
   // 读不到进展（含不是成员）：没有摘要就没有这个入口。
   if (!available || !accountId || read.status === 'forbidden') return null;
 
@@ -152,6 +193,13 @@ export function ProjectProgressToGroupSection({ projectId, projectName, refreshK
       if (mounted.current) setSending(false);
     }
     if (!mounted.current || !isDataOwnerGenerationCurrent(owner.current)) return;
+    if (outcome.kind === 'inFlight') {
+      // Keep this attempt: the manager reuses `attempt.sendId` for the same summary text (see
+      // `askAndSend`) and the 重新核对 button below retries it, so this send is never duplicated.
+      setAttempt(next);
+      setNotice({ kind: 'inFlight' });
+      return;
+    }
     if (outcome.kind === 'failed') {
       // 失败保留这一次发送（同一枚 sendId），重试不会变成第二条。
       setAttempt(next);
@@ -166,6 +214,12 @@ export function ProjectProgressToGroupSection({ projectId, projectName, refreshK
   const askAndSend = async (): Promise<void> => {
     // 确认框打开期间和发送中都不再响应点击：连点只产生一次发送。
     if (!targetGroup || !dialog || !summary || sendingRef.current || askingRef.current) return;
+    // 同一群 + 同一段摘要文本 = 用户已经确认过的那一条：继续用它，别再生成第二个标识。
+    // 摘要内容变了才是另一条消息，那时才换新标识。
+    if (attempt && attempt.groupId === targetGroup.id && attempt.summary.text === summary.text) {
+      await send(attempt);
+      return;
+    }
     askingRef.current = true;
     setAsking(true);
     const next: Attempt = { summary, groupId: targetGroup.id, sendId: createProjectProgressSendId() };
@@ -197,7 +251,9 @@ export function ProjectProgressToGroupSection({ projectId, projectName, refreshK
     ? t('projectProgressToGroup.sent')
     : notice.kind === 'alreadySent'
       ? t('projectProgressToGroup.alreadySent')
-      : t('projectProgressToGroup.failed', { detail: t(notice.reasonKey) });
+      : notice.kind === 'inFlight'
+        ? t('projectProgressToGroup.inFlight')
+        : t('projectProgressToGroup.failed', { detail: t(notice.reasonKey) });
 
   return <section className="flex min-w-0 flex-col gap-2">
     <h2 className="text-14 font-medium text-[var(--settings-section-title)]">{t('projectProgressToGroup.title')}</h2>
@@ -205,7 +261,7 @@ export function ProjectProgressToGroupSection({ projectId, projectName, refreshK
     {links.status === 'loading' && <p className="flex items-center gap-2 text-13 text-[var(--settings-section-desc)]">
       <Spinner size={14} />{t('projectProgressToGroup.loadingGroups')}
     </p>}
-    {links.status === 'failed' && <p role="alert" className="text-12 leading-[1.42] text-[var(--danger-text)]">
+    {links.status === 'failed' && <p role="alert" className="text-12 leading-[1.42] text-[var(--text-danger)]">
       {t('projectGroupLinks.projectFailed')}{' '}{t(links.reasonKey)}
     </p>}
     {links.status === 'ready' && links.groups.length === 0 && <p className="text-13 leading-normal text-[var(--settings-section-desc)]">
@@ -240,13 +296,13 @@ export function ProjectProgressToGroupSection({ projectId, projectName, refreshK
     {notice !== null && noticeText !== null && <div className="flex min-w-0 flex-col gap-2"
       role={notice.kind === 'failed' ? 'alert' : 'status'}>
       <p className={notice.kind === 'failed'
-        ? 'text-12 leading-[1.42] text-[var(--danger-text)]'
+        ? 'text-12 leading-[1.42] text-[var(--text-danger)]'
         : 'text-12 leading-[1.42] text-[var(--text-secondary)]'}>{noticeText}</p>
-      {notice.kind === 'failed' && notice.retryable && <Button
+      {(notice.kind === 'inFlight' || (notice.kind === 'failed' && notice.retryable)) && <Button
         variant="secondary" size="sm" tone="quiet" compact className="self-start whitespace-normal"
         disabled={sending || attempt === null}
         onClick={() => { if (attempt) void send(attempt); }}>
-        {t('projectProgressToGroup.retry')}
+        {t(notice.kind === 'inFlight' ? 'projectProgressToGroup.recheck' : 'projectProgressToGroup.retry')}
       </Button>}
     </div>}
   </section>;

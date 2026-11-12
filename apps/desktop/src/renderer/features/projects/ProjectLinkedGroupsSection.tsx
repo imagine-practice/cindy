@@ -39,7 +39,7 @@ export function ProjectLinkedGroupsSection({ projectId }: { projectId: string })
     {result.status === 'loading' && <p className="flex items-center gap-2 text-13 text-[var(--settings-section-desc)]">
       <Spinner size={14} />{t('projectGroupLinks.loading')}
     </p>}
-    {result.status === 'failed' && <p role="alert" className="text-13 leading-[1.42] text-[var(--danger-text)]">
+    {result.status === 'failed' && <p role="alert" className="text-13 leading-[1.42] text-[var(--text-danger)]">
       {t('projectGroupLinks.projectFailed')}
       {' '}{t(result.reasonKey)}
     </p>}

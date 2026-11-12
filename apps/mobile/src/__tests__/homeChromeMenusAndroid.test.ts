@@ -158,6 +158,15 @@ describe("Android home chrome menus follow the iOS pull-down", () => {
       params: expect.objectContaining({ collectionId: "tools", targets: JSON.stringify(collections[1].targets) }) }));
   });
 
+  // 项目有自己的手机页面(app/projects),因此不进作用域切换,避免落到通用资源列表里打不开。
+  it("never offers Projects as a scope: it has its own page", () => {
+    const collections = [
+      { id: "projects", title: "Projects", resourceKind: "project", targets: [{ deviceId: "mac", deviceName: "Mac" }] },
+      { id: "tools", title: "Tools", resourceKind: "tool", targets: [{ deviceId: "mac", deviceName: "Mac" }] },
+    ];
+    expect(homeScopeCollections(collections, "teammates").map(item => item.id)).toEqual(["tools"]);
+  });
+
   it("routes settings pickers through the pull-down on Android", () => {
     const settings = readSource("app/settings.tsx");
     // 只按 MenuView 是否可用分流,不按平台:Android 与 iOS 同走系统下拉,自绘 sheet / Alert 仅作回退。

@@ -386,6 +386,66 @@ export function runProjectsTransaction(
       return { ok: true, projectId, sessionId: null };
     }
 
+    if (action === 'updateWorkItem') {
+      const projectId = asText(args.projectId, 200, 'projectId');
+      const sessionId = asText(args.sessionId, 200, 'sessionId');
+      const project = requireProject(projectId);
+      requireAccess(projectId);
+      const session = db.prepare('SELECT project_id AS projectId, project_binding_revision AS bindingRevision, status, title, task_objective AS objective, updated_at AS updatedAt FROM sessions WHERE id=?')
+        .get(sessionId) as { projectId: string | null; bindingRevision: number; status: string; title: string; objective: string | null; updatedAt: number } | undefined;
+      if (!session || session.projectId !== projectId) return fail('NOT_FOUND', 'Task unavailable');
+      if (project.status === 'archived' || session.status !== 'active') return fail('PRECONDITION_FAILED', 'Task is not active');
+      if (!Number.isSafeInteger(args.expectedBindingRevision) || args.expectedBindingRevision !== session.bindingRevision)
+        return fail('PRECONDITION_FAILED', 'Task binding changed');
+      const expected = typeof args.expectedUpdatedAt === 'string' ? Date.parse(args.expectedUpdatedAt) : NaN;
+      if (!Number.isSafeInteger(expected) || expected !== session.updatedAt) return fail('PRECONDITION_FAILED', 'Task changed; reread before editing');
+      if (args.title === undefined && args.taskObjective === undefined) return fail('INVALID_PARAMS', 'Empty supplement');
+      const title = args.title === undefined ? session.title : asText(args.title, 120, 'title');
+      const objective = args.taskObjective === undefined ? session.objective : asText(args.taskObjective, 2000, 'taskObjective');
+      // A repeat that changes nothing must not advance the activity timestamp: `updated_at` is also
+      // the observation value, so writing it would make the caller's own retry look stale and
+      // would push an unchanged task to the top of the task list.
+      if (title === session.title && objective === session.objective) return { ok: true, projectId, sessionId };
+      const now = Math.max(asTimestamp(args.now, 'now'), expected + 1);
+      db.prepare('UPDATE sessions SET title=?,task_objective=?,updated_at=? WHERE id=? AND project_id=? AND updated_at=?')
+        .run(title, objective, now, sessionId, projectId, expected);
+      return { ok: true, projectId, sessionId };
+    }
+
+    if (action === 'createWorkItem') {
+      const projectId = asText(args.projectId, 200, 'projectId');
+      const project = requireProject(projectId);
+      requireAccess(projectId);
+      if (project.status !== 'active') return fail('PRECONDITION_FAILED', 'Project is archived');
+      const sessionId = asText(args.sessionId, 200, 'sessionId');
+      if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) return fail('INVALID_PARAMS', 'Invalid session id');
+      const title = asText(args.title, NAME_MAX, 'title');
+      const objective = asText(args.taskObjective, GOAL_MAX, 'taskObjective');
+      const assignee = args.assignee == null ? null : asSubject(args.assignee);
+      if (assignee && !selectMember.get(projectId, assignee.kind, assignee.id))
+        return fail('ASSIGNEE_NOT_MEMBER', 'Only project members can be assigned');
+      const existing = db.prepare('SELECT project_id, title, task_objective, assignee_kind, assignee_id, status FROM sessions WHERE id=?').get(sessionId) as
+        { project_id: string; title: string; task_objective: string; assignee_kind: string | null; assignee_id: string | null; status: string } | undefined;
+      if (existing) {
+        if (existing.status === 'deleted') return fail('PRECONDITION_FAILED', 'Task was deleted');
+        if (existing.project_id !== projectId || existing.title !== title || existing.task_objective !== objective
+          || existing.assignee_kind !== (assignee?.kind ?? null) || existing.assignee_id !== (assignee?.id ?? null))
+          return fail('ALREADY_EXISTS', 'Creation input conflicts with an existing task');
+        return { ok: true, projectId, sessionId };
+      }
+      const now = asTimestamp(args.now, 'now');
+      const insert = asRecord(args.insert, 'prepared native session');
+      if (typeof insert.sql !== 'string' || !insert.sql.startsWith('insert into "sessions" (') || !Array.isArray(insert.params))
+        return fail('INVALID_PARAMS', 'Native session preparation is required');
+      db.prepare(insert.sql).run(...insert.params);
+      const saved = db.prepare('SELECT project_id,title,task_objective,assignee_kind,assignee_id FROM sessions WHERE id=?').get(sessionId) as { project_id: string; title: string; task_objective: string; assignee_kind: string | null; assignee_id: string | null } | undefined;
+      if (!saved || saved.project_id !== projectId || saved.title !== title || saved.task_objective !== objective
+        || saved.assignee_kind !== (assignee?.kind ?? null) || saved.assignee_id !== (assignee?.id ?? null))
+        return fail('PRECONDITION_FAILED', 'Native session does not match creation request');
+      touchProject.run(now, projectId);
+      return { ok: true, projectId, sessionId };
+    }
+
     if (action === 'bindSession') {
       const sessionId = asText(args.sessionId, 200, 'sessionId');
       const session = requireSession(sessionId);

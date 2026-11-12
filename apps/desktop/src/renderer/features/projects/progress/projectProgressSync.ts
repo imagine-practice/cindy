@@ -18,6 +18,7 @@ import type { BotGroupSendResult } from '../../../../shared/botGroupChat';
 import type { ProjectProgressApiHistoryEntry, ProjectProgressApiItem } from '../../../../shared/projectProgressApi';
 import type { WorkItemStatus } from '../../../../shared/workItemStatus';
 import { botGroupApi } from '@/features/bots/botGroupStore';
+import { sendBotGroupTextThroughOutbox } from '@/features/bots/botGroupOutbox';
 import { botGroupErrorKey } from '@/features/bots/botGroupPresentation';
 import { projectProgressView } from './progressProjection';
 
@@ -127,7 +128,8 @@ export function buildProjectProgressSummary(input: ProjectProgressSummaryInput):
       const assignee = t('projectProgressToGroup.summary.assignee', {
         name: item.assignee === null
           ? t('projectProgressToGroup.summary.unassigned')
-          : (input.subjectLabel(item.assignee) || item.assignee.id),
+          : (input.subjectLabel(item.assignee)
+            || t('ccAgent.projectCore.progress.unknownMember')),
       });
       lines.push([
         t('projectProgressToGroup.summary.item', {
@@ -183,7 +185,12 @@ export type ProjectProgressSyncOutcome =
   | { kind: 'sent'; messageId: string }
   /** main 按同一枚 `clientId` 认出了同一条：这一枚已经入库，没有再发第二条。 */
   | { kind: 'alreadySent'; messageId: string }
+  /** 等不到回执，但发送仍在队列或飞行中：结果未知，不是失败。同一枚 sendId/clientId 保留。 */
+  | { kind: 'inFlight' }
   | { kind: 'failed'; reasonKey: string; retryable: boolean };
+
+/** How long the confirm dialog waits for a receipt before calling the send "in flight". */
+const SEND_DEADLINE_MS = 20_000;
 
 /** 内容被拒或没有权限时重试也没用；其余（含结果未知）都可以用同一枚标识重试。 */
 const NON_RETRYABLE = new Set<string>([
@@ -247,6 +254,23 @@ export async function sendProjectProgressSummary(input: {
   const clientId = projectProgressClientId(input.summary.projectId, input.summary.text, input.sendId);
   const key = receiptKey(input.groupId, clientId);
   const known = readReceipts()[key];
+  if (typeof api.botGroupOutboxCommand === 'function') {
+    try {
+      const receipt = await sendBotGroupTextThroughOutbox({ groupId: input.groupId, clientId,
+        text: input.summary.text, mentions: { all: false, botIds: [] } }, { deadlineMs: SEND_DEADLINE_MS });
+      // Waiting out the deadline says nothing about the message: it may already be in the group.
+      if (receipt.inFlight) return { kind: 'inFlight' };
+      if (!receipt.messageId) return { kind: 'failed',
+        reasonKey: receipt.errorKey ?? 'projectProgressToGroup.unknownOutcome', retryable: receipt.retryable };
+      writeReceipt(key, receipt.messageId);
+      // `alreadySent` covers the late receipt: Main had confirmed this send before the deadline,
+      // so this call posted nothing and the group must not be told "not sent".
+      return { kind: known === receipt.messageId || receipt.alreadySent ? 'alreadySent' : 'sent',
+        messageId: receipt.messageId };
+    } catch {
+      return { kind: 'failed', reasonKey: 'projectProgressToGroup.unknownOutcome', retryable: true };
+    }
+  }
   let result: BotGroupSendResult;
   try {
     result = await api.sendBotGroupMessage({

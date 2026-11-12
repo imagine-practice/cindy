@@ -10,6 +10,7 @@ import { getDbClient } from '../localDb/client/current.js';
 import { parseBlobUrl } from '../cindy-media/blobStore.js';
 import * as ledger from '../cindy-media/ledger.js';
 import { atomicWriteFileSync, readAtomicFileSync } from '../utils/atomicWriteFile.js';
+import { chatSendJournalEndpoint, readChatSendReceipt } from './chatSendJournal.js';
 import { throwIpcError } from '../utils/ipcValidate.js';
 import { isIpcError } from '../../shared/ipc-errors.js';
 import type { BotGroupSendInput, BotGroupSendResult } from '../../shared/botGroupChat.js';
@@ -100,6 +101,10 @@ interface StorageDependencies {
   /** Add references before replacement. The returned rollback releases only references just added. */
   retain: (entry: BotGroupOutboxStoredEntry, check: () => void) => Promise<() => Promise<void>>;
   release: (groupId: string, clientId: string) => Promise<void>;
+  /** Confirmed messageId for a send this process no longer has a row for, read from the durable
+   * send journal (survives a restart). `null` means "not settled as far as we can tell" and keeps
+   * the ordinary rebuild-and-send behaviour. Never throws. */
+  settledReceipt?: (groupId: string, clientId: string) => string | null;
   publish?: (event: BotGroupOutboxChanged) => void;
 }
 
@@ -115,6 +120,10 @@ export function createBotGroupOutboxStorage(deps: StorageDependencies) {
     const pending = chain.then(operation);
     chain = pending.catch(() => undefined);
     return pending;
+  };
+  /** A receipt lookup must never fail a queue decision: an unreadable journal means "not settled". */
+  const settledReceiptOf = (groupId: string, clientId: string): string | null => {
+    try { return deps.settledReceipt?.(groupId, clientId) ?? null; } catch { return null; }
   };
   const check = (owner: BotGroupOutboxOwner) => {
     const now = deps.currentOwner();
@@ -399,6 +408,20 @@ export function createBotGroupOutboxStorage(deps: StorageDependencies) {
         if (state.rows.has(key) && (!source || rowKey(source) !== key)) fail('ENTRY_EXISTS');
         if (state.protected.has(key) && !source) fail('RETIRED_ENTRY');
         const queue = queueKey(original);
+        // `protected` is memory only: after a restart a settled row is simply gone. The durable
+        // send journal still holds its receipt, and that is what keeps the identity settled.
+        // Limit of this guarantee: if the server stored the message but this computer never got a
+        // receipt (crash between commit and journal confirm), no receipt exists and the send is
+        // rebuilt — the server's operationId idempotency is then the only guard.
+        const settled = !source && !state.rows.has(key) ? settledReceiptOf(original.input.groupId, original.input.clientId) : null;
+        if (settled) {
+          // Nothing is persisted here: there is no row to rebuild. The renderer still gets the row
+          // shape it understands (`sent` + messageId) so it settles this clientId without resending.
+          const ghost: BotGroupOutboxStoredEntry = { ...original, coordinated: true, entryRevision: 1,
+            status: 'sent', messageId: settled, retryable: false, queueOrdinal: (state.high.get(queue) ?? 0) + 1 };
+          for (const field of ['editHold', 'prepared', 'errorKey', 'receiptTick', 'baseline']) delete ghost[field];
+          return { ...result(state, owner, ghost), entries: [...visible(state), ghost], accepted: true };
+        }
         if (state.blocked.has(queue) || state.migrationFailed.has(queue)) fail('QUEUE_INVALID');
         const ordinal = (state.high.get(queue) ?? 0) + 1;
         if (!Number.isSafeInteger(ordinal)) fail('QUEUE_INVALID');
@@ -478,7 +501,15 @@ export function createBotGroupOutboxStorage(deps: StorageDependencies) {
       const state = await account(owner);
       if (executionInput === undefined || executionInput === null) {
         const id = z.object(identitySchema).safeParse(input);
-        if (enabled.has(sender) || id.success && state.protected.has(keyOf(id.data.groupId, id.data.clientId))) fail('EXECUTION_REQUIRED');
+        if (id.success) {
+          const settledKey = keyOf(id.data.groupId, id.data.clientId);
+          // No row (restart) but the journal has the receipt: this send already landed.
+          if (!state.protected.has(settledKey)) {
+            const receipt = settledReceiptOf(id.data.groupId, id.data.clientId);
+            if (receipt) return { settled: receipt, owner: { ...owner } };
+          }
+          if (enabled.has(sender) || state.protected.has(settledKey)) fail('EXECUTION_REQUIRED');
+        }
         return { legacy: true as const, owner: { ...owner } };
       }
       const execution = parse(executionSchema, executionInput) as BotGroupOutboxExecution;
@@ -508,6 +539,9 @@ export function createBotGroupOutboxStorage(deps: StorageDependencies) {
       state.inFlight.set(key, row.entryRevision!);
       return { legacy: false as const, state, key, revision: row.entryRevision!, savedInput, owner: { ...owner } };
     }).catch(storageFailure);
+    if ('settled' in admitted && typeof admitted.settled === 'string') {
+      check(admitted.owner); return { ok: true as const, messageId: admitted.settled };
+    }
     if (admitted.legacy) { check(admitted.owner); return service(input as BotGroupSendInput); }
     let outcome: BotGroupSendResult;
     try {
@@ -532,7 +566,9 @@ export function createBotGroupOutboxStorage(deps: StorageDependencies) {
       if (request.action === 'list') return visible(state);
       const id = request.action === 'put' ? request.entry.input : request;
       const key = keyOf(id.groupId, id.clientId);
+      // A journal receipt keeps the identity settled across restarts; never resurrect it as a row.
       if (state.protected.has(key)) fail('EXECUTION_REQUIRED');
+      if (request.action === 'put' && settledReceiptOf(id.groupId, id.clientId)) fail('EXECUTION_REQUIRED');
       if (request.action === 'put') {
         // Metadata is Main-owned; old uncoordinated clients cannot mint an execution generation.
         const row = { ...request.entry } as BotGroupOutboxStoredEntry;
@@ -571,6 +607,7 @@ const storage = createBotGroupOutboxStorage({
   ownerRoot: () => ownerScopedUserDataPath('bot-group-outbox'), retain: retainMedia,
   release: async (groupId, clientId) => { await ledger.removeRefs({ refKind: 'bot-group-attachment',
     refId: `outbox:${hash(keyOf(groupId, clientId))}` }, getDbClient().drizzle); },
+  settledReceipt: (groupId, clientId) => readChatSendReceipt(chatSendJournalEndpoint(), groupId, clientId),
   publish: event => publisher?.(event),
 });
 // Session invalidation is announced before commit. Observe after the synchronous commit so a

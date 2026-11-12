@@ -397,7 +397,7 @@ function NewProjectDialogScope({
               </div>
 
               {submitError && (
-                <p className="text-13 text-[var(--danger-text)]" role="alert">
+                <p className="text-13 text-[var(--text-danger)]" role="alert">
                   {submitError}
                 </p>
               )}

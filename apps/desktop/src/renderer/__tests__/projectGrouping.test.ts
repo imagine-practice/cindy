@@ -1316,6 +1316,21 @@ describe('entity projects', () => {
     dirs?: string[],
   ) => ({ id, name, updatedAt, ...(dirs ? { dirs } : {}) });
 
+  // Regression: a project task with a managed dialogue workspace must not be
+  // counted as zero or repeated in dialogues. Tier: unit, production projection.
+  it('prioritizes explicit entity binding over dialogue storage and counts actual members', () => {
+    const bound = s({ id:'bound-dialogue', projectId:'p1', workspaceKind:'dialogue', workingDir:'/managed/task', userSendAt:null, _count:{messages:0}, assigneeKind:'bot', assigneeId:'cindy-default' });
+    const loose = s({ id:'unbound-dialogue', workspaceKind:'dialogue', projectId:null });
+    const groups = groupSessions([bound, loose], { entityProjects:[entity('p1','Project')] });
+    expect(groups.projects.find(p => p.entityProjectId === 'p1')?.sessions).toEqual([bound]);
+    expect(groups.dialogues.map(s => s.id)).toEqual(['unbound-dialogue']);
+    expect(groups.projects.flatMap(p => p.sessions).filter(s => s.id === bound.id)).toHaveLength(1);
+    const canonical = groupSessions([bound], { entityProjects:[entity('p1','Project')], botOwnerBySessionId:new Map([[bound.id,{botId:'cindy-default',displayName:'Cindy',avatar:'',avatarColor:''}]]) });
+    expect(canonical.bots[0].sessions.map(s => s.id)).toEqual([bound.id]);
+    expect(canonical.projects.flatMap(p => p.sessions)).toHaveLength(0);
+    expect(canonical.dialogues).toHaveLength(0);
+  });
+
   it('groups bound tasks under the entity project and leaves legacy tasks on their directory', () => {
     const bound = s({ id: 'bound', workingDir: '/repo/cindy', projectId: 'p1' });
     const legacy = s({ id: 'legacy', workingDir: '/repo/cindy' });

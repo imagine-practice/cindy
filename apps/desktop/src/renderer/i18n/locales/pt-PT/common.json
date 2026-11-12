@@ -14289,6 +14289,10 @@
   },
   "ccAgent": {
     "projectCore": {
+      "recovery": {
+        "title": "Restaurar participação no projeto anterior ao início de sessão",
+        "confirmBody": "Restaurar a participação da conta local anterior ao início de sessão em {{project}} para a conta autenticada atual como membro normal, mantendo o parceiro responsável e {{count}} registos de tarefas. A Cindy criará e verificará uma cópia de segurança antes de atualizar apenas esta identidade de membro. Continuar?"
+      },
       "metadataEdit": {
         "title": "Editar projeto",
         "description": "Alterar o nome e o objetivo do projeto.",
@@ -14361,12 +14365,24 @@
         "ownerRequired": "Selecione um responsável",
         "currentAccount": "Conta atual"
       },
+      "taskCreate": {
+        "name": "Nome da tarefa",
+        "goal": "Objetivo da tarefa",
+        "required": "Introduza o nome e o objetivo da tarefa",
+        "hint": "Voltar à lista do projeto após criar. Não será enviada nenhuma mensagem nem iniciada a execução.",
+        "submit": "Criar tarefa",
+        "discardPending": "Descartar esta criação não confirmada",
+        "discardPendingNote": "Esta criação pode não ter sido concluída. Ao descartá-la, pode preencher o formulário novamente; as tarefas já criadas não são eliminadas.",
+        "discardPendingConfirm": "Descartar"
+      },
       "detail": {
         "goal": "Goal",
         "noGoal": "No goal set",
         "members": "Members",
         "addMember": "Add member",
         "ownerBadge": "Owner",
+        "subjectUnavailable": "Perfil indisponível",
+        "claimOwner": "Assumir a responsabilidade do projeto",
         "transferOwner": "Make owner",
         "removeMember": "Remove",
         "assignee": "Assignee",
@@ -14391,7 +14407,13 @@
         "notFound": "This project no longer exists",
         "back": "Back",
         "projectLabel": "Projeto",
-        "noProject": "Not in a project"
+        "noProject": "Not in a project",
+        "membersLoading": "A carregar membros que pode adicionar…",
+        "membersLoadFailed": "Não foi possível carregar os membros que pode adicionar",
+        "membersRetry": "Tentar novamente",
+        "noAddableMembers": "Não há ninguém para adicionar",
+        "memberRemoved": "{{name}} foi removido",
+        "archiveNotice": "Arquivado: ainda pode organizar membros e definições e registar progresso; criar tarefas e a execução automática estão desativadas."
       },
       "deleteProject": {
         "title": "Eliminar projeto",
@@ -14403,7 +14425,8 @@
         "confirmTypePlaceholder": "Nome do projeto",
         "confirm": "Eliminar",
         "cancel": "Cancelar",
-        "success": "Projeto eliminado"
+        "success": "Projeto eliminado",
+        "archiveWarning": "Este projeto está arquivado. Eliminá-lo remove definitivamente o projeto, as tarefas associadas e o histórico de progresso. Não é possível anular."
       },
       "error": {
         "ownerMustTransfer": "Transfer ownership before removing the current owner.",
@@ -14549,7 +14572,8 @@
         "automationOrigin": "Criado por uma automatização",
         "automationOriginNamed": "Criado por uma automatização · {{name}}",
         "expandActions": "Mostrar ações",
-        "collapseActions": "Ocultar ações"
+        "collapseActions": "Ocultar ações",
+        "unknownMember": "Um membro"
       },
       "progressEdit": {
         "title": "Registar progresso",
@@ -20473,6 +20497,7 @@
     "progressUnavailable": "Não foi possível ler o progresso deste projeto, por isso ainda não há nada para sincronizar.",
     "hostNotReady": "Este computador não consegue enviar mensagens para o grupo neste momento.",
     "unknownOutcome": "O resultado é desconhecido. Tentar novamente é seguro: este envio nunca é publicado duas vezes.",
+    "inFlight": "Este envio pode já ter chegado ao grupo. Confirmar novamente continua este mesmo envio, por isso nunca aparece duas vezes.",
     "summary": {
       "heading": "Progresso do projeto · {{name}}",
       "empty": "Ainda não há progresso registado",
@@ -20487,6 +20512,7 @@
       "itemOmitted": "……e mais {{count}} tarefas não listadas",
       "latest": "Último progresso: {{time}}",
       "latestNone": "Último progresso: sem registo"
-    }
+    },
+    "recheck": "Verificar este envio novamente"
   }
 }

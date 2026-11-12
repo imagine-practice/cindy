@@ -408,3 +408,14 @@ Claude 的插件技能不受 `skillOverrides` 控制，因此每个本地 Query 
 
 升级清理只删除可确认由 Cindy 创建的旧软链接，不删除目标内容、不覆盖用户同名
 技能、不修改 Git ignore。旧版本 Cindy 实例仍可能重建旧链接，这是迁移的已知边界。
+
+
+### 项目任务创建的未确认回执恢复（2026-11-09）
+
+Renderer 在当前 profile 的 Chromium localStorage 使用 `cindy.projects.pendingCreate.v1.<JSON([dataOwnerId,projectId])>.<sessionId>` 保存未确认创建意图。仅含原任务 ID、名称、目标、处理人及项目，不含凭证；必须先保存再请求创建。按账号/项目隔离，每个请求独立记录，其他窗口不能覆盖另一请求；恢复时重建并校验意图，损坏或存储失败时不发起新创建。成功回执与原 ID/项目匹配后清除；发生过未知结果后，后续单次拒绝不证明首次未应用，故不清除原 ID。关闭或重启不自动重试，重新打开表单由用户显式恢复，服务层仍实时检查权限。
+
+### 已接收本地项目的成员身份修复
+
+`projects.previewMembershipRecovery` / `applyMembershipRecovery` 是本机维护 API，不属于普通项目写权限，也不加入 Device Link allowlist。预览只读，必须同时核对已验证 cloud owner、认证代次、当前 DbClient 代次及实际 DB 路径、本地接收回执，以及绑定目标文件身份的 adoption 标记；仅有首账号预留回执不足以授权修复。当前只支持源/目标成员与任务投影未分叉、伙伴仍为唯一负责人、旧账号为 `local-v1/member` 的情况。
+
+应用以 main 保留的同一预览 ID 发起，需原生取消优先确认、当前账号私有目录中的 SQLite online backup、quick_check 及备份投影匹配后，事务内再次比较原状态，仅替换一条成员身份，不改负责人、任务或历史作者。未知回执与同意图在途调用均不能声明未应用；保留原预览查询/重试。账号切换、发送方销毁或主 frame 开始导航（包括同址刷新）使预览失效，重启后不自动恢复或重放写入。备份失败不写，失败备份留在私有目录；不得用备份覆盖正在使用的数据库。此 API 尚无普通页面恢复按钮或 Agent 管理工具，不能称已具备一键恢复入口。

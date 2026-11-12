@@ -14091,6 +14091,10 @@
   },
   "ccAgent": {
     "projectCore": {
+      "recovery": {
+        "title": "恢復登入前專案成員身分",
+        "confirmBody": "將 {{project}} 中登入前本機帳號的成員身分恢復至目前已驗證帳號，保留一般成員權限、夥伴負責人及 {{count}} 筆任務記錄。Cindy 會先建立並驗證備份，再僅更新此專案的成員身分。是否繼續？"
+      },
       "metadataEdit": {
         "title": "編輯專案",
         "description": "修改專案名稱和目標。",
@@ -14163,12 +14167,24 @@
         "ownerRequired": "請選擇負責人",
         "currentAccount": "目前帳號"
       },
+      "taskCreate": {
+        "name": "任務名稱",
+        "goal": "任務目標",
+        "required": "請填寫任務名稱和目標",
+        "hint": "建立後回到專案任務清單；不會傳送訊息或開始執行。",
+        "submit": "建立任務",
+        "discardPending": "放棄這次未確認的建立",
+        "discardPendingNote": "這筆建立請求可能沒有完成。放棄後可以重新填寫並建立新任務；已建立的任務不會被刪除。",
+        "discardPendingConfirm": "確認放棄"
+      },
       "detail": {
         "goal": "目標",
         "noGoal": "未填寫目標",
         "members": "成員",
         "addMember": "新增成員",
         "ownerBadge": "負責人",
+        "subjectUnavailable": "資料暫不可用",
+        "claimOwner": "成為專案負責人",
         "transferOwner": "設為負責人",
         "removeMember": "移除",
         "assignee": "處理人",
@@ -14193,7 +14209,13 @@
         "notFound": "該專案已不存在",
         "back": "返回",
         "projectLabel": "專案",
-        "noProject": "不歸屬專案"
+        "noProject": "不歸屬專案",
+        "membersLoading": "正在載入可新增的成員……",
+        "membersLoadFailed": "無法讀取可新增的成員",
+        "membersRetry": "重試",
+        "noAddableMembers": "沒有可新增的成員",
+        "memberRemoved": "已移除 {{name}}",
+        "archiveNotice": "已封存：成員與設定仍可整理，進度仍可記錄；不能建立新任務，也不會自動執行。"
       },
       "deleteProject": {
         "title": "刪除專案",
@@ -14205,7 +14227,8 @@
         "confirmTypePlaceholder": "專案名稱",
         "confirm": "刪除",
         "cancel": "取消",
-        "success": "專案已刪除"
+        "success": "專案已刪除",
+        "archiveWarning": "這個專案已封存。刪除會永久移除專案、任務關聯與進度記錄，無法復原。"
       },
       "error": {
         "ownerMustTransfer": "請先轉交負責人，再移除目前的負責人。",
@@ -14351,7 +14374,8 @@
         "automationOrigin": "由自動化建立",
         "automationOriginNamed": "由自動化建立 · {{name}}",
         "expandActions": "展開操作",
-        "collapseActions": "收合"
+        "collapseActions": "收合",
+        "unknownMember": "某位成員"
       },
       "progressEdit": {
         "title": "記錄工作進度",
@@ -20214,6 +20238,7 @@
     "progressUnavailable": "讀不到這個專案的進度，暫時沒有可同步的內容。",
     "hostNotReady": "這台電腦目前無法傳送群組訊息。",
     "unknownOutcome": "傳送結果未知。重試是安全的：這一次傳送不會在群組出現兩次。",
+    "inFlight": "這次傳送可能已經到達群組。再次確認會沿用這一次傳送，不會出現第二則。",
     "summary": {
       "heading": "專案進度 · {{name}}",
       "empty": "暫無進度記錄",
@@ -20228,6 +20253,7 @@
       "itemOmitted": "……另有 {{count}} 個工作項未列出",
       "latest": "最近進度：{{time}}",
       "latestNone": "最近進度：暫無記錄"
-    }
+    },
+    "recheck": "重新核對這次傳送"
   }
 }

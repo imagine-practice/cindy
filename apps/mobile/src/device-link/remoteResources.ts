@@ -24,6 +24,7 @@ import {
   type RemoteResourceBlock,
 } from '@cindy/device-link';
 import { BOT_GROUP_CHAT_PRIMITIVE, type BotGroupMemberView } from '@cindy/maker-shared/botGroupChat';
+import { PROJECT_COLLECTION_ID, PROJECT_PRIMITIVES } from '@/projects/projectModel';
 
 import { normalizeRemoteActions, normalizeRemoteBlocks } from './remoteResourceContent';
 import type { RemoteInvoke } from './mobileMakerTransport';
@@ -41,6 +42,8 @@ export const MOBILE_REMOTE_RESOURCE_PRIMITIVES = [
  */
 const RICH_REMOTE_RESOURCE_PRIMITIVES: readonly string[] = [
   'form',
+  // 手机端项目页(契约 2026-11-11 §3):五个 block 的 data 只给专门请求它们的项目详情页。
+  ...PROJECT_PRIMITIVES,
   'routine-list',
   'routine-detail',
   BOT_GROUP_CHAT_PRIMITIVE,
@@ -197,7 +200,11 @@ function normalizeRemoteDisplay(value: unknown): RemoteResourceDisplay | null {
     ...(Array.isArray(record.badges) ? { badges: record.badges.slice(0, 8).flatMap(value => {
       const badge = recordOf(value);
       const accessibilityLabel = normalizeRemoteText(badge?.accessibilityLabel, 512);
-      return accessibilityLabel ? [{ accessibilityLabel, tone: boundedString(badge?.tone, 64) ?? 'neutral' }] : [];
+      // 项目列表的数量徽标(成员/任务)按契约给的是可见文案;没有可见文案的徽标仍只留无障碍文案。
+      const label = normalizeRemoteText(badge?.label, 512);
+      return accessibilityLabel
+        ? [{ accessibilityLabel, ...(label ? { label } : {}), tone: boundedString(badge?.tone, 64) ?? 'neutral' }]
+        : [];
     }) } : {}),
   };
 }
@@ -313,7 +320,9 @@ export async function discoverRemoteHomeCollections(
     const byId = new Map<string, RemoteHomeCollection>();
     for (const { target, manifest } of discovered) {
       for (const collection of manifest?.collections ?? []) {
-        if (collection.placement !== 'home-scope' || !isMobileRemoteCollectionSupported(collection.id)) continue;
+        // 项目(契约 v1)有自己的页面,且契约未定义 placement;入口只以 manifest 是否含该集合为准。
+        const isHomeEntry = collection.placement === 'home-scope' || collection.id === PROJECT_COLLECTION_ID;
+        if (!isHomeEntry || !isMobileRemoteCollectionSupported(collection.id)) continue;
         const existing = byId.get(collection.id);
         if (existing && existing.resourceKind === collection.resourceKind) {
           existing.targets.push(target);
@@ -324,7 +333,8 @@ export async function discoverRemoteHomeCollections(
           id: collection.id,
           title: resolveRemoteText(collection.title, locale),
           resourceKind: collection.resourceKind,
-          placement: collection.placement,
+          // 项目没有 placement 时也记作 home-scope,与缓存反序列化的口径保持一致。
+          placement: collection.placement ?? 'home-scope',
           iconName: collection.icon?.name,
           targets: [target],
         });

@@ -1,0 +1,94 @@
+{
+  "title": "项目",
+  "list": {
+    "hostCount": "{{count}} 台电脑",
+    "emptyTitle": "暂无项目",
+    "emptyCopy": "在电脑上新建项目，把目标、成员和任务放在一起。",
+    "loadFailed": "项目加载失败",
+    "stale": "列表未更新，当前显示的是上次内容。",
+    "retry": "重试",
+    "noHosts": "还没有可用的电脑"
+  },
+  "goal": {
+    "none": "未填写目标"
+  },
+  "status": {
+    "active": "进行中",
+    "archived": "已归档",
+    "unknown": "状态未知"
+  },
+  "updated": {
+    "unknown": "时间未知"
+  },
+  "summary": {
+    "goal": "目标",
+    "owner": "负责人",
+    "updated": "更新于"
+  },
+  "progress": {
+    "title": "进度",
+    "history": "最近进度",
+    "historyEmpty": "暂无进度历史",
+    "actorUnknown": "未知操作者",
+    "stage": {
+      "todo": "未开始",
+      "doing": "进行中",
+      "blocked": "受阻",
+      "review": "待确认",
+      "done": "确认完成"
+    }
+  },
+  "workItems": {
+    "title": "任务",
+    "empty": "这个项目里还没有任务",
+    "unassigned": "未分配"
+  },
+  "members": {
+    "title": "成员",
+    "owner": "负责人",
+    "member": "成员",
+    "unknown": "某位成员"
+  },
+  "group": {
+    "title": "关联群",
+    "statusNone": "状态未知"
+  },
+  "form": {
+    "progressTitle": "记录进度",
+    "assigneeTitle": "设置处理人",
+    "task": "任务",
+    "stage": "阶段",
+    "reason": "阻塞原因",
+    "unblockCondition": "解除条件",
+    "resolution": "解除说明",
+    "completionNote": "完成确认说明",
+    "assignee": "处理人",
+    "unassigned": "未分配",
+    "doneOwnerOnly": "只有负责人能确认完成。",
+    "required": "请填写必填项。",
+    "submit": "提交",
+    "saving": "正在提交…",
+    "cancel": "取消",
+    "offline": "电脑已断开连接，恢复后才能提交。",
+    "noTasks": "这个项目里还没有可提交的任务。"
+  },
+  "confirm": {
+    "archiveTitle": "归档项目？",
+    "archiveBody": "归档后不能新建任务，也不会再自动运行；成员与进度仍可查看。",
+    "unarchiveTitle": "恢复项目？",
+    "unarchiveBody": "恢复后可以继续新建任务和自动运行。",
+    "confirm": "确认",
+    "cancel": "取消"
+  },
+  "errors": {
+    "NOT_PROJECT_OWNER": "只有项目负责人能确认完成或归档项目。",
+    "NOT_PROJECT_MEMBER": "你不是这个项目的成员。",
+    "PRECONDITION_FAILED": "项目状态已变化，请刷新后重试。",
+    "REVISION_CONFLICT": "进度已被更新，请刷新后重试。",
+    "ILLEGAL_TRANSITION": "不能从这个阶段直接切换到所选阶段。",
+    "INVALID_PARAMS": "提交的内容不符合要求，请检查后重试。",
+    "NOT_FOUND": "这个项目或任务已不存在。",
+    "UNAVAILABLE": "电脑暂时无法完成这次操作。",
+    "failed": "操作没有完成，请重试。"
+  }
+}

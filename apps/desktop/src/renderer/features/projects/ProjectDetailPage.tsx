@@ -24,7 +24,8 @@ import { useConfirmDialog } from '@/components/ui/confirm-dialog-provider';
 import { WINDOW_DRAG_STYLE, WINDOW_NO_DRAG_STYLE } from '@/components/layout/windowDrag';
 import { useOptionalAuth } from '@/contexts/AuthContext';
 import { isDataOwnerGenerationCurrent, getDataOwnerGeneration } from '@/contexts/dataOwnerGeneration';
-import { useBotProfiles } from '@/features/bots/botStore';
+import { refreshBotProfiles, useBotProfiles, useBotProfilesStatus } from '@/features/bots/botStore';
+import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import { toast } from '@/lib/toast';
 import {
@@ -48,11 +49,14 @@ import {
   transferProjectOwner,
 } from './projectService';
 import { projectIdentityKey } from '../../../shared/projectKeys';
+import { NewProjectTaskDialog } from './NewProjectTaskDialog';
 import { EditProjectDialog } from './EditProjectDialog';
 import { ProjectLinkedGroupsSection } from './ProjectLinkedGroupsSection';
 import { projectErrorKey } from './projectErrors';
 import { projectSubjectVisual, useProjectSubjectLabel } from './projectLabels';
 import { ProjectSubjectAvatar } from './ProjectSubjectAvatar';
+import type { ProjectProgressState } from './progress/ProjectProgressView';
+import { projectProgressView } from './progress/progressProjection';
 
 // 非空哨兵：Radix Select 把空字符串当成「没有值」，会回退显示字段名（"处理人"）。
 const UNASSIGNED = '__unassigned__';
@@ -72,10 +76,23 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
   const confirmDialog = useConfirmDialog();
   const dataOwnerId = useOptionalAuth()?.dataOwnerId ?? null;
   const bots = useBotProfiles();
+  // An empty bot list means one of three things: still loading, failed to read, or truly no
+  // teammates. The member picker must not render the last two as the same silent nothing.
+  const botStatus = useBotProfilesStatus();
   const subjectLabel = useProjectSubjectLabel();
   const [detail, setDetail] = useState<ProjectDetail | null>(null);
   const [loadError, setLoadError] = useState<'notFound' | 'failed' | 'forbidden' | null>(null);
+  const [creatingTask, setCreatingTask] = useState(false);
+  const [createdTaskId, setCreatedTaskId] = useState<string | null>(null);
   const [progressRefresh, setProgressRefresh] = useState(0);
+  const [taskProgress, setTaskProgress] = useState<ProjectProgressState>({ status: 'loading' });
+  const taskStatuses = useMemo(() => {
+    if (taskProgress.status !== 'ready' || taskProgress.projectId !== projectId) return null;
+    try {
+      return new Map(projectProgressView(projectId, taskProgress.items, taskProgress.history)
+        .items.map(item => [item.sessionId, item.status]));
+    } catch { return null; }
+  }, [projectId, taskProgress]);
   const [metadataEditingScope, setMetadataEditingScope] = useState<string | null>(null);
   const metadataScope = useRef({ boundary: '', epoch: 0, token: '' });
   const accessLost = useCallback(() => { request.current += 1; setDetail(null); setLoadError('forbidden'); }, []);
@@ -118,6 +135,12 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
 
   const project = detail?.project ?? null;
   const members = project?.members ?? [];
+  useEffect(() => {
+    if (!createdTaskId || !detail?.workItems.some(item => item.sessionId === createdTaskId)) return;
+    const button = document.getElementById(`project-task-${createdTaskId}`);
+    button?.scrollIntoView({ block: 'center' }); button?.focus();
+    if (button) setCreatedTaskId(null);
+  }, [createdTaskId, detail]);
 
   /** 可选主体：当前账号 + 全部未删除伙伴。 */
   const candidates = useMemo(() => {
@@ -177,12 +200,14 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
   }, [metadataToken]);
   const metadataIsCurrent = () => isCurrentScope() && metadataScope.current.token === metadataToken;
 
-  const run = async (key: string, action: () => Promise<void>): Promise<void> => {
+  const run = async (key: string, action: () => Promise<void>, onApplied?: () => void): Promise<void> => {
     if (!isCurrentScope() || busy.current) return;
     busy.current = true;
     setBusyKey(key);
     try {
       await action();
+      // The receipt belongs to a write that actually settled, and to the same scope.
+      if (isCurrentScope()) onApplied?.();
     } catch (error: unknown) {
       if (isCurrentScope()) toast.error(t(projectErrorKey(error)));
     } finally {
@@ -197,7 +222,7 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
    * 删除项目：二次确认（逐字输入项目名）通过后才发请求，取消不发请求。
    * 删除后回到项目列表并提示结果；删除本身是真删除，没有撤销。
    */
-  const deleteCurrentProject = async (target: { id: string; name: string }): Promise<void> => {
+  const deleteCurrentProject = async (target: { id: string; name: string; archived: boolean }): Promise<void> => {
     if (!isCurrentScope() || busy.current) return;
     const confirmed = await confirmDialog.confirm({
       title: t('ccAgent.projectCore.deleteProject.confirmTitle', { name: target.name }),
@@ -205,6 +230,13 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
       confirmText: t('ccAgent.projectCore.deleteProject.confirm'),
       cancelText: t('ccAgent.projectCore.deleteProject.cancel'),
       confirmVariant: 'destructive',
+      // Permanence is stated more loudly for an archived project: it is no longer running, so the
+      // only thing left to lose is the record itself.
+      ...(target.archived ? {
+        content: <p role="alert" className="text-12 leading-[1.42] text-[var(--text-danger)]">
+          {t('ccAgent.projectCore.deleteProject.archiveWarning')}
+        </p>,
+      } : {}),
       requireTypedConfirmation: {
         expected: target.name,
         label: t('ccAgent.projectCore.deleteProject.confirmTypeLabel'),
@@ -232,6 +264,7 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
             {t(loadError === 'forbidden' ? 'ccAgent.projectCore.progress.forbidden' : loadError === 'notFound' ? 'ccAgent.projectCore.detail.notFound' : 'ccAgent.projectCore.detail.loadFailed')}
           </h1>
         </header>
+
       </div>
     );
   }
@@ -295,25 +328,31 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
           >
             {t(archived ? 'ccAgent.projectCore.detail.restore' : 'ccAgent.projectCore.detail.archive')}
           </Button>
+          <div className="flex min-w-0 items-center gap-2 text-13 text-[var(--text-primary)]"
+            aria-label={t('ccAgent.projectCore.detail.ownerBadge')}>
+            <span className="text-12 text-[var(--text-secondary)]">{t('ccAgent.projectCore.detail.ownerBadge')}</span>
+            <ProjectSubjectAvatar subject={projectSubjectVisual(ownerMember?.subject ?? null,
+              ownerMember ? subjectLabel(ownerMember.subject) : t('ccAgent.projectCore.detail.subjectUnavailable'))} />
+            <span className="max-w-40 truncate">{ownerMember
+              ? subjectLabel(ownerMember.subject) : t('ccAgent.projectCore.detail.subjectUnavailable')}</span>
+          </div>
           <Button
             variant="primary"
             size="md"
             disabled={archived}
-            onClick={() =>
-              navigate('/cc-agent/new', {
-                state: {
-                  projectId: project.id,
-                  projectName: project.name,
-                  // 项目认领了目录就用它当默认工作目录；没有目录由新建页回落到托管目录。
-                  projectWorkingDir: project.dirs[0]?.dirPath ?? null,
-                },
-              })
-            }
+            onClick={() => setCreatingTask(true)}
           >
             {t('ccAgent.projectCore.detail.newTask')}
           </Button>
         </div>
       </header>
+      {archived && <p role="status" className="mx-6 mt-4 rounded-lg bg-[var(--surface-chip)] px-3 py-2 text-12 leading-[1.42] text-[var(--text-secondary)]">
+        {t('ccAgent.projectCore.detail.archiveNotice')}
+      </p>}
+      {creatingTask && !archived && <NewProjectTaskDialog projectId={project.id} members={members}
+        labelOf={subjectLabel} onClose={() => setCreatingTask(false)} onCreated={id => {
+          setCreatingTask(false); setCreatedTaskId(id); void load(); setProgressRefresh(value => value + 1);
+        }} />}
 
       {metadataEditingScope === metadataToken && canEditMetadata && <EditProjectDialog open
         projectId={project.id} name={project.name} goal={project.goal} scopeToken={metadataToken}
@@ -350,10 +389,11 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
             </p>
           </section>
 
-          <ProjectProgressSection projectId={project.id} refreshKey={progressRefresh} onAccessLost={accessLost}
+          <ProjectProgressSection projectId={project.id} members={members} refreshKey={progressRefresh} onAccessLost={accessLost}
+            onStateChange={setTaskProgress}
             onOpenWorkItem={id => navigate(`/cc-agent/${id}`)} />
 
-          <ProjectProgressToGroupSection projectId={project.id} projectName={project.name} refreshKey={progressRefresh} />
+          <ProjectProgressToGroupSection projectId={project.id} projectName={project.name} refreshKey={progressRefresh} members={members} />
 
           <section className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-2">
@@ -447,11 +487,33 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
           </section>
 
           <section className="flex flex-col gap-3">
-            <div className="flex items-center justify-between gap-2">
+            {/* The ready state is a 200px picker; at 400px the heading plus a status line must wrap. */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-14 font-medium text-[var(--settings-section-title)]">
                 {t('ccAgent.projectCore.detail.members')}
               </h2>
-              {addableCandidates.length > 0 && (
+              {botStatus === 'loading' && (
+                <span role="status" className="flex min-w-0 items-center gap-2 text-12 leading-[1.42] text-[var(--text-secondary)]">
+                  <Spinner size={13} />
+                  {t('ccAgent.projectCore.detail.membersLoading')}
+                </span>
+              )}
+              {botStatus === 'failed' && (
+                <div className="flex min-w-0 items-center gap-2">
+                  <span role="alert" className="text-12 leading-[1.42] text-[var(--text-secondary)]">
+                    {t('ccAgent.projectCore.detail.membersLoadFailed')}
+                  </span>
+                  <Button variant="secondary" size="sm" tone="quiet" compact onClick={() => refreshBotProfiles()}>
+                    {t('ccAgent.projectCore.detail.membersRetry')}
+                  </Button>
+                </div>
+              )}
+              {botStatus === 'ready' && addableCandidates.length === 0 && (
+                <span role="status" className="text-12 leading-[1.42] text-[var(--text-secondary)]">
+                  {t('ccAgent.projectCore.detail.noAddableMembers')}
+                </span>
+              )}
+              {botStatus === 'ready' && addableCandidates.length > 0 && (
                 <Select
                   label={t('ccAgent.projectCore.detail.addMember')}
                   value=""
@@ -485,7 +547,7 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
                       removeProjectMember(project.id, {
                         kind: member.subject.kind,
                         id: member.subject.id,
-                      }),
+                      }), () => toast.success(t('ccAgent.projectCore.detail.memberRemoved', { name: subjectLabel(member.subject) })),
                     )
                   }
                   onTransfer={() =>
@@ -500,7 +562,7 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
               ))}
               {ownerMember === null && (
                 // 理论上不可达（负责人恒为成员）；宁可显示异常也不假装有负责人。
-                <li className="text-13 text-[var(--danger-text)]">
+                <li className="text-13 text-[var(--text-danger)]">
                   {t('ccAgent.projectCore.error.ownerMustTransfer')}
                 </li>
               )}
@@ -520,16 +582,7 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
                   <Button
                     variant="primary"
                     size="sm"
-                    onClick={() =>
-                      navigate('/cc-agent/new', {
-                        state: {
-                  projectId: project.id,
-                  projectName: project.name,
-                  // 项目认领了目录就用它当默认工作目录；没有目录由新建页回落到托管目录。
-                  projectWorkingDir: project.dirs[0]?.dirPath ?? null,
-                },
-                      })
-                    }
+                    onClick={() => setCreatingTask(true)}
                   >
                     {t('ccAgent.projectCore.detail.createFirstTask')}
                   </Button>
@@ -541,6 +594,9 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
                   <WorkItemRow
                     key={item.sessionId}
                     item={item}
+                    progressLabel={t(`ccAgent.projectCore.progress.${taskProgress.status === 'loading' ? 'loading'
+                      : taskProgress.status !== 'ready' ? taskProgress.status
+                        : taskStatuses === null ? 'dataError' : taskStatuses.get(item.sessionId) ?? 'unknown'}`)}
                     members={members}
                     labelOf={subjectLabel}
                     busy={busyKey !== null}
@@ -587,7 +643,7 @@ function ProjectDetailScope({ projectId }: { projectId: string }): React.ReactEl
                   size="md"
                   tone="danger"
                   disabled={busyKey !== null}
-                  onClick={() => void deleteCurrentProject({ id: project.id, name: project.name })}
+                  onClick={() => void deleteCurrentProject({ id: project.id, name: project.name, archived })}
                 >
                   <Trash2 size={14} strokeWidth={1.75} className="mr-1.5" aria-hidden />
                   {t('ccAgent.projectCore.deleteProject.action')}
@@ -680,6 +736,7 @@ function MemberRow({
 
 function WorkItemRow({
   item,
+  progressLabel,
   members,
   labelOf,
   busy,
@@ -688,6 +745,7 @@ function WorkItemRow({
   onAssign,
 }: {
   item: ProjectWorkItem;
+  progressLabel: string;
   members: readonly ProjectMember[];
   /** 主体展示名：账号昵称只在 renderer 登录态里，main 侧为 null。 */
   labelOf: (subject: ProjectSubject | null) => string;
@@ -709,20 +767,23 @@ function WorkItemRow({
     }),
   ];
   return (
-    <li className="flex min-h-10 items-center gap-3 border-b border-[var(--cmd-palette-border)] py-2 last:border-b-0">
+    <li className="flex min-h-10 flex-wrap items-center gap-3 sm:flex-nowrap border-b border-[var(--cmd-palette-border)] py-2 last:border-b-0">
       <button
         type="button"
+        id={`project-task-${item.sessionId}`}
         onClick={onOpen}
-        className="min-w-0 flex-1 truncate text-left text-13 text-[var(--text-primary)] hover:underline"
+        className="min-w-0 w-full flex-none truncate text-left sm:w-auto sm:flex-1 text-13 text-[var(--text-primary)] hover:underline"
         title={item.title}
       >
         {item.title}
+        {item.taskObjective && <span className="mt-1 block truncate text-12 text-[var(--text-secondary)]" title={item.taskObjective}>{item.taskObjective}</span>}
       </button>
       <span className="shrink-0 text-11 text-[var(--settings-section-desc)]">
-        {item.status === 'archived'
-          ? t('ccAgent.projectCore.detail.archived')
-          : t('ccAgent.projectCore.detail.statusActive')}
+        {progressLabel}
       </span>
+      {item.status === 'archived' && <span className="text-11 text-[var(--text-secondary)]">
+        {t('ccAgent.projectCore.detail.archived')}
+      </span>}
       <Button variant="secondary" size="xs" tone="quiet" compact onClick={onOpenMaterials}>
         {t('ccAgent.materials.entry')}
       </Button>

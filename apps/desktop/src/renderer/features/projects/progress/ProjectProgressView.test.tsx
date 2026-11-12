@@ -10,6 +10,9 @@ import { createInstance } from 'i18next';
 import { I18nextProvider } from 'react-i18next';
 import en from '@/i18n/locales/en/common.json';
 import { ProjectProgressView, type ProjectProgressState } from './ProjectProgressView';
+import type { ProjectMember } from '../../../../shared/projects';
+
+type ProjectProgressViewMembers = readonly ProjectMember[];
 import { followupNoticeKey } from './ProjectProgressSection';
 import {
   projectProgressView,
@@ -58,13 +61,14 @@ const ready = (items: ProjectProgressItem[], projectId = 'p'): ProjectProgressSt
   items,
   history: [],
 });
-const mount = (state: ProjectProgressState, projectId = 'p') => {
+const mount = (state: ProjectProgressState, projectId = 'p', members: ProjectProgressViewMembers = []) => {
   const onOpen = vi.fn(),
     onRefresh = vi.fn();
   const element = (next: ProjectProgressState, id = projectId) => (
     <I18nextProvider i18n={i18n}>
       <ProjectProgressView
         projectId={id}
+        members={members}
         state={next}
         onOpenWorkItem={onOpen}
         onRefresh={onRefresh}
@@ -109,7 +113,7 @@ const executionEntry = (patch: Partial<WorkItemExecutionEntry> = {}): WorkItemEx
 
 describe('project progress projection and component', () => {
   it.each([null, '', 'Same person'])(
-    'keeps stable kind/id identity for missing or shared name %j',
+    'shows a readable actor and never the raw kind:id for missing or shared name %j',
     (displayName) => {
       const actors: ProjectProgressHistoryEntry['actor'][] = [
         { kind: 'account', id: 'account-a', displayName },
@@ -133,11 +137,40 @@ describe('project progress projection and component', () => {
         completionNote: null,
       }));
       mount({ status: 'ready', projectId: 'p', items: [item()], history });
-      for (const actor of actors)
-        expect(screen.getByText(`${actor.kind}:${actor.id}`)).toBeTruthy();
+      // D-2: the history must never print the internal subject id (or its `kind:` prefix).
+      for (const actor of actors) {
+        expect(screen.queryByText(actor.id)).toBeNull();
+        expect(screen.queryByText(`${actor.kind}:${actor.id}`)).toBeNull();
+      }
+      expect(screen.queryByText(/account:|bot:/)).toBeNull();
       expect(screen.getAllByText(displayName || 'Unknown actor')).toHaveLength(5);
     },
   );
+  it('resolves account actors to readable names: different accounts differ, one person stays consistent', () => {
+    // D-2: Main sends kind/id only. Dropping the raw id without resolving the name left every
+    // account actor as "Unknown actor", so two different people looked identical.
+    const members: ProjectMember[] = [
+      { subject: { kind: 'account', id: 'account-a', displayName: 'Ana', avatar: null, avatarColor: null }, role: 'member', addedAt: '' },
+      { subject: { kind: 'account', id: 'account-b', displayName: 'Ben', avatar: null, avatarColor: null }, role: 'member', addedAt: '' },
+    ];
+    const actors: Array<ProjectProgressHistoryEntry['actor']> = [
+      { kind: 'account', id: 'account-a', displayName: null },
+      { kind: 'account', id: 'account-b', displayName: null },
+      { kind: 'account', id: 'account-a', displayName: null },
+    ];
+    const history: ProjectProgressHistoryEntry[] = actors.map((actor, index) => ({
+      eventId: index + 1, projectId: 'p', sessionId: 's', bindingRevision: 2, from: 'todo', to: 'doing',
+      actor, createdAt: 2000 + index,
+      reason: null, unblockCondition: null, resolution: null, completionNote: null,
+    }));
+    mount({ status: 'ready', projectId: 'p', items: [item()], history }, 'p', members);
+    expect(screen.getAllByText('Ana')).toHaveLength(2);
+    expect(screen.getAllByText('Ben')).toHaveLength(1);
+    expect(screen.queryByText(/account:|bot:/)).toBeNull();
+    expect(screen.queryByText(/account-a|account-b/)).toBeNull();
+    expect(screen.queryByText('Unknown actor')).toBeNull();
+  });
+
   it.each([
     record({ bindingRevision: 0 }),
     record({ projectId: 'other' }),

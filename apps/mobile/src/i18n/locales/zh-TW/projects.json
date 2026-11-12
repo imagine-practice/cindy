@@ -1,0 +1,94 @@
+{
+  "title": "專案",
+  "list": {
+    "hostCount": "{{count}} 台電腦",
+    "emptyTitle": "暫無專案",
+    "emptyCopy": "在電腦上新增專案，將目標、成員和任務放在一起。",
+    "loadFailed": "專案載入失敗",
+    "stale": "清單未更新，目前顯示的是上次內容。",
+    "retry": "重試",
+    "noHosts": "尚無可用的電腦"
+  },
+  "goal": {
+    "none": "未填寫目標"
+  },
+  "status": {
+    "active": "進行中",
+    "archived": "已封存",
+    "unknown": "狀態未知"
+  },
+  "updated": {
+    "unknown": "時間未知"
+  },
+  "summary": {
+    "goal": "目標",
+    "owner": "負責人",
+    "updated": "更新於"
+  },
+  "progress": {
+    "title": "進度",
+    "history": "最近進度",
+    "historyEmpty": "暫無進度歷史",
+    "actorUnknown": "未知操作者",
+    "stage": {
+      "todo": "未開始",
+      "doing": "進行中",
+      "blocked": "受阻",
+      "review": "待確認",
+      "done": "確認完成"
+    }
+  },
+  "workItems": {
+    "title": "任務",
+    "empty": "這個專案裡還沒有任務",
+    "unassigned": "未指派"
+  },
+  "members": {
+    "title": "成員",
+    "owner": "負責人",
+    "member": "成員",
+    "unknown": "某位成員"
+  },
+  "group": {
+    "title": "關聯群組",
+    "statusNone": "狀態未知"
+  },
+  "form": {
+    "progressTitle": "記錄進度",
+    "assigneeTitle": "設定處理人",
+    "task": "任務",
+    "stage": "階段",
+    "reason": "阻塞原因",
+    "unblockCondition": "解除條件",
+    "resolution": "解除說明",
+    "completionNote": "完成確認說明",
+    "assignee": "處理人",
+    "unassigned": "未指派",
+    "doneOwnerOnly": "只有負責人能確認完成。",
+    "required": "請填寫必填項。",
+    "submit": "提交",
+    "saving": "正在提交…",
+    "cancel": "取消",
+    "offline": "電腦已中斷連線，恢復後才能提交。",
+    "noTasks": "這個專案裡還沒有可提交的任務。"
+  },
+  "confirm": {
+    "archiveTitle": "封存專案？",
+    "archiveBody": "封存後不能新增任務，也不會再自動執行；成員與進度仍可查看。",
+    "unarchiveTitle": "還原專案？",
+    "unarchiveBody": "還原後可以繼續新增任務和自動執行。",
+    "confirm": "確認",
+    "cancel": "取消"
+  },
+  "errors": {
+    "NOT_PROJECT_OWNER": "只有專案負責人能確認完成或封存專案。",
+    "NOT_PROJECT_MEMBER": "你不是這個專案的成員。",
+    "PRECONDITION_FAILED": "專案狀態已變更，請重新整理後重試。",
+    "REVISION_CONFLICT": "進度已被更新，請重新整理後重試。",
+    "ILLEGAL_TRANSITION": "不能從這個階段直接切換到所選階段。",
+    "INVALID_PARAMS": "提交的內容不符合要求，請檢查後重試。",
+    "NOT_FOUND": "這個專案或任務已不存在。",
+    "UNAVAILABLE": "電腦暫時無法完成這次操作。",
+    "failed": "操作沒有完成，請重試。"
+  }
+}

@@ -28,6 +28,7 @@ import settings from './settings.json';
 import shared from './shared.json';
 import startup from './startup.json';
 import update from './update.json';
+import projects from './projects.json';
 
 export default {
   mcpApps,
@@ -53,4 +54,5 @@ export default {
   shared,
   startup,
   update,
+  projects,
 } as const;

@@ -28,8 +28,10 @@ import {
   discardBotGroupOutbox,
   editBotGroupSend,
   enqueueBotGroupSend,
+  sendBotGroupTextThroughOutbox,
   getBotGroupOutbox,
   getBotGroupOutboxClaims,
+  getBotGroupOutboxReceipt,
   noteBotGroupTimeline,
   registerBotGroupComposer,
   resetBotGroupOutboxForTests,
@@ -215,7 +217,8 @@ describe('botGroupOutbox', () => {
 
     // A push re-read lands before main answers: the copy after the baseline stands in for it,
     // while the earlier message with the same text does not.
-    const real = msg({ id: 'm9', sequence: 4, content: '你好' });
+    // The copy appeared after this send was queued, which is what the display guard requires.
+    const real = msg({ id: 'm9', sequence: 4, content: '你好', createdAt: Date.now() });
     const reread = [msg({ id: 'old', sequence: 3, content: '你好' }), real];
     noteBotGroupTimeline('g1', reread, beginBotGroupTimelineRead());
     expect(visible('g1', [msg({ id: 'old', sequence: 3, content: '你好' })])).toEqual(['c1:sending']);
@@ -229,6 +232,23 @@ describe('botGroupOutbox', () => {
     noteBotGroupTimeline('g1', reread, read);
     noteBotGroupTimeline('g1', reread, read);
     expect(getBotGroupOutbox('g1')).toEqual([]);
+  });
+
+  it('answers a receipt lookup from the sent entry and from the receipt ledger, and never sends', async () => {
+    mocks.send.mockResolvedValueOnce({ ok: true, messageId: 'm1' });
+    enqueueBotGroupSend(draft({ clientId: 'c1' }));
+    await flush();
+    expect(getBotGroupOutbox('g1').map((entry) => entry.status)).toEqual(['sent']);
+    expect(getBotGroupOutboxReceipt('g1', 'c1')).toBe('m1');
+    // A lookup sends, enqueues and retries nothing.
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+    // Main erases the settled row on the next read; this window still knows the receipt.
+    noteBotGroupTimeline('g1', [msg({ id: 'm1', sequence: 1 })], beginBotGroupTimelineRead());
+    expect(getBotGroupOutbox('g1')).toEqual([]);
+    expect(getBotGroupOutboxReceipt('g1', 'c1')).toBe('m1');
+    expect(getBotGroupOutboxReceipt('g1', 'c-unknown')).toBeUndefined();
+    expect(getBotGroupOutboxReceipt('g2', 'c1')).toBeUndefined();
+    expect(mocks.send).toHaveBeenCalledTimes(1);
   });
 
   it('never lets a re-read hide a message that is not the one in flight', async () => {
@@ -504,7 +524,7 @@ describe('botGroupOutbox', () => {
       enqueueBotGroupSend(draft({ text: '后发的', clientId: 'b' }));
       await flush();
       // Both were sent on the same timeline; the copy of the first lands before its receipt.
-      const projected = project('g1', [msg({ id: 'm1', sequence: 1, content: '先发的' })]);
+      const projected = project('g1', [msg({ id: 'm1', sequence: 1, content: '先发的', createdAt: Date.now() })]);
       expect(projected.pending.map((entry) => [entry.input.clientId, entry.after])).toEqual([['b', 1]]);
     });
 
@@ -516,10 +536,30 @@ describe('botGroupOutbox', () => {
         url: 'cindy-media://blobs/l1.png', type: 'image' } as unknown as AttachedFile;
       enqueueBotGroupSend(draft({ text: '看图' }, { files: [file] }));
       await flush();
-      const copy = msg({ id: 'm1', sequence: 1, content: '看图', attachments: [placeholder('s1', 'a.png')] });
+      const copy = msg({ id: 'm1', sequence: 1, content: '看图', attachments: [placeholder('s1', 'a.png')], createdAt: Date.now() });
       const projected = project('g1', [copy]);
       expect(projected.pending).toEqual([]);
       expect(projected.localAttachments.get('m1')).toEqual(getBotGroupOutbox('g1')[0]!.attachments);
+    });
+
+    // Display-only matching must not borrow a message that is not this send: another member can
+    // post the same words, and a restart zeroes `baseline`, so an older message of one's own would
+    // otherwise be adopted and hide the real pending row behind it.
+    it('never borrows a same-text message from someone else or from before this send', async () => {
+      const pending = deferred();
+      mocks.send.mockReturnValueOnce(pending.promise);
+      noteBotGroupTimeline('g1', [], beginBotGroupTimelineRead());
+      enqueueBotGroupSend(draft({ text: '同文本', clientId: 'mine' }));
+      await flush();
+      const mine = getBotGroupOutbox('g1')[0]!;
+      expect(project('g1', [msg({ id: 'other', sequence: 1, content: '同文本', isSelf: false, createdAt: Date.now() })]).pending
+        .map(entry => entry.input.clientId)).toEqual(['mine']);
+      expect(project('g1', [msg({ id: 'echo', sequence: 1, content: '同文本', isSelf: undefined, createdAt: Date.now() })]).pending
+        .map(entry => entry.input.clientId)).toEqual(['mine']);
+      expect(project('g1', [msg({ id: 'old', sequence: 1, content: '同文本', createdAt: mine.createdAt - 1_000 })]).pending
+        .map(entry => entry.input.clientId)).toEqual(['mine']);
+      // The copy that really is this send still stands in for the pending row.
+      expect(project('g1', [msg({ id: 'copy', sequence: 1, content: '同文本', createdAt: mine.createdAt + 1_000 })]).pending).toEqual([]);
     });
 
     it('never swaps two files with the same name, whether the server lists all of them or not yet', () => {
@@ -986,6 +1026,119 @@ function coordinatedBridge(retain: (entry: unknown) => Promise<() => Promise<voi
   mocks.mainSend = (input, execution) => main.send(sender, input, execution, mocks.send);
   return { main, sender, owner, snapshot: () => main.command(sender, { action: 'snapshot', owner: owner() }) };
 }
+
+// Regression: project summaries previously called send without Main's outbox execution.
+// The component IPC stub missed it. This uses the real Main storage admission (unit),
+// a text-only input and a lost send ACK; receipt and durable single-entry state are observable.
+it('sends text summaries through Main admission and reads the same receipt on retry', async () => {
+  const bridge = coordinatedBridge();
+  mocks.send.mockResolvedValue({ ok: true, messageId: 'summary-receipt' });
+  const input = { groupId: 'g1', clientId: 'summary-intent', text: 'Test project progress', mentions: { all: false, botIds: [] } };
+  expect(await sendBotGroupTextThroughOutbox(input)).toMatchObject({ messageId: 'summary-receipt' });
+  expect(await sendBotGroupTextThroughOutbox(input)).toMatchObject({ messageId: 'summary-receipt' });
+  expect(mocks.send).toHaveBeenCalledTimes(1);
+  expect((await bridge.snapshot()).entries).toEqual([expect.objectContaining({ status: 'sent', input })]);
+  await expect(sendBotGroupTextThroughOutbox({ ...input, text: 'different' })).rejects.toThrow('OUTBOX_INPUT_CONFLICT');
+});
+
+it('reconciles a text summary whose Main send acknowledgement was lost without sending twice', async () => {
+  const bridge = coordinatedBridge();
+  mocks.send.mockResolvedValue({ ok: true, messageId: 'lost-summary-receipt' });
+  const realSend = mocks.mainSend!;
+  mocks.mainSend = async (input, execution) => { await realSend(input, execution); throw new Error('ACK lost'); };
+  const input = { groupId: 'g1', clientId: 'lost-summary-intent', text: 'Test progress', mentions: { all: false, botIds: [] } };
+  await sendBotGroupTextThroughOutbox(input);
+  expect(await sendBotGroupTextThroughOutbox(input)).toMatchObject({ messageId: 'lost-summary-receipt' });
+  expect(mocks.send).toHaveBeenCalledTimes(1);
+  expect((await bridge.snapshot()).entries).toHaveLength(1);
+});
+
+// G1: a half-open link leaves the send unresolved. Waiting out a caller deadline proves
+// nothing about the message, so it must read as "maybe sent, reconciling" and keep the
+// same clientId; it must never be turned into a failure notice.
+it('reports a send that outlived its deadline as in flight and keeps the same clientId', async () => {
+  const bridge = coordinatedBridge();
+  const pending = deferred();
+  mocks.send.mockReturnValueOnce(pending.promise);
+  const input = { groupId: 'g1', clientId: 'deadline-intent', text: 'Project progress', mentions: { all: false, botIds: [] } };
+  expect(await sendBotGroupTextThroughOutbox(input, { deadlineMs: 20 })).toEqual({ retryable: true, inFlight: true });
+  // Still the same unknown send: nothing was written off as failed.
+  expect((await bridge.snapshot()).entries).toEqual([expect.objectContaining({ status: 'sending', input })]);
+  pending.resolve({ ok: true, messageId: 'late-receipt' });
+  await flush();
+  expect(await sendBotGroupTextThroughOutbox(input)).toEqual({ messageId: 'late-receipt', retryable: false });
+  expect(mocks.send).toHaveBeenCalledTimes(1);
+});
+
+it('keeps the existing wait-for-the-answer behaviour when no deadline is passed', async () => {
+  coordinatedBridge();
+  mocks.send.mockResolvedValueOnce({ ok: true, messageId: 'no-deadline-receipt' });
+  const input = { groupId: 'g1', clientId: 'no-deadline-intent', text: 'Project progress', mentions: { all: false, botIds: [] } };
+  const sent = await sendBotGroupTextThroughOutbox(input);
+  expect(sent).toEqual({ messageId: 'no-deadline-receipt', retryable: false });
+  expect(sent).not.toHaveProperty('inFlight');
+  mocks.send.mockRejectedValueOnce(new Error('offline'));
+  const failed = await sendBotGroupTextThroughOutbox({ ...input, clientId: 'no-deadline-failure' });
+  expect(failed).toMatchObject({ retryable: true });
+  expect(failed).not.toHaveProperty('inFlight');
+});
+
+// G3: an entry whose outcome is unknown is reconciled against the group before the same
+// clientId is offered again; a resend never becomes a second message or a second row.
+it('reads the group before re-sending an unknown entry and reuses its clientId', async () => {
+  const bridge = coordinatedBridge();
+  const order: string[] = [];
+  mocks.getBotGroup.mockImplementation(async () => { order.push('read'); return { ok: true, group: { messages: [] } }; });
+  mocks.send.mockImplementation(async () => { order.push('send'); throw new Error('offline'); });
+  await enqueueBotGroupSend(draft({ clientId: 'reconcile-intent' }));
+  await flush();
+  expect(mocks.send).toHaveBeenCalledTimes(1);
+  order.length = 0;
+  vi.stubGlobal('window', new EventTarget());
+  const stop = startBotGroupOutbox();
+  try { await flush(); } finally { stop(); vi.unstubAllGlobals(); }
+  expect(order[0]).toBe('read');
+  expect(mocks.send.mock.calls.every(call => call[0].clientId === 'reconcile-intent')).toBe(true);
+  expect((await bridge.snapshot()).entries).toEqual([expect.objectContaining({ status: 'failed' })]);
+});
+
+// B-1 复验（21:15 实测）：服务端已确认、入队行随后被结清删除，再点「重新核对」曾报
+// 「未发出：发送结果未知」，并留下一条永不收敛的「发送中…」气泡。
+it('reports a send Main confirmed after the deadline as already sent and leaves no ghost bubble', async () => {
+  coordinatedBridge();
+  const pending = deferred();
+  mocks.send.mockReturnValueOnce(pending.promise);
+  const input = { groupId: 'g1', clientId: 'late-intent', text: 'Late receipt', mentions: { all: false, botIds: [] } };
+  expect(await sendBotGroupTextThroughOutbox(input, { deadlineMs: 20 })).toEqual({ retryable: true, inFlight: true });
+  pending.resolve({ ok: true, messageId: 'late-1' });
+  await flush();
+  // The copy appears on the timeline: the receipt settles the row and Main erases it, so the
+  // next snapshot can no longer carry the messageId.
+  noteBotGroupTimeline('g1', [msg({ id: 'late-1', sequence: 1, content: input.text, createdAt: Date.now() })],
+    beginBotGroupTimelineRead());
+  await flush();
+  expect(getBotGroupOutbox('g1')).toEqual([]);
+  expect(await sendBotGroupTextThroughOutbox(input))
+    .toEqual({ messageId: 'late-1', retryable: false, alreadySent: true });
+  expect(mocks.send).toHaveBeenCalledTimes(1);
+  expect(getBotGroupOutbox('g1')).toEqual([]);
+});
+
+it('treats a retired clientId with no remembered receipt as unknown, never as failed', async () => {
+  coordinatedBridge();
+  mocks.send.mockResolvedValueOnce({ ok: true, messageId: 'gone-1' });
+  const input = { groupId: 'g1', clientId: 'gone-intent', text: 'Gone send', mentions: { all: false, botIds: [] } };
+  expect(await sendBotGroupTextThroughOutbox(input)).toMatchObject({ messageId: 'gone-1' });
+  noteBotGroupTimeline('g1', [msg({ id: 'gone-1', sequence: 1, content: input.text, createdAt: Date.now() })],
+    beginBotGroupTimelineRead());
+  await flush();
+  // This window forgets everything (restart); Main keeps the settled-and-erased identity.
+  resetBotGroupOutboxForTests();
+  await flush();
+  expect(await sendBotGroupTextThroughOutbox(input)).toEqual({ retryable: true, inFlight: true });
+  expect(mocks.send).toHaveBeenCalledTimes(1);
+  expect(getBotGroupOutbox('g1')).toEqual([]);
+});
 
 // Unit regression: a restart between local enqueue and the HTTP response used to lose
 // ownership. The production outbox must save first, then restore the same clientId FIFO.

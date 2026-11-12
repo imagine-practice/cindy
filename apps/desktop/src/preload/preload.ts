@@ -6299,6 +6299,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     projects: {
       list: (): Promise<unknown> => ipcRenderer.invoke('local-db:projects:list'),
+      previewMembershipRecovery: (projectId:string):Promise<import('../shared/projectMembershipRecovery').ProjectMembershipRecoveryPreviewResult> =>
+        ipcRenderer.invoke('local-db:projects:membership-recovery-preview',projectId),
+      applyMembershipRecovery: (previewId:string):Promise<import('../shared/projectMembershipRecovery').ProjectMembershipRecoveryApplyResult> =>
+        ipcRenderer.invoke('local-db:projects:membership-recovery-apply',previewId),
       detail: (projectId: string): Promise<unknown> =>
         ipcRenderer.invoke('local-db:projects:detail', projectId),
       mutate: (mutation: unknown): Promise<unknown> =>

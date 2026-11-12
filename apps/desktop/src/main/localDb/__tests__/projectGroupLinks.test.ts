@@ -1,4 +1,4 @@
-/** DB boundary: frozen local-link contract §2/3/5/6/8. Real generated 0146..0150
+/** DB boundary: frozen local-link contract §2/3/5/6/8. Real generated 0149..0153
  * DDL and production link/project transactions; no server/group authorization claim.
  * Existing project/material tests lack durable relation replay, five-key isolation and
  * filtered pagination. Minimal regression: replay old link after unlink or revoke owner.
@@ -14,7 +14,7 @@ import { runProjectsTransaction } from '../worker/opHandlers/projectsTx';
 import { runProjectGroupLinksTransaction, type ProjectGroupLinksTxContext } from '../worker/opHandlers/projectGroupLinksTx';
 import { parseProjectGroupLinksIntent, type ProjectGroupLinkMutationResult, type ProjectGroupLinksListResult } from '../../../shared/projectGroupLinks';
 const dir=path.resolve(__dirname,'../../../../drizzle');
-const ddl=['0146_','0147_','0148_','0149_','0150_'].map(prefix=>fs.readFileSync(path.join(dir,fs.readdirSync(dir).find(n=>n.startsWith(prefix)&&n.endsWith('.sql'))!),'utf8').split('--> statement-breakpoint').join(';')).join(';');
+const ddl=['0149_','0150_','0151_','0152_','0153_'].map(prefix=>fs.readFileSync(path.join(dir,fs.readdirSync(dir).find(n=>n.startsWith(prefix)&&n.endsWith('.sql'))!),'utf8').split('--> statement-breakpoint').join(';')).join(';');
 const owner={kind:'account' as const,id:'owner'},other={kind:'account' as const,id:'other'},bot={kind:'bot' as const,id:'owner'};
 const group={endpoint:'https://chat.example/Case/API',roomId:'aaaaaaaa-1111-4111-8111-111111111111'};
 const target=(projectId='p')=>({accountId:'account-A',deviceId:'device-A',projectId});

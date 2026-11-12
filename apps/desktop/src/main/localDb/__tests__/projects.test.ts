@@ -57,7 +57,7 @@ describe('project dirs', () => {
        );`);
     db.exec(projectSchemaSql());
     // 事务入口 prepare 了带 project_binding_revision 的语句，先跑 0148 补齐列。
-    for (const prefix of ['0147_', '0148_', '0149_', '0150_', '0154_']) {
+    for (const prefix of ['0147_', '0148_', '0149_', '0150_', '0151_', '0152_', '0153_', '0154_', '0157_']) {
       const migration = readdirSync(DRIZZLE_DIR).find(name => name.startsWith(prefix) && name.endsWith('.sql'))!;
       db.exec(readFileSync(path.join(DRIZZLE_DIR, migration), 'utf8').split('--> statement-breakpoint').join(';'));
     }
@@ -152,7 +152,7 @@ describe('project core transactions', () => {
     db.exec(readFileSync(path.join(DRIZZLE_DIR, bindingMigration), 'utf8').split('--> statement-breakpoint').join(';'));
     // 材料 / 引用 / 群关联是删除级联的真实范围，一并跑它们的真 migration 产物。
     // 0154 = project_dirs（项目目录）；删项目要连带清掉认领关系。
-    for (const prefix of ['0147_', '0149_', '0150_', '0154_']) {
+    for (const prefix of ['0147_', '0149_', '0150_', '0151_', '0152_', '0153_', '0154_', '0157_']) {
       const migration = readdirSync(DRIZZLE_DIR).find(name => name.startsWith(prefix) && name.endsWith('.sql'))!;
       db.exec(readFileSync(path.join(DRIZZLE_DIR, migration), 'utf8').split('--> statement-breakpoint').join(';'));
     }
@@ -191,6 +191,28 @@ describe('project core transactions', () => {
         'SELECT subject_kind AS kind, subject_id AS id, role FROM project_members WHERE project_id = ? ORDER BY role, id',
       )
       .all(projectId) as Array<{ kind: string; id: string; role: string }>;
+
+  // Regression: create and assignment must be one authorized durable write, with
+  // a stable request ID on retry. Existing binding tests start with saved sessions.
+  // Tier: db; production transaction and real SQLite, no model or network.
+  it('creates one native project task and rejects revoked/archived creation atomically', () => {
+    createProject();
+    db.exec("ALTER TABLE sessions ADD COLUMN task_objective TEXT; ALTER TABLE sessions ADD COLUMN working_dir TEXT; ALTER TABLE sessions ADD COLUMN created_at INTEGER;");
+    const input = { action: 'createWorkItem', projectId: 'proj-1', sessionId: 'new-task', title: ' Name ', taskObjective: ' Goal ', assignee: { kind: 'bot', id: 'bot-1' }, now: 2000, insert: {sql: 'insert into "sessions" (id,title,task_objective,project_id,assignee_kind,assignee_id) values (?,?,?,?,?,?)', params: ['new-task','Name','Goal','proj-1','bot','bot-1']} };
+    expect(run(input).sessionId).toBe('new-task');
+    expect(run(input).sessionId).toBe('new-task');
+    expect(db.prepare("SELECT id,title,task_objective,assignee_kind,assignee_id,project_id,status FROM sessions WHERE id='new-task'").get()).toEqual({ id:'new-task', title:'Name', task_objective:'Goal', assignee_kind:'bot', assignee_id:'bot-1', project_id:'proj-1', status:'active' });
+    expect(db.prepare("SELECT count(*) AS n FROM sessions WHERE id='new-task'").get()).toEqual({n:1});
+    expect(() => run({...input, title:'Conflict'})).toThrow('ALREADY_EXISTS');
+    db.prepare("UPDATE sessions SET status='deleted' WHERE id='new-task'").run();
+    expect(() => run(input)).toThrow('PRECONDITION_FAILED');
+    db.prepare("DELETE FROM project_members WHERE subject_kind='bot'").run();
+    expect(() => run({...input, sessionId:'revoked'})).toThrow('ASSIGNEE_NOT_MEMBER');
+    expect(() => run({...input, sessionId:'outsider', actor:{kind:'account',id:'bot-1'}})).toThrow('FORBIDDEN');
+    db.prepare("UPDATE projects SET status='archived'").run();
+    expect(() => run({...input, sessionId:'archived', assignee:null})).toThrow('PRECONDITION_FAILED');
+    expect(db.prepare("SELECT count(*) AS n FROM sessions WHERE id IN ('revoked','outsider','archived')").get()).toEqual({n:0});
+  });
 
   it('creates the project with its owner as a member (C1)', () => {
     const result = createProject();

@@ -14157,6 +14157,10 @@
   },
   "ccAgent": {
     "projectCore": {
+      "recovery": {
+        "title": "Projektmitgliedschaft vor der Anmeldung wiederherstellen",
+        "confirmBody": "Die Mitgliedschaft des lokalen Kontos vor der Anmeldung in {{project}} wird dem aktuell authentifizierten Konto als gewöhnlichem Mitglied zugeordnet. Der verantwortliche Partner und {{count}} Aufgabeneinträge bleiben erhalten. Cindy erstellt und prüft zuerst eine Sicherung und aktualisiert dann nur diese Mitgliedsidentität. Fortfahren?"
+      },
       "metadataEdit": {
         "title": "Projekt bearbeiten",
         "description": "Name und Ziel des Projekts ändern.",
@@ -14229,12 +14233,24 @@
         "ownerRequired": "Verantwortliche Person auswählen",
         "currentAccount": "Aktuelles Konto"
       },
+      "taskCreate": {
+        "name": "Aufgabenname",
+        "goal": "Aufgabenziel",
+        "required": "Name und Ziel der Aufgabe eingeben",
+        "hint": "Nach dem Erstellen zur Projektaufgabenliste zurückkehren. Es wird keine Nachricht gesendet und keine Ausführung gestartet.",
+        "submit": "Aufgabe erstellen",
+        "discardPending": "Diese unbestätigte Erstellung verwerfen",
+        "discardPendingNote": "Diese Erstellung wurde möglicherweise nicht abgeschlossen. Nach dem Verwerfen können Sie das Formular erneut ausfüllen; bereits erstellte Aufgaben werden nicht gelöscht.",
+        "discardPendingConfirm": "Verwerfen"
+      },
       "detail": {
         "goal": "Goal",
         "noGoal": "No goal set",
         "members": "Members",
         "addMember": "Add member",
         "ownerBadge": "Owner",
+        "subjectUnavailable": "Profil derzeit nicht verfügbar",
+        "claimOwner": "Projektverantwortung übernehmen",
         "transferOwner": "Make owner",
         "removeMember": "Remove",
         "assignee": "Assignee",
@@ -14259,7 +14275,13 @@
         "notFound": "This project no longer exists",
         "back": "Back",
         "projectLabel": "Projekt",
-        "noProject": "Not in a project"
+        "noProject": "Not in a project",
+        "membersLoading": "Hinzufügbare Mitglieder werden geladen…",
+        "membersLoadFailed": "Hinzufügbare Mitglieder konnten nicht geladen werden",
+        "membersRetry": "Erneut versuchen",
+        "noAddableMembers": "Niemand mehr zum Hinzufügen",
+        "memberRemoved": "{{name}} wurde entfernt",
+        "archiveNotice": "Archiviert: Mitglieder und Einstellungen lassen sich weiter pflegen und Fortschritt weiter erfassen; neue Aufgaben und automatische Ausführung sind aus."
       },
       "deleteProject": {
         "title": "Projekt löschen",
@@ -14271,7 +14293,8 @@
         "confirmTypePlaceholder": "Projektname",
         "confirm": "Löschen",
         "cancel": "Abbrechen",
-        "success": "Projekt gelöscht"
+        "success": "Projekt gelöscht",
+        "archiveWarning": "Dieses Projekt ist archiviert. Beim Löschen werden Projekt, Aufgabenverknüpfungen und Fortschrittsverlauf endgültig entfernt. Das lässt sich nicht rückgängig machen."
       },
       "error": {
         "ownerMustTransfer": "Transfer ownership before removing the current owner.",
@@ -14417,7 +14440,8 @@
         "automationOrigin": "Von einer Automatisierung",
         "automationOriginNamed": "Von einer Automatisierung · {{name}}",
         "expandActions": "Aktionen anzeigen",
-        "collapseActions": "Aktionen ausblenden"
+        "collapseActions": "Aktionen ausblenden",
+        "unknownMember": "Ein Mitglied"
       },
       "progressEdit": {
         "title": "Arbeitsfortschritt erfassen",
@@ -20286,6 +20310,7 @@
     "progressUnavailable": "Der Fortschritt dieses Projekts konnte nicht gelesen werden, daher gibt es noch nichts zu synchronisieren.",
     "hostNotReady": "Dieser Computer kann gerade keine Gruppennachrichten senden.",
     "unknownOutcome": "Das Ergebnis ist unbekannt. Ein erneuter Versuch ist sicher: derselbe Sendevorgang wird nicht zweimal gesendet.",
+    "inFlight": "Dieser Versand hat die Gruppe möglicherweise schon erreicht. Erneutes Bestätigen setzt denselben Versand fort, daher erscheint er nie zweimal.",
     "summary": {
       "heading": "Projektfortschritt · {{name}}",
       "empty": "Noch kein Fortschritt erfasst",
@@ -20300,6 +20325,7 @@
       "itemOmitted": "……und {{count}} weitere Arbeitseinträge nicht aufgeführt",
       "latest": "Letzter Fortschritt: {{time}}",
       "latestNone": "Letzter Fortschritt: nicht erfasst"
-    }
+    },
+    "recheck": "Diesen Versand erneut prüfen"
   }
 }

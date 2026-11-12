@@ -48,8 +48,23 @@ describe('remote resource discovery', () => {
     expect(restored.map((item) => item.id)).toEqual(['teammates', 'future-module']);
   });
 
-  it('does not send routine reads or actions from stale mobile links', async () => {
-    const invoke = vi.fn() as RemoteInvoke;
+  // 手机端项目页契约(2026-11-11)§1/§8:契约没有定义 placement,入口只以 manifest 是否含
+  // `projects` 集合为准;老被控端没有该集合时既不出入口,也不报错。
+  it('lets the projects collection reach the mobile entry without a placement hint', async () => {
+    const withProjects = vi.fn(async () => ({ protocolVersion: 1, collections: [
+      { id: 'projects', resourceKind: 'project', title: 'Projects' },
+    ] })) as RemoteInvoke;
+    await expect(discoverRemoteHomeCollections(withProjects, targets, 'en')).resolves.toEqual([{
+      id: 'projects', resourceKind: 'project', title: 'Projects', placement: 'home-scope', iconName: undefined, targets,
+    }]);
+    const withoutProjects = vi.fn(async () => ({ protocolVersion: 1, collections: [
+      { id: 'teammates', resourceKind: 'bot', title: 'Teammates', placement: 'home-scope' },
+    ] })) as RemoteInvoke;
+    await expect(discoverRemoteHomeCollections(withoutProjects, targets, 'en')
+      .then((collections) => collections.some((collection) => collection.id === 'projects'))).resolves.toBe(false);
+  });
+
+  it('does not send routine reads or actions from stale mobile links', async () => {    const invoke = vi.fn() as RemoteInvoke;
     const ref = { collectionId: 'routines', kind: 'routine', id: 'daily' };
     await expect(listRemoteCollection(invoke, targets[0], 'routines')).rejects.toThrow('Unsupported mobile resource collection');
     await expect(getRemoteResource(invoke, targets[0], ref)).rejects.toThrow('Unsupported mobile resource collection');

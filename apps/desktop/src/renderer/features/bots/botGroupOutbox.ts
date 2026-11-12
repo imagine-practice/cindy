@@ -174,9 +174,19 @@ let coordinatorInstance: string | undefined;
 let coordinatorRevision = 0;
 const retiredInstances = new Set<string>();
 const enqueuing = new Set<string>();
+/** Receipts this window ever saw for an entry, kept after Main settles and erases its row. */
+const landedReceipts = new Map<string, string>();
+/** Entries Main settled and erased: enqueueing the same clientId again is refused. */
+const retiredKeys = new Set<string>();
 /** Unknown edit replies retain only an operation identity, never a second copy of the draft. */
 const editOperations = new Map<string, { revision: number; operationId: string }>();
 let wakeCoordinator: (() => void) | undefined;
+
+/** Main refuses a clientId it already settled and erased (`OUTBOX_RETIRED_ENTRY`). */
+function isRetiredEntry(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return message.includes('OUTBOX_RETIRED_ENTRY');
+}
 
 function applyCoordinatorResult(result: BotGroupOutboxCommandResult, full = false): void {
   if (retiredInstances.has(result.instanceId)) return;
@@ -192,8 +202,10 @@ function applyCoordinatorResult(result: BotGroupOutboxCommandResult, full = fals
     group.entries = group.entries.filter(row => received.has(entryKey(row.input.groupId, row.input.clientId))
       || enqueuing.has(entryKey(row.input.groupId, row.input.clientId)));
   }
+  for (const removed of result.removed ?? []) retiredKeys.add(entryKey(removed.groupId, removed.clientId));
   for (const value of result.entries) {
     const row = value as unknown as BotGroupOutboxEntry;
+    if (row.status === 'sent' && row.messageId) landedReceipts.set(entryKey(row.input.groupId, row.input.clientId), row.messageId);
     const group = groupOf(row.input.groupId);
     group.entries = [...group.entries.filter(entry => entry.input.clientId !== row.input.clientId), row]
       .sort((a, b) => (a.queueOrdinal ?? Infinity) - (b.queueOrdinal ?? Infinity));
@@ -242,12 +254,15 @@ export function startBotGroupOutbox(): () => void {
     await refreshCoordinator();
     if (!current()) return;
     for (const [groupId, group] of groups) {
-      const first = group.entries.find(entry => entry.status !== 'sent' && !entry.editHold);
-      if (first && first.retryable !== false && !submitting.has(entryKey(groupId, first.input.clientId))) {
-        if (first.status === 'failed') retryBotGroupSend(groupId, first.input.clientId);
-        else schedule(groupId, first.input.clientId);
-      }
-      if (group.entries.some(entry => entry.status === 'sent')) {
+      const pending = () => group.entries.find(entry => entry.status !== 'sent' && !entry.editHold);
+      const first = pending();
+      const resend = Boolean(first) && first!.retryable !== false && !submitting.has(entryKey(groupId, first!.input.clientId));
+      // Reconcile before re-sending. An entry whose transport outcome is unknown is settled by
+      // Main's receipt ledger (the snapshot above already adopted any `sent` + messageId), and this
+      // read refreshes the server timeline before the same clientId is offered again. Server
+      // messages carry no clientId, so the timeline cannot prove ownership: only the receipt and
+      // the idempotent resend decide that (the projection's text match is display-only).
+      if (resend || group.entries.some(entry => entry.status === 'sent')) {
         const token = beginBotGroupTimelineRead();
         const options = group.entries.some(entry => entry.input.conversationKind === 'direct')
           ? { conversationKind: 'direct' as const } : undefined;
@@ -269,6 +284,13 @@ export function startBotGroupOutbox(): () => void {
         }
         else if (result.errorCode === 'NOT_FOUND' || result.errorCode === 'PERMISSION_DENIED') discardBotGroupOutbox(groupId);
       }
+      if (!resend) continue;
+      // The read may have settled this entry (or the group): decide again on the current row.
+      const now = pending();
+      if (!now || now.input.clientId !== first!.input.clientId || now.retryable === false
+        || submitting.has(entryKey(groupId, now.input.clientId))) continue;
+      if (now.status === 'failed') retryBotGroupSend(groupId, now.input.clientId);
+      else schedule(groupId, now.input.clientId);
     }
   };
   let running = false;
@@ -297,6 +319,8 @@ function releaseUnsubmitted(groupId: string, entries: readonly BotGroupOutboxEnt
 function ensureOwner(): void {
   if (!accountChanged()) return;
   const previous = account;
+  // Receipts and retirements are per account; never carry them into the next one.
+  if (previous !== null) { landedReceipts.clear(); retiredKeys.clear(); }
   account = getDataOwnerGeneration().dataOwnerId;
   // Nothing was held for another account yet: whatever is here was written for this one.
   if (previous === null) return;
@@ -328,6 +352,7 @@ function update(groupId: string, clientId: string, patch: Partial<BotGroupOutbox
   const index = group?.entries.findIndex((entry) => entry.input.clientId === clientId) ?? -1;
   if (!group || index < 0) return null;
   const next = { ...group.entries[index]!, ...patch };
+  if (next.status === 'sent' && next.messageId) landedReceipts.set(entryKey(groupId, clientId), next.messageId);
   group.entries = group.entries.map((entry, at) => (at === index ? next : entry));
   void persist(next).catch(() => undefined);
   emit();
@@ -428,6 +453,80 @@ function prepare(groupId: string, clientId: string): Promise<readonly AttachedFi
     });
   preparing.set(key, { revision: entry.entryRevision, promise: pending });
   return pending;
+}
+
+/** Text-only callers use the same durable queue and Main-issued execution as the composer.
+ * A queued/unknown result is never a receipt. Retrying keeps the original clientId.
+ * `deadlineMs` only bounds how long the caller waits: a send that is still queued or in flight
+ * comes back as `inFlight` (unknown, not failed) so the UI can say so and keep the same clientId.
+ */
+export async function sendBotGroupTextThroughOutbox(input: BotGroupOutboxSendInput, options?: { deadlineMs?: number }): Promise<{
+  messageId?: string; errorKey?: string; retryable: boolean; inFlight?: boolean;
+  /** Main had already confirmed this send (the deadline missed its receipt); nothing was posted now. */
+  alreadySent?: boolean;
+}> {
+  ensureOwner();
+  const owner = getDataOwnerGeneration();
+  if (!owner.dataOwnerId || !coordinator()) throw new Error('OUTBOX_COORDINATION_UNAVAILABLE');
+  await refreshCoordinator();
+  if (!isDataOwnerGenerationCurrent(owner)) throw new Error('OUTBOX_OWNER_CHANGED');
+  const group = groupOf(input.groupId);
+  const key = entryKey(input.groupId, input.clientId);
+  const previous = group.entries.find(row => row.input.clientId === input.clientId);
+  const signature = botGroupSendSignature(input, '[]');
+  if (previous && previous.signature !== signature) throw new Error('OUTBOX_INPUT_CONFLICT');
+  const landed = () => landedReceipts.get(key);
+  if (!previous) {
+    // Main already settled and erased this clientId: re-enqueueing is refused, and reporting a
+    // failure would claim "not sent" for a message the group already has.
+    if (retiredKeys.has(key)) return landed()
+      ? { messageId: landed()!, retryable: false, alreadySent: true }
+      : { retryable: true, inFlight: true };
+    try {
+      await enqueueBotGroupSend({ input, signature, draft: input.text, tracked: [], files: [],
+        attachmentScope: `project-progress:${input.groupId}`, enqueueOperationId: input.clientId });
+    } catch (error) {
+      if (!isRetiredEntry(error)) throw error;
+      // The row settled between the snapshot and this enqueue; settle from what we know.
+      retiredKeys.add(key);
+      group.entries = group.entries.filter(row => row.input.clientId !== input.clientId);
+      emit();
+      return landed()
+        ? { messageId: landed()!, retryable: false, alreadySent: true }
+        : { retryable: true, inFlight: true };
+    }
+  } else if (previous.status === 'failed') {
+    retryBotGroupSend(input.groupId, input.clientId);
+  } else if (previous.status === 'sending') {
+    schedule(input.groupId, input.clientId);
+  }
+  const settle = async () => {
+    await group.chain;
+    if (!isDataOwnerGenerationCurrent(owner)) throw new Error('OUTBOX_OWNER_CHANGED');
+    const current = group.entries.find(row => row.input.clientId === input.clientId);
+    if (current?.status === 'sent' && current.messageId) return { messageId: current.messageId, retryable: false };
+    // Main confirmed this send before its row was settled away: that is a receipt, not a new send.
+    if (landed()) return { messageId: landed()!, retryable: false, alreadySent: true };
+    return { errorKey: current?.status === 'failed' ? current.errorKey : undefined,
+      retryable: current?.retryable !== false };
+  };
+  const deadlineMs = options?.deadlineMs;
+  if (deadlineMs === undefined) return settle();
+  const settled = settle();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<'expired'>(resolve => { timer = setTimeout(() => resolve('expired'), Math.max(0, deadlineMs)); });
+  try {
+    const outcome = await Promise.race([settled.then(value => ({ value })), expired]);
+    // Waiting out the deadline proves nothing about the message: it may already be committed.
+    // Never report a failure here, and keep the entry (same clientId) for reconciliation.
+    if (outcome === 'expired') return landed()
+      ? { messageId: landed()!, retryable: false, alreadySent: true }
+      : { retryable: true, inFlight: true };
+    return outcome.value;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    settled.catch(() => undefined);
+  }
 }
 
 /** 重试 on a message that did not go out: the same clientId, so main returns any copy it already has. */
@@ -824,9 +923,10 @@ export interface BotGroupOutboxProjection {
 }
 
 /**
- * Split the outbox against the timeline. A receipt already in the timeline is no longer
- * pending; so is the one request in flight once a re-read shows an unclaimed copy of it (see
- * above). Either way the real message keeps the local attachment previews until usable.
+ * Split the outbox against the timeline. Only a receipt Main already returned (entry.messageId)
+ * closes an entry; everything else stays pending until that receipt arrives. The timeline is not
+ * matched by text: the same words can come from someone else, and claims/baseline do not survive
+ * a restart. Either way the real message keeps the local attachment previews until usable.
  */
 export function projectBotGroupOutbox(
   entries: readonly BotGroupOutboxEntry[],
@@ -860,13 +960,19 @@ export function projectBotGroupOutbox(
       shown(entry);
       continue;
     }
+    // Display only. The receipt (entry.messageId) is what actually closes a row; this match just
+    // avoids drawing the pending bubble next to the copy already on the timeline. It is guarded so
+    // it cannot borrow someone else's message: strictly this account's own message, created after
+    // this entry was queued (a restart zeroes `baseline`, so an older same-text message must not
+    // be adopted), not a copy another entry already claims, same text and attachment count.
     const baseline = entry.baseline;
     const copy = messages.find(
       (message) =>
         message.kind === 'message' &&
         message.authorKind === 'user' &&
-        message.isSelf !== false &&
+        message.isSelf === true &&
         message.sequence > baseline &&
+        message.createdAt >= entry.createdAt &&
         !claimedIds.has(message.id) &&
         message.content.trim() === entry.input.text &&
         message.attachments.length === entry.files.length,
@@ -915,6 +1021,20 @@ export function getBotGroupOutboxClaims(groupId: string): readonly string[] {
   return groups.get(groupId)?.claimed ?? [];
 }
 
+/**
+ * Read-only receipt lookup: the message id Main already confirmed for this (group, clientId), or
+ * undefined while nothing of it landed. Callers use it to reconcile a send whose answer they
+ * stopped waiting for (`inFlight`); it never enqueues, sends, retries or changes any state — and
+ * it deliberately skips `ensureOwner()`, so a lookup for another account's outbox simply answers
+ * "no receipt" instead of dropping that account's rows.
+ */
+export function getBotGroupOutboxReceipt(groupId: string, clientId: string): string | undefined {
+  if (accountChanged()) return undefined;
+  const settled = groups.get(groupId)?.entries
+    .find(entry => entry.input.clientId === clientId && entry.status === 'sent');
+  return settled?.messageId ?? landedReceipts.get(entryKey(groupId, clientId));
+}
+
 export function getBotGroupOutboxPreviews(groupId: string): ReadonlyMap<string, readonly BotGroupAttachment[]> {
   ensureOwner();
   return groups.get(groupId)?.previews ?? NO_PREVIEWS;
@@ -943,5 +1063,7 @@ export function resetBotGroupOutboxForTests(): void {
   coordinatorInstance = undefined;
   coordinatorRevision = 0;
   retiredInstances.clear();
+  landedReceipts.clear();
+  retiredKeys.clear();
   wakeCoordinator = undefined;
 }

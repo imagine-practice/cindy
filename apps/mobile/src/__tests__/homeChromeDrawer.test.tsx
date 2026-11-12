@@ -104,6 +104,7 @@ vi.mock('react-native-safe-area-context', () => ({
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 
 vi.mock('lucide-react-native', () => ({
+  FolderKanban: () => null,
   LogOut: () => null, Monitor: () => null, Search: () => null, Settings: () => null, UsersRound: () => null,
 }));
 
@@ -187,6 +188,23 @@ describe('Android home drawer window and close lifecycle', () => {
     expect(typeof h.modal!.onRequestClose).toBe('function');
     expect(container.querySelector('[data-testid="rn.modal"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="home.chromeDrawer"]')).not.toBeNull();
+  });
+
+  // 手机端项目页契约 §8:入口只在被控端 manifest 含 `projects` 集合时出现(由调用方决定是否传
+  // onOpenProjects);老被控端没有该集合时抽屉里没有这一项,也不报错。
+  it('offers the projects entry only when the host advertises the collection', async () => {
+    const onOpenProjects = vi.fn();
+    await act(async () => root.render(<HomeChromeDrawer {...drawerProps({ onOpenProjects })} />));
+    const entry = container.querySelector<HTMLElement>('[data-testid="home.chromeDrawer.projects"]');
+    expect(entry).not.toBeNull();
+    await act(async () => entry!.click());
+    expect(onOpenProjects).toHaveBeenCalledTimes(1);
+
+    await act(async () => root.unmount());
+    root = createRoot(container);
+    await act(async () => root.render(<HomeChromeDrawer {...drawerProps()} />));
+    expect(container.querySelector('[data-testid="home.chromeDrawer.projects"]')).toBeNull();
+    expect(container.querySelector('[data-testid="home.chromeDrawer.devices"]')).not.toBeNull();
   });
 
   it('keeps iOS on the FullWindowOverlay window with no Modal', async () => {

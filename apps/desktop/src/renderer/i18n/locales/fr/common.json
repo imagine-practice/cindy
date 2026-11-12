@@ -14289,6 +14289,10 @@
   },
   "ccAgent": {
     "projectCore": {
+      "recovery": {
+        "title": "Restaurer l’appartenance au projet d’avant connexion",
+        "confirmBody": "Restaurer l’appartenance du compte local d’avant connexion à {{project}} pour le compte actuellement authentifié, comme membre ordinaire, en conservant le partenaire responsable et {{count}} tâches. Cindy créera et vérifiera une sauvegarde avant de modifier uniquement cette identité de membre. Continuer ?"
+      },
       "metadataEdit": {
         "title": "Modifier le projet",
         "description": "Modifier le nom et l’objectif du projet.",
@@ -14361,12 +14365,24 @@
         "ownerRequired": "Sélectionnez un responsable",
         "currentAccount": "Compte actuel"
       },
+      "taskCreate": {
+        "name": "Nom de la tâche",
+        "goal": "Objectif de la tâche",
+        "required": "Saisissez un nom et un objectif",
+        "hint": "Retour à la liste du projet après création. Aucun message envoyé ni exécution lancée.",
+        "submit": "Créer la tâche",
+        "discardPending": "Abandonner cette création non confirmée",
+        "discardPendingNote": "Cette création n'a peut-être pas abouti. L'abandonner vous permet de remplir à nouveau le formulaire ; les tâches déjà créées ne sont pas supprimées.",
+        "discardPendingConfirm": "Abandonner"
+      },
       "detail": {
         "goal": "Goal",
         "noGoal": "No goal set",
         "members": "Members",
         "addMember": "Add member",
         "ownerBadge": "Owner",
+        "subjectUnavailable": "Profil indisponible",
+        "claimOwner": "Devenir responsable du projet",
         "transferOwner": "Make owner",
         "removeMember": "Remove",
         "assignee": "Assignee",
@@ -14391,7 +14407,13 @@
         "notFound": "This project no longer exists",
         "back": "Back",
         "projectLabel": "projet",
-        "noProject": "Not in a project"
+        "noProject": "Not in a project",
+        "membersLoading": "Chargement des membres à ajouter…",
+        "membersLoadFailed": "Impossible de charger les membres à ajouter",
+        "membersRetry": "Réessayer",
+        "noAddableMembers": "Personne à ajouter",
+        "memberRemoved": "{{name}} a été retiré",
+        "archiveNotice": "Archivé : vous pouvez encore ranger les membres et les réglages et enregistrer l'avancement ; la création de tâches et l'exécution automatique sont désactivées."
       },
       "deleteProject": {
         "title": "Supprimer le projet",
@@ -14403,7 +14425,8 @@
         "confirmTypePlaceholder": "Nom du projet",
         "confirm": "Supprimer",
         "cancel": "Annuler",
-        "success": "Projet supprimé"
+        "success": "Projet supprimé",
+        "archiveWarning": "Ce projet est archivé. Le supprimer efface définitivement le projet, ses tâches liées et son historique d'avancement. Cette action est irréversible."
       },
       "error": {
         "ownerMustTransfer": "Transfer ownership before removing the current owner.",
@@ -14549,7 +14572,8 @@
         "automationOrigin": "Créé par une automatisation",
         "automationOriginNamed": "Créé par une automatisation · {{name}}",
         "expandActions": "Afficher les actions",
-        "collapseActions": "Masquer les actions"
+        "collapseActions": "Masquer les actions",
+        "unknownMember": "Un membre"
       },
       "progressEdit": {
         "title": "Consigner la progression",
@@ -20473,6 +20497,7 @@
     "progressUnavailable": "L'avancement de ce projet n'a pas pu être lu, il n'y a donc rien à synchroniser pour l'instant.",
     "hostNotReady": "Cet ordinateur ne peut pas envoyer de message au groupe pour l'instant.",
     "unknownOutcome": "Le résultat est inconnu. Réessayer est sans risque : cet envoi ne sera jamais publié deux fois.",
+    "inFlight": "Cet envoi a peut-être déjà atteint le groupe. Confirmer à nouveau poursuit ce même envoi, il n'apparaîtra donc jamais deux fois.",
     "summary": {
       "heading": "Avancement du projet · {{name}}",
       "empty": "Aucun avancement enregistré pour l'instant",
@@ -20487,6 +20512,7 @@
       "itemOmitted": "……et {{count}} autres tâches non listées",
       "latest": "Dernier avancement : {{time}}",
       "latestNone": "Dernier avancement : non enregistré"
-    }
+    },
+    "recheck": "Vérifier à nouveau cet envoi"
   }
 }

@@ -68,7 +68,7 @@ export function CodexResetAutoUseControl({ state, providerId, onChanged }: {
               onValueChange={value => { setCustom(value === 'custom'); if (value !== 'custom') void save({ minimumDays: Number(value) }); }} />
             {(custom || ![0, 1, 2, 3].includes(s.minimumDays)) && <form className="flex items-center gap-2" onSubmit={e => { e.preventDefault(); if (/^\d+$/.test(days) && Number(days) <= 365) void save({ minimumDays: Number(days) }); }}>
               <input aria-label={label('customDays')} type="number" min="0" max="365" step="1" required value={days} disabled={busy || !s.lowQuota}
-                onChange={e => setDays(e.target.value)} className="h-8 w-20 rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] px-2 text-13 text-[var(--text-primary)]" />
+                onChange={e => setDays(e.target.value)} className="h-8 w-20 rounded-lg border border-[var(--border-default)] bg-[var(--settings-input-bg)] px-2 text-13 text-[var(--text-primary)]" />
               <span className="text-12 text-[var(--text-secondary)]">{label('dayUnit')}</span>
               <Button type="submit" size="sm" compact variant="secondary" disabled={busy || !s.lowQuota}>{label('apply')}</Button>
             </form>}

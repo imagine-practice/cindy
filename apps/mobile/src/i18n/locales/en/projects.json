@@ -1,0 +1,94 @@
+{
+  "title": "Projects",
+  "list": {
+    "hostCount": "{{count}} computers",
+    "emptyTitle": "No projects yet",
+    "emptyCopy": "Create a project on your computer to bring its goal, people and tasks together.",
+    "loadFailed": "Could not load projects",
+    "stale": "Not updated. Showing what you saw last time.",
+    "retry": "Retry",
+    "noHosts": "No computer available yet"
+  },
+  "goal": {
+    "none": "No goal set"
+  },
+  "status": {
+    "active": "Active",
+    "archived": "Archived",
+    "unknown": "Status unknown"
+  },
+  "updated": {
+    "unknown": "Time unknown"
+  },
+  "summary": {
+    "goal": "Goal",
+    "owner": "Owner",
+    "updated": "Updated"
+  },
+  "progress": {
+    "title": "Progress",
+    "history": "Recent progress",
+    "historyEmpty": "No progress history",
+    "actorUnknown": "Unknown actor",
+    "stage": {
+      "todo": "Not started",
+      "doing": "In progress",
+      "blocked": "Blocked",
+      "review": "Awaiting confirmation",
+      "done": "Confirmed complete"
+    }
+  },
+  "workItems": {
+    "title": "Tasks",
+    "empty": "No tasks in this project yet",
+    "unassigned": "Unassigned"
+  },
+  "members": {
+    "title": "Members",
+    "owner": "Owner",
+    "member": "Member",
+    "unknown": "A member"
+  },
+  "group": {
+    "title": "Linked group",
+    "statusNone": "Status unknown"
+  },
+  "form": {
+    "progressTitle": "Record progress",
+    "assigneeTitle": "Set assignee",
+    "task": "Task",
+    "stage": "Stage",
+    "reason": "Block reason",
+    "unblockCondition": "Unblock condition",
+    "resolution": "Resolution",
+    "completionNote": "Completion confirmation",
+    "assignee": "Assignee",
+    "unassigned": "Unassigned",
+    "doneOwnerOnly": "Only the project owner can confirm completion.",
+    "required": "Fill in the required fields.",
+    "submit": "Submit",
+    "saving": "Submitting…",
+    "cancel": "Cancel",
+    "offline": "The computer is disconnected. Reconnect before submitting.",
+    "noTasks": "This project has no task to record progress for yet."
+  },
+  "confirm": {
+    "archiveTitle": "Archive project?",
+    "archiveBody": "Archived projects cannot get new tasks and stop running automatically. Members and progress stay readable.",
+    "unarchiveTitle": "Restore project?",
+    "unarchiveBody": "Restored projects can take new tasks and run automatically again.",
+    "confirm": "Confirm",
+    "cancel": "Cancel"
+  },
+  "errors": {
+    "NOT_PROJECT_OWNER": "Only the project owner can confirm completion or archive the project.",
+    "NOT_PROJECT_MEMBER": "You are not a member of this project.",
+    "PRECONDITION_FAILED": "The project changed. Refresh and try again.",
+    "REVISION_CONFLICT": "This progress was updated elsewhere. Refresh and try again.",
+    "ILLEGAL_TRANSITION": "This stage cannot be reached from the current one.",
+    "INVALID_PARAMS": "The submission did not pass the checks. Review it and try again.",
+    "NOT_FOUND": "This project or task no longer exists.",
+    "UNAVAILABLE": "The computer cannot complete this right now.",
+    "failed": "The action did not go through. Try again."
+  }
+}

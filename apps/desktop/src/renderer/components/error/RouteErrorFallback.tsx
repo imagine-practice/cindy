@@ -23,6 +23,7 @@ import { isRouteErrorResponse, useRouteError } from 'react-router-dom';
 
 import { createLogger } from '@/lib/logger';
 import { AppCrashScreen } from './AppCrashScreen';
+import { setRouteErrorVisible } from './routeErrorVisibility';
 
 const log = createLogger('route-error-fallback');
 
@@ -52,6 +53,15 @@ export function RouteErrorFallback({
   useEffect(() => {
     log.error('route render crashed', { variant, message, stack });
   }, [variant, message, stack]);
+
+  // A fullscreen route error replaces the whole routed tree, including the startup gate that the
+  // splash waits for. Tell the startup overlays to step aside so this page is visible and usable.
+  // Only the fullscreen variant: a `section` error keeps the shell (and the gate) alive.
+  useEffect(() => {
+    if (variant !== 'fullscreen') return undefined;
+    setRouteErrorVisible(true);
+    return () => setRouteErrorVisible(false);
+  }, [variant]);
 
   return <AppCrashScreen variant={variant} message={message} stack={stack} />;
 }

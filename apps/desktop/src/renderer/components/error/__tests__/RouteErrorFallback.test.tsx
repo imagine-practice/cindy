@@ -16,6 +16,7 @@ vi.mock('react-i18next', () => ({
 }));
 
 import { RouteErrorFallback } from '../RouteErrorFallback';
+import { isRouteErrorVisible, resetRouteErrorVisibilityForTests } from '../routeErrorVisibility';
 
 function Bomb(): never {
   // 模拟事故场景:组件渲染期抛错(真实事故是渲染 <undefined/> 抛 React #130)
@@ -33,7 +34,7 @@ function renderWithError(variant?: 'fullscreen' | 'section') {
   return render(<RouterProvider router={router} />);
 }
 
-afterEach(() => cleanup());
+afterEach(() => { cleanup(); resetRouteErrorVisibilityForTests(); });
 
 describe('RouteErrorFallback', () => {
   it('子树渲染抛错时展示可恢复错误页(标题 + 两个动作 + 详情折叠)', () => {
@@ -48,6 +49,32 @@ describe('RouteErrorFallback', () => {
       fireEvent.click(screen.getByRole('button', { name: 'chat.errorBanner.networkShowRaw' }));
       // 错误详情里能看到原始 message(给用户复制反馈用)
       expect(screen.getByText(/boom: element type is invalid/)).toBeTruthy();
+    } finally {
+      silence.mockRestore();
+    }
+  });
+
+  // 404/未知路由会把整棵路由树(含启动门闸)换成兜底页;启动遮罩必须据此让位,
+  // 否则用户只看到永远转圈的「唤醒 Cindy 中…」。判定来自真实路由错误,不是 URL 形状。
+  it('全屏路由错误(404)时告诉启动遮罩让位,卸载后恢复', () => {
+    const router = createMemoryRouter(
+      [{ path: '/', element: <div>home</div>, errorElement: <RouteErrorFallback /> }],
+      { initialEntries: ['/nope'] },
+    );
+    const view = render(<RouterProvider router={router} />);
+    expect(screen.getByText('appError.title')).toBeTruthy();
+    expect(screen.getByText('appError.backHome')).toBeTruthy();
+    expect(isRouteErrorVisible()).toBe(true);
+    view.unmount();
+    expect(isRouteErrorVisible()).toBe(false);
+  });
+
+  it('section 变体(内容区崩溃、外壳与启动门闸仍在)不触碰启动遮罩状态', () => {
+    const silence = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      renderWithError('section');
+      expect(screen.getByText('appError.title')).toBeTruthy();
+      expect(isRouteErrorVisible()).toBe(false);
     } finally {
       silence.mockRestore();
     }

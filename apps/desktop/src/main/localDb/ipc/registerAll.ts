@@ -34,6 +34,8 @@ import { registerSessionShareIpc } from './session-share';
 import { registerRecentWorkdirsIpc } from './recentWorkdirs';
 import { registerProjectAliasesIpc } from './projectAliases';
 import { registerProjectsIpc } from './projects';
+import { registerProjectRemoteResourceProvider } from './projectRemoteResourceProvider';
+import { registerProjectMembershipRecoveryIpc } from './projectMembershipRecovery';
 import { registerMaterialsIpc } from './materials';
 import { registerRightSidebarTabsIpc } from './rightSidebarTabs';
 import { registerSubagentRunsIpc } from './subagentRuns';
@@ -241,10 +243,13 @@ export function registerLocalDbIpc(opts: RegisterLocalDbIpcOpts = {}): void {
   registerRecentWorkdirsIpc();
   registerProjectAliasesIpc();
   registerProjectsIpc();
+  registerProjectMembershipRecoveryIpc();
   registerMaterialsIpc();
   ipcMain.handle(MATERIALS_READ_PREVIEW_BYTES_CHANNEL, readMaterialPreviewPdfBytes);
   registerProjectProgressIpc();
   registerProjectGroupLinksIpc();
+  // 手机/平板经 device-link 远程资源读项目；注册在集合表里，不新增 channel。
+  registerProjectRemoteResourceProvider();
   registerTaskTagsIpc();
   registerRightSidebarTabsIpc();
   // Durable Subagent projection writes share the agent event path's FIFO, so a

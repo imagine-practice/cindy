@@ -14157,6 +14157,10 @@
   },
   "ccAgent": {
     "projectCore": {
+      "recovery": {
+        "title": "Restore pre-sign-in project membership",
+        "confirmBody": "Restore the pre-sign-in local account’s membership in {{project}} to the currently authenticated account as an ordinary member, keeping the teammate owner and {{count}} task records. Cindy will create and verify a backup before updating this one project’s member identity. Continue?"
+      },
       "metadataEdit": {
         "title": "Edit project",
         "description": "Update the project name and goal.",
@@ -14229,12 +14233,24 @@
         "ownerRequired": "Select an owner",
         "currentAccount": "Current account"
       },
+      "taskCreate": {
+        "name": "Task name",
+        "goal": "Task objective",
+        "required": "Enter a task name and objective",
+        "hint": "Return to the project task list after creation. No message is sent and execution does not start.",
+        "submit": "Create task",
+        "discardPending": "Discard this unconfirmed creation",
+        "discardPendingNote": "This creation may not have completed. Discarding it lets you fill the form again and create a new task; tasks already created are not deleted.",
+        "discardPendingConfirm": "Discard"
+      },
       "detail": {
         "goal": "Goal",
         "noGoal": "No goal set",
         "members": "Members",
         "addMember": "Add member",
         "ownerBadge": "Owner",
+        "subjectUnavailable": "Profile unavailable",
+        "claimOwner": "Claim project ownership",
         "transferOwner": "Make owner",
         "removeMember": "Remove",
         "assignee": "Assignee",
@@ -14259,7 +14275,13 @@
         "notFound": "This project no longer exists",
         "back": "Back",
         "projectLabel": "Project",
-        "noProject": "Not in a project"
+        "noProject": "Not in a project",
+        "membersLoading": "Loading members you can add…",
+        "membersLoadFailed": "Couldn't load the members you can add",
+        "membersRetry": "Retry",
+        "noAddableMembers": "No one left to add",
+        "memberRemoved": "Removed {{name}}",
+        "archiveNotice": "Archived: you can still tidy members and settings and record progress; new tasks and automatic runs are off."
       },
       "deleteProject": {
         "title": "Delete project",
@@ -14271,7 +14293,8 @@
         "confirmTypePlaceholder": "Project name",
         "confirm": "Delete",
         "cancel": "Cancel",
-        "success": "Project deleted"
+        "success": "Project deleted",
+        "archiveWarning": "This project is archived. Deleting it permanently removes the project, its task links and its progress history. This cannot be undone."
       },
       "error": {
         "ownerMustTransfer": "Transfer ownership before removing the current owner.",
@@ -14417,7 +14440,8 @@
         "automationOrigin": "By automation",
         "automationOriginNamed": "By automation · {{name}}",
         "expandActions": "Show actions",
-        "collapseActions": "Hide actions"
+        "collapseActions": "Hide actions",
+        "unknownMember": "A member"
       },
       "progressEdit": {
         "title": "Record work progress",
@@ -20286,6 +20310,7 @@
     "progressUnavailable": "This project's progress could not be read, so there is nothing to sync yet.",
     "hostNotReady": "This computer cannot send group messages right now.",
     "unknownOutcome": "The result is unknown. Retrying is safe: this send is never posted twice.",
+    "inFlight": "This send may already have reached the group. Confirming again continues this same send, so it never appears twice.",
     "summary": {
       "heading": "Project progress · {{name}}",
       "empty": "No progress recorded yet",
@@ -20300,6 +20325,7 @@
       "itemOmitted": "…and {{count}} more work items not listed",
       "latest": "Latest progress: {{time}}",
       "latestNone": "Latest progress: none recorded"
-    }
+    },
+    "recheck": "Check this send again"
   }
 }

@@ -144,8 +144,10 @@ import { useDeviceLink } from '@/device-link/DeviceLinkContext';
 import {
   discoverRemoteHomeCollections,
   remoteResourceDiscoveryTargets,
+  serializeRemoteResourceTargets,
   type RemoteHomeCollection,
 } from '@/device-link/remoteResources';
+import { PROJECT_COLLECTION_ID } from '@/projects/projectModel';
 import {
   createEmptyDeviceIdentityCache,
   loadDeviceIdentityCache,
@@ -3069,6 +3071,17 @@ function HomeScreenContent({ active = true, width, newSessionInSystemBar = false
   const openRemoteCollection = useCallback((collection: RemoteHomeCollection) => {
     openHomeRemoteCollection(collection, guardedPush);
   }, [guardedPush]);
+  // 项目入口只看 manifest:被控端没有 `projects` 集合就没有这一项,也不报错。
+  const projectsCollection = useMemo(
+    () => remoteHomeCollections.find((collection) => collection.id === PROJECT_COLLECTION_ID && collection.targets.length > 0),
+    [remoteHomeCollections],
+  );
+  const openProjects = useMemo(() => !projectsCollection ? undefined : () => {
+    guardedPush({
+      pathname: '/projects',
+      params: { targets: serializeRemoteResourceTargets(projectsCollection.targets) },
+    });
+  }, [guardedPush, projectsCollection]);
   const scopeCollections = useMemo(
     () => homeScopeCollections(remoteHomeCollections, TEAMMATE_COLLECTION_ID),
     [remoteHomeCollections],
@@ -3648,6 +3661,11 @@ function HomeScreenContent({ active = true, width, newSessionInSystemBar = false
           setChromeMenuOpen(false);
           guardedPush('/plugins');
         }}
+        onOpenProjects={openProjects ? () => {
+          pendingMenuActionRef.current = null;
+          setChromeMenuOpen(false);
+          openProjects();
+        } : undefined}
         onOpenDevices={() => {
           pendingMenuActionRef.current = null;
           setChromeMenuOpen(false);

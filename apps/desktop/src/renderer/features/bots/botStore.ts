@@ -514,6 +514,8 @@ let profiles: BotProfile[] = [];
 const listeners = new Set<() => void>();
 let hydrated = false;
 let profileListLoaded = false;
+/** A finished attempt that produced no list: distinct from "no bots exist". */
+let profileListFailed = false;
 let profileOwner = getDataOwnerGeneration();
 let hydrationGeneration = 0;
 const hydrationPromises = new Set<Promise<void>>();
@@ -526,6 +528,7 @@ function ensureProfileOwner(): void {
   profileOwner = getDataOwnerGeneration();
   profiles = [];
   profileListLoaded = false;
+  profileListFailed = false;
   unreadCounts = {};
   globalModelChainCache = null;
   globalModelChainCustomized = null;
@@ -747,6 +750,7 @@ async function hydrateFromDatabase(): Promise<void> {
   // 列表 —— 有 `bots` 命名空间不等于有完整 API,按能力探测而不是按存在性判定。
   if (!api || typeof api.list !== 'function' || hydrated) return;
   hydrated = true;
+  profileListFailed = false;
   const owner = getDataOwnerGeneration();
   const generation = ++hydrationGeneration;
   const isCurrent = () => isDataOwnerGenerationCurrent(owner) && generation === hydrationGeneration;
@@ -785,7 +789,7 @@ async function hydrateFromDatabase(): Promise<void> {
     // DB readiness can race the first renderer render during account/bootstrap.
     // The Bots layout explicitly calls refreshBotProfiles when entered, so do
     // not keep polling a signed-out renderer in the background.
-    if (isCurrent()) { hydrated = false; profileListLoaded = true; emit(); }
+    if (isCurrent()) { hydrated = false; profileListLoaded = true; profileListFailed = true; emit(); }
   }
 }
 
@@ -855,6 +859,20 @@ export async function runBotLifecycleAction(
 export function hasLoadedBotProfiles(): boolean {
   ensureProfileOwner();
   return profileListLoaded;
+}
+
+/** Three states a member picker must tell apart: still loading, readable, or failed to read.
+ * An empty list alone is not evidence of "no teammates". */
+export type BotProfilesStatus = 'loading' | 'ready' | 'failed';
+
+export function getBotProfilesStatus(): BotProfilesStatus {
+  ensureProfileOwner();
+  if (profileListFailed) return 'failed';
+  return profileListLoaded ? 'ready' : 'loading';
+}
+
+export function useBotProfilesStatus(): BotProfilesStatus {
+  return useSyncExternalStore(subscribeBotProfiles, getBotProfilesStatus, getBotProfilesStatus);
 }
 
 export function getBotProfiles(): BotProfile[] {

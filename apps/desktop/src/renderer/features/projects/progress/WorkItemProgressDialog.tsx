@@ -178,7 +178,7 @@ function ProgressScope({ snapshot, onOpenChange, onSubmit, onRefresh, onSaved, r
               </label>}
             </>}
             {hidden && <p role="alert" className="text-13 text-[var(--text-secondary)]">{tr('unavailable')}</p>}
-            {error && <p role="alert" className="break-words text-13 text-[var(--danger-text)]">{tr(`error.${error}`)}</p>}
+            {error && <p role="alert" className="break-words text-13 text-[var(--text-danger)]">{tr(`error.${error}`)}</p>}
             {busy && <p role="status" className="text-12 text-[var(--text-secondary)]">{tr('inFlight')}</p>}
           </div>
           <div className="flex shrink-0 flex-wrap justify-end gap-2">

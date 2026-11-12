@@ -34,6 +34,9 @@ export const useOptionalDataOwnerGeneration = () => fixtureAuth.dataOwnerGenerat
     },
   },
   cases: {
+    'owner-claim': { viewport: { width: 320, height: 850 }, about: 'Project ownership claim has a translated label for a non-owner member' },
+    'task-create': { about: 'Create a native project task without opening the composer; synthetic persistence receipt' },
+    'task-create-narrow': { viewport: { width: 320, height: 850 }, about: 'Project task creation at narrow width' },
     default: { about: 'Entity projects with bound tasks, an empty project and the new-project entry' },
     sidebar: { about: 'Entity projects with bound tasks, an empty project and the new-project entry' },
     metadata: { viewport: { width: 320, height: 850 }, about: 'Real detail/edit dialog/service, synthetic metadata backend; name save and keyboard focus' },
@@ -52,6 +55,28 @@ export const useOptionalDataOwnerGeneration = () => fixtureAuth.dataOwnerGenerat
       .waitFor();
   },
   async check(page, ui) {
+    if (ui.case === 'owner-claim') {
+      await page.getByRole('button', { name: await ui.t('ccAgent.projectCore.detail.claimOwner'), exact: true }).waitFor();
+      await ui.capture('owner-claim'); return;
+    }
+    if (ui.case.startsWith('task-create')) {
+      await page.getByRole('button', { name: await ui.t('ccAgent.projectCore.detail.newTask'), exact: true }).click();
+      const dialog = page.getByRole('dialog'); await dialog.waitFor();
+      await dialog.getByRole('textbox').first().fill('验收任务');
+      await dialog.getByRole('textbox').nth(1).fill('核对目标、处理人和项目列表关联');
+      await dialog.getByRole('combobox').click();
+      await page.getByRole('option', { name: 'Filo', exact: true }).click();
+      await ui.capture('task-create-filled');
+      await dialog.getByRole('button', { name: await ui.t('ccAgent.projectCore.taskCreate.submit'), exact: true }).click();
+      await dialog.waitFor({ state: 'detached' });
+      const row = page.locator('li').filter({ has: page.getByRole('combobox') }).filter({ has: page.getByRole('button', { name: /验收任务/ }) });
+      await row.getByText('核对目标、处理人和项目列表关联', { exact: true }).waitFor();
+      await row.getByText('Filo', { exact: true }).waitFor();
+      await row.getByText(await ui.t('ccAgent.projectCore.progress.unknown'), { exact: true }).waitFor();
+      if (!(await row.locator('button').first().evaluate(el => el === document.activeElement))) throw Error('Created task was not focused');
+      if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw Error('Task creation overflows viewport');
+      await ui.capture('task-created'); return;
+    }
     if (ui.case.startsWith('metadata')) {
       const key = name => ui.t('ccAgent.projectCore.metadataEdit.' + name);
       const trigger = page.getByRole('button', { name: await key('title'), exact: true });
@@ -78,6 +103,15 @@ export const useOptionalDataOwnerGeneration = () => fixtureAuth.dataOwnerGenerat
       await page.getByRole('button', { name: await ui.t('ccAgent.projectCore.detail.newTask'), exact: true }).waitFor();
       await assertProjectUiRules(page);
       await ui.capture('detail-rules');
+      const owner = page.getByRole('banner').getByLabel(await ui.t('ccAgent.projectCore.detail.ownerBadge'));
+      if (!(await owner.innerText()).includes('Chris')) throw Error('Owner name missing');
+      // Same active session lifecycle, different recorded business progress.
+      const rows = page.locator('li').filter({ has: page.getByRole('combobox') });
+      await rows.first().scrollIntoViewIfNeeded();
+      for (const [index, status] of ['todo', 'blocked', 'unknown'].entries()) {
+        await rows.nth(index).getByText(await ui.t('ccAgent.projectCore.progress.' + status), { exact: true }).waitFor();
+      }
+      await ui.capture('task-progress');
     }
     if (ui.case === 'sidebar') {
       await page.getByRole('button', { name: await ui.t('ccAgent.projectCore.newProject'), exact: true }).waitFor();

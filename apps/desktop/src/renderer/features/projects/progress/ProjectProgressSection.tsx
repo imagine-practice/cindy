@@ -1,3 +1,4 @@
+import type { ProjectMember } from '../../../../shared/projects';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useConfirmDialog } from '@/components/ui/confirm-dialog-provider';
@@ -72,8 +73,11 @@ export function followupNoticeKey(
   return { key: result.replayed ? 'alreadySent' : 'continued' };
 }
 
-export function ProjectProgressSection({ projectId, refreshKey, onAccessLost, onOpenWorkItem }: {
+export function ProjectProgressSection({ projectId, refreshKey, onAccessLost, onOpenWorkItem, onStateChange, members = [] }: {
   projectId: string; refreshKey: number; onAccessLost: () => void; onOpenWorkItem: (id: string) => void;
+  onStateChange?: (state: ProjectProgressState) => void;
+  /** Project members: resolve history actors' names offline (Main sends kind/id only). */
+  members?: readonly ProjectMember[];
 }) {
   const { t } = useTranslation();
   // 换模型候选来自宿主模型目录（本机已连接、未停用的来源）。
@@ -90,6 +94,7 @@ export function ProjectProgressSection({ projectId, refreshKey, onAccessLost, on
   const followupBusyRef = useRef(false);
   const [followupNotice, setFollowupNotice] = useState<FollowupNotice | null>(null);
   const [state, setState] = useState<ProjectProgressState>({ status: 'loading' });
+  useEffect(() => { onStateChange?.(state); }, [state, onStateChange]);
   const [page, setPage] = useState<ProjectProgressReadResult['historyPage'] | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState(false);
@@ -312,7 +317,7 @@ export function ProjectProgressSection({ projectId, refreshKey, onAccessLost, on
   };
 
   return <div className="flex min-w-0 flex-col gap-3">
-    <ProjectProgressView projectId={projectId} state={state} onOpenWorkItem={onOpenWorkItem}
+    <ProjectProgressView projectId={projectId} members={members} state={state} onOpenWorkItem={onOpenWorkItem}
       onRefresh={() => void loadRef.current()}
       execution={execution} executionUnavailable={executionUnavailable}
       executionBusySessionId={executionBusySessionId} executionNotice={executionNotice}
@@ -322,7 +327,7 @@ export function ProjectProgressSection({ projectId, refreshKey, onAccessLost, on
       onFollowup={(id, action, payload) => void followup(id, action, payload)}
       onEditWorkItem={state.status === 'ready' && current.current?.capabilities.canRecord ? openEditor : undefined} />
     {state.status === 'ready' && page?.hasMore && <div className="flex min-w-0 flex-col items-start gap-2">
-      {moreError && <p role="alert" className="text-13 text-[var(--danger-text)]">{t('ccAgent.projectCore.progress.earlierFailed')}</p>}
+      {moreError && <p role="alert" className="text-13 text-[var(--text-danger)]">{t('ccAgent.projectCore.progress.earlierFailed')}</p>}
       <Button variant="secondary" className="whitespace-normal" disabled={loadingMore} onClick={() => void more()}>
         {t(`ccAgent.projectCore.progress.${loadingMore ? 'loadingEarlier' : 'loadEarlier'}`)}
       </Button>

@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` ADD `task_objective` text;

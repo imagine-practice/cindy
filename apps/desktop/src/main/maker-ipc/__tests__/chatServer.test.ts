@@ -25,12 +25,25 @@ vi.mock('../chatServerWorkspaces.js', () => ({ chatServerWorkspaces: () => ({
 beforeEach(() => workspaceSettings.clear());
 const migration = vi.hoisted(() => ({ read: vi.fn<(_groupId: string) => { roomId: string; sequence: number; version: 2 } | null>(() => null) }));
 const sendJournal = vi.hoisted(() => ({ enabled: false, rows: new Map<string, { intent?: unknown; receipt?: string }>() }));
-vi.mock('../chatSendJournal.js', () => ({ chatSendJournal: () => ({
-  read: (key: string) => sendJournal.enabled ? sendJournal.rows.get(key) ?? null : null,
-  save: (key: string, _signature: string, intent: unknown) => { if (sendJournal.enabled) sendJournal.rows.set(key, { intent: structuredClone(intent) }); },
-  confirm: (key: string, _signature: string, receipt: string) => { if (sendJournal.enabled) sendJournal.rows.set(key, { receipt }); },
-  forgetRoom: vi.fn(),
-}) }));
+vi.mock('../chatSendJournal.js', () => ({
+  chatSendJournal: () => ({
+    read: (key: string) => sendJournal.enabled ? sendJournal.rows.get(key) ?? null : null,
+    save: (key: string, _signature: string, intent: unknown) => { if (sendJournal.enabled) sendJournal.rows.set(key, { intent: structuredClone(intent) }); },
+    confirm: (key: string, _signature: string, receipt: string) => { if (sendJournal.enabled) sendJournal.rows.set(key, { receipt }); },
+    forgetRoom: vi.fn(),
+  }),
+  // The real modules own the key format and the endpoint rule; express them with this file's fixtures.
+  chatSendJournalKey: (groupId: string, clientId: string, controllerDeviceId: string | null = null) =>
+    JSON.stringify([groupId, clientId, controllerDeviceId ?? null]),
+  chatSendJournalEndpoint: () => {
+    if (fixture.packaged || process.env.XDT_ISOLATED !== '1' || !fixture.exists()) return 'https://chat.cindy.app';
+    // Same strict fixture contract: only the loopback test server is accepted.
+    const config = JSON.parse(fixture.config || '{"baseUrl":"https://example.com","token":"test"}');
+    if (config.baseUrl !== 'http://127.0.0.1:3018' || config.auth !== 'cindy') throw new Error('INVALID_CHAT_ENDPOINT');
+    return config.baseUrl;
+  },
+  readChatSendReceipt: () => null,
+}));
 beforeEach(() => { sendJournal.enabled = false; sendJournal.rows.clear(); });
 vi.mock('../chatLocalHistory.js', () => ({ chatLocalHistory: () => ({ read: () => null, save: vi.fn(), forget: vi.fn() }) }));
 vi.mock('../chatMigrationReceipts.js', () => ({ chatMigrationReceipts: () => ({ read: migration.read, save: vi.fn() }) }));

@@ -14091,6 +14091,10 @@
   },
   "ccAgent": {
     "projectCore": {
+      "recovery": {
+        "title": "로그인 전 프로젝트 멤버 정보 복원",
+        "confirmBody": "{{project}}의 로그인 전 로컬 계정 멤버 정보를 현재 인증된 계정의 일반 멤버 정보로 복원합니다. 담당 파트너와 작업 기록 {{count}}개는 유지됩니다. Cindy가 먼저 백업을 만들고 검증한 후 이 프로젝트의 멤버 식별 정보만 업데이트합니다. 계속할까요?"
+      },
       "metadataEdit": {
         "title": "프로젝트 편집",
         "description": "프로젝트 이름과 목표를 수정합니다.",
@@ -14163,12 +14167,24 @@
         "ownerRequired": "담당자를 선택하세요",
         "currentAccount": "현재 계정"
       },
+      "taskCreate": {
+        "name": "작업 이름",
+        "goal": "작업 목표",
+        "required": "작업 이름과 목표를 입력하세요",
+        "hint": "생성 후 프로젝트 작업 목록으로 돌아갑니다. 메시지를 보내거나 실행을 시작하지 않습니다.",
+        "submit": "작업 만들기",
+        "discardPending": "이 미확인 생성을 버리기",
+        "discardPendingNote": "이 생성은 완료되지 않았을 수 있습니다. 버리면 다시 입력해 새 작업을 만들 수 있으며, 이미 만들어진 작업은 삭제되지 않습니다.",
+        "discardPendingConfirm": "버리기"
+      },
       "detail": {
         "goal": "Goal",
         "noGoal": "No goal set",
         "members": "Members",
         "addMember": "Add member",
         "ownerBadge": "Owner",
+        "subjectUnavailable": "프로필을 사용할 수 없습니다",
+        "claimOwner": "프로젝트 책임자 되기",
         "transferOwner": "Make owner",
         "removeMember": "Remove",
         "assignee": "Assignee",
@@ -14193,7 +14209,13 @@
         "notFound": "This project no longer exists",
         "back": "Back",
         "projectLabel": "프로젝트",
-        "noProject": "Not in a project"
+        "noProject": "Not in a project",
+        "membersLoading": "추가할 수 있는 멤버를 불러오는 중…",
+        "membersLoadFailed": "추가할 수 있는 멤버를 불러오지 못했습니다",
+        "membersRetry": "다시 시도",
+        "noAddableMembers": "추가할 멤버가 없습니다",
+        "memberRemoved": "{{name}} 님을 내보냈습니다",
+        "archiveNotice": "보관됨: 멤버와 설정 정리, 진행 기록은 계속할 수 있습니다. 새 작업 만들기와 자동 실행은 중지됩니다."
       },
       "deleteProject": {
         "title": "프로젝트 삭제",
@@ -14205,7 +14227,8 @@
         "confirmTypePlaceholder": "프로젝트 이름",
         "confirm": "삭제",
         "cancel": "취소",
-        "success": "프로젝트를 삭제했습니다"
+        "success": "프로젝트를 삭제했습니다",
+        "archiveWarning": "이 프로젝트는 보관된 상태입니다. 삭제하면 프로젝트, 작업 연결, 진행 기록이 영구히 사라지며 되돌릴 수 없습니다."
       },
       "error": {
         "ownerMustTransfer": "Transfer ownership before removing the current owner.",
@@ -14351,7 +14374,8 @@
         "automationOrigin": "자동화로 생성됨",
         "automationOriginNamed": "자동화로 생성됨 · {{name}}",
         "expandActions": "작업 펼치기",
-        "collapseActions": "작업 접기"
+        "collapseActions": "작업 접기",
+        "unknownMember": "멤버"
       },
       "progressEdit": {
         "title": "작업 진행 기록",
@@ -20214,6 +20238,7 @@
     "progressUnavailable": "이 프로젝트의 진행을 읽을 수 없어 동기화할 내용이 없습니다.",
     "hostNotReady": "이 컴퓨터는 지금 그룹 메시지를 보낼 수 없습니다.",
     "unknownOutcome": "전송 결과를 알 수 없습니다. 이번 전송이 두 번 올라가지 않으므로 다시 시도해도 안전합니다.",
+    "inFlight": "이 전송은 이미 그룹에 도착했을 수 있습니다. 다시 확인해도 같은 전송이 이어지므로 두 번 표시되지 않습니다.",
     "summary": {
       "heading": "프로젝트 진행 · {{name}}",
       "empty": "아직 진행 기록이 없습니다",
@@ -20228,6 +20253,7 @@
       "itemOmitted": "……작업 {{count}}건은 나열하지 않음",
       "latest": "최근 진행: {{time}}",
       "latestNone": "최근 진행: 기록 없음"
-    }
+    },
+    "recheck": "이 전송을 다시 확인"
   }
 }

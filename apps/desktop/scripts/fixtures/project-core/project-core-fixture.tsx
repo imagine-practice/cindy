@@ -103,7 +103,7 @@ const projects: ProjectRecord[] = [
 ];
 
 const sessions: Session[] = [
-  task({ id: 't1', title: '项目 schema 与 migration', projectId: 'p-core', updatedAt: '2026-11-05T07:40:00.000Z' }),
+  task({ id: 't1', workspaceKind: 'dialogue', title: '项目 schema 与 migration', projectId: 'p-core', updatedAt: '2026-11-05T07:40:00.000Z' }),
   task({ id: 't2', title: '负责人守卫与转交', projectId: 'p-core', updatedAt: '2026-11-05T05:20:00.000Z' }),
   task({ id: 't3', title: '侧栏按实体项目归组', projectId: 'p-core', updatedAt: '2026-11-04T10:00:00.000Z', status: 'archived' }),
   task({ id: 't4', title: '迁移设计系统半径 token', projectId: 'p-design', updatedAt: '2026-11-04T09:10:00.000Z' }),
@@ -125,7 +125,7 @@ const emptySet = new Set<string>();
 const emptyMap = new Map();
 
 mountPage({
-  cases: ['sidebar', 'detail', 'create', 'binding', 'metadata', 'metadata-wide'],
+  cases: ['sidebar', 'detail', 'create', 'binding', 'metadata', 'metadata-wide', 'task-create', 'task-create-narrow', 'owner-claim'],
   host: () => { setDataOwnerGeneration('acc-1', 1); return ({
     localDb: {
       projects: {
@@ -133,6 +133,12 @@ mountPage({
         detail: async () => detail,
         // Only this isolated fixture backend changes; production service/metadata intent is real.
         mutate: async (intent: ProjectsAction) => {
+          if (intent.action === 'createWorkItem') {
+            detail.workItems.unshift({ sessionId: intent.sessionId, title: intent.title,
+              taskObjective: intent.taskObjective, status: 'active', updatedAt: '',
+              assignee: detail.project.members.find(member => member.subject.kind === intent.assignee?.kind && member.subject.id === intent.assignee.id)?.subject ?? null });
+            return { ok: true, projectId: 'p-core', sessionId: intent.sessionId };
+          }
           if (intent.action === 'update') {
             if (intent.name !== undefined) detail.project.name = intent.name;
             if (intent.goal !== undefined) detail.project.goal = intent.goal;
@@ -141,13 +147,25 @@ mountPage({
         },
         onChanged: subscription('projects'),
       },
-      projectProgress: { read: async () => ({ projectId: 'p-core', items: [], history: [],
+      projectProgress: { read: async () => ({ projectId: 'p-core', items: detail.workItems.map(item => ({
+        sessionId: item.sessionId, projectId: 'p-core', title: item.title, sessionStatus: item.status,
+        bindingRevision: 0, assignee: item.assignee,
+        progress: !['t1', 't2'].includes(item.sessionId) ? null : {
+          sessionId: item.sessionId, projectId: 'p-core', bindingRevision: 0,
+          status: item.sessionId === 't1' ? 'todo' : 'blocked', revision: 1, completionEventId: null,
+        },
+      })), history: [],
         capabilities: { canRecord: true, canConfirmDone: true },
         historyPage: { limit: 100, hasMore: false, nextBeforeEventId: null } }) },
+      projectExecution: { read: async () => ({ projectId: 'p-core', items: [] }) },
     },
   }); },
   render: (ctx) => {
-    if (ctx.case === 'detail' || ctx.case.startsWith('metadata')) {
+    if (ctx.case === 'owner-claim') {
+      detail.project.ownerId = filo.id;
+      detail.project.members = detail.project.members.map(member => ({ ...member, role: member.subject.kind === 'bot' && member.subject.id === filo.id ? 'owner' : 'member' }));
+    }
+    if (ctx.case === 'owner-claim' || ctx.case === 'detail' || ctx.case.startsWith('metadata') || ctx.case.startsWith('task-create')) {
       return (
         <MemoryRouter initialEntries={['/cc-agent/projects/p-core']}>
           <Routes>

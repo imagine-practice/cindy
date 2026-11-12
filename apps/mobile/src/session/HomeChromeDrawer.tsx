@@ -10,7 +10,7 @@
  *   走透明 RN Modal(独立 Dialog 窗口),返回键由 onRequestClose 接管。
  * 新窗口里要自带 GestureHandlerRootView,左滑关闭才有效。动画遵循 reduce-motion。
  */
-import { Building2, LogOut, Monitor, Plug, Search, Settings, UsersRound } from 'lucide-react-native';
+import { Building2, FolderKanban, LogOut, Monitor, Plug, Search, Settings, UsersRound } from 'lucide-react-native';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
@@ -75,6 +75,7 @@ export function HomeChromeDrawer({
   onOpenAccounts,
   onOpenDevices,
   onOpenPlugins,
+  onOpenProjects,
   onOpenSettings,
   onLogout,
   hasRunningTasks = false,
@@ -90,6 +91,8 @@ export function HomeChromeDrawer({
   onOpenAccounts(): void;
   onOpenDevices(): void;
   onOpenPlugins?(): void;
+  /** 只有在某台电脑的 manifest 里含 `projects` 集合时才传入(契约 §8:老的被控端没有则不显示,且不报错)。 */
+  onOpenProjects?(): void;
   onOpenSettings(): void;
   /** 确认后才调用:抽屉内部先弹 confirmLogout,调用方不要再重复确认。 */
   onLogout(): void;
@@ -351,6 +354,12 @@ export function HomeChromeDrawer({
               <Plug color={colors.textSecondary} size={iconSize.md} strokeWidth={iconStroke.regular} />
               <Text numberOfLines={1} style={styles.menuLabel}>{t('plugins.title')}</Text>
               <PluginMenuUnreadDot active={open} />
+            </Pressable> : null}
+
+            {onOpenProjects ? <Pressable accessibilityRole="button" accessibilityLabel={t('projects.title')}
+              onPress={onOpenProjects} style={({ pressed }) => [styles.menuRow, pressed && styles.pressed]} testID="home.chromeDrawer.projects">
+              <FolderKanban color={colors.textSecondary} size={iconSize.md} strokeWidth={iconStroke.regular} />
+              <Text numberOfLines={1} style={styles.menuLabel}>{t('projects.title')}</Text>
             </Pressable> : null}
 
             <Pressable

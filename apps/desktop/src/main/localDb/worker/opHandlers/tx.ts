@@ -12,6 +12,7 @@ import { runPluginUsageTransaction } from './pluginUsageTx.js';
 import { runSessionImportTransaction } from './sessionImportTx.js';
 import { runTaskTagsTransaction } from './taskTagsTx.js';
 import { runProjectsTransaction } from './projectsTx.js';
+import { runProjectMembershipRecoveryTransaction } from './projectMembershipRecoveryTx.js';
 import { runMaterialsTransaction } from './materialsTx.js';
 import { recordMediaSpend } from './mediaSpendTx.js';
 import { recordPiUsage } from './piUsageTx.js';
@@ -144,6 +145,8 @@ function dispatchTransaction(db: Database.Database, args: unknown): unknown {
     }
     case 'projects.execute':
       return runProjectsTransaction(db, txArgs);
+    case 'projectMembershipRecovery.execute':
+      return runProjectMembershipRecoveryTransaction(db, txArgs as Parameters<typeof runProjectMembershipRecoveryTransaction>[1]);
     case 'projectProgress.read': {
       const read = asRecord(txArgs, 'projectProgress.read args');
       return readProjectProgressTransaction(db, read.request, read.context as Parameters<typeof readProjectProgressTransaction>[2]);

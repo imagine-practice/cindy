@@ -1,5 +1,25 @@
 # Agent 与用户同权：工具能力不以「Agent 不该做」为由少给
 
+## 同一项目任务的显式补充与进度回写（2026-11-09，候选实现）
+
+`mutate_project_entity` 追加 `updateWorkItem` 与 `recordProgress`，仍是本机宿主回调，
+不是群成员默认获得的写权限。前者仅补已有 Session 的名称/目标：先从
+`get_project_entity` 读同一工作项的 `updatedAt` 和 `bindingRevision`，原样作为
+`expectedUpdatedAt` / `expectedBindingRevision`；事务内重查当前成员、项目/任务活跃状态、
+绑定代次及时间戳。陈旧请求拒绝并要求重读，不解绑、不新建 Session、不执行模型或改进度。
+返回的工作项目标字段为 `taskObjective`，空旧字段保持兼容。
+
+`recordProgress` 复用 `workItemProgress.execute` 和原事件账本：读取进度后携带
+`expectedRevision` / `expectedBindingRevision` 与稳定 `requestId`，明确补录才写；
+收到 `progressReceipt.eventId/revision/replayed` 才是已提交回执，未知时先按原任务重读。
+普通成员不可确认 done，完成仍要求负责人及说明。群来源沿原 owner-action 租约、实时来源、
+任务权限和项目成员判定，群普通讨论、引用卡元数据、伙伴自报完成不自动写入。
+当前没有新增自然语言解析器、自动群发或另一套任务/进度存储；普通群成员的跨账号反馈
+不因该入口获得 owner 身份，尚未建立可信身份来源的情况继续拒绝。
+
+状态：已通过公开 MCP→宿主授权→真实迁移 SQLite 的隔离回归；真实账号群反馈、
+模型使用新 action、桌面补充表单和跨设备入口尚需分别验收，不称生产已部署。
+
 ## 已有项目任务公开执行入口（2026-11-06，待主人审查）
 
 `execute_project_work_item` 由Desktop可选宿主回调注册。当前本机Bot以真实caller/current input、权限与暂停代次采用原Session；actor/executor/requestToken由main决定。非Bot和group lane不降级另一主体，群由独立原生跟进来源通道负责。输入必须带实际绑定代次，不补最新值。
@@ -290,3 +310,8 @@ Webhook 跨电脑配置（2026-11-06）：`schedule_create` / `schedule_update` 
 伙伴例行任务送达与发现（2026-10-30）：Pi 直接 `routine_save` 与 helper 同时提供 `modelOverride`、`sessionMode`、`delivery`；伙伴 essential tools 提供 `schedule_list_models` 和 `routine_delivery_targets`。价格与能力来自实际连接来源，保留 unknown；本机位置 `local` 保存为 null。桌面、Agent 和另一电脑上的设置共用 `routineTools`，默认结果直接显示在发起伙伴主任务；显式处理才唤醒模型，IM 只使用已连接机器人的已知收件人。执行和送达失败分开记录，静默检查仍静默。
 
 GitHub 查询与关联的独立语义、缓存和游标合同见 [GitHub 状态与关联](github-status-and-associations.md)。
+
+
+## 项目内创建未执行任务（2026-11-09，待真实验收）
+
+`mutate_project_entity.createWorkItem` 与项目详情表单共用原生 `openSession` 和项目事务；名称、目标、处理人及项目归属持久化到同一 Session。提供稳定 sessionId 作创建重试标识，不发送消息、不启动模型、不注册伙伴跟进。主进程重建调用者身份，并在异步准备后、事务提交前重新核对权限；事务内核对项目状态与成员。目标是普通任务资料，不进入自动执行用 session_goals。旧 action 保持兼容。

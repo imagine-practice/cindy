@@ -13,6 +13,9 @@ const env = vi.hoisted(() => ({
   changed: undefined as (() => void) | undefined,
   listeners: [] as (() => void)[], generation: 1, unsubscribed: vi.fn(), toast: vi.fn(),
   toastSuccess: vi.fn(), confirm: vi.fn(), deleteProject: vi.fn(),
+  botStatus: 'ready' as 'loading' | 'ready' | 'failed',
+  bots: [] as Array<{ id: string; name: string; status?: string; avatar?: string | null; avatarColor?: string | null }>,
+  refreshBots: vi.fn(),
   rename: vi.fn(), add: vi.fn(), remove: vi.fn(), transfer: vi.fn(), assign: vi.fn(),
 }));
 vi.mock('react-router-dom', () => ({ useParams: () => env.route, useNavigate: () => env.navigate }));
@@ -20,8 +23,11 @@ vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => k
 vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: () => ({ dataOwnerId: `owner-${env.generation}`, dataOwnerGeneration: env.generation }), useOptionalDataOwnerGeneration: () => env.generation }));
 vi.mock('@/contexts/dataOwnerGeneration', () => ({ getDataOwnerGeneration: () => env.generation,
   isDataOwnerGenerationCurrent: (owner: number) => owner === env.generation }));
-vi.mock('@/features/bots/botStore', () => ({ useBotProfiles: () => [] }));
-vi.mock('../projectLabels', () => ({ useProjectSubjectLabel: () => (subject: { id: string }) => subject.id, projectSubjectAvatar: () => 'X', projectSubjectVisual: (subject: { kind: 'account' | 'bot' }, name: string) => ({ kind: subject.kind, name }) }));
+vi.mock('@/features/bots/botStore', () => ({ useBotProfiles: () => env.bots,
+  useBotProfilesStatus: () => env.botStatus, refreshBotProfiles: () => env.refreshBots() }));
+vi.mock('../projectLabels', () => ({ useProjectSubjectLabel: () => (subject: { id: string }) => subject.id,
+  useProjectSubjectName: () => (subject: { id: string } | null) => (subject ? subject.id : null),
+  projectSubjectAvatar: () => 'X', projectSubjectVisual: (subject: { kind: 'account' | 'bot' } | null, name: string) => ({ kind: subject?.kind ?? 'account', name }) }));
 vi.mock('@/components/ui/select', () => ({ Select: (props: { label: string; value: string; disabled?: boolean;
   options: { value: string; label: string }[]; onValueChange(value: string): void }) =>
   <select aria-label={props.label} value={props.value} disabled={props.disabled}
@@ -43,6 +49,7 @@ vi.mock('../projectService', async importOriginal => {
     return () => { if (env.changed === cb) env.changed = undefined; env.unsubscribed(cb); };
   },
   addProjectMember: env.add, removeProjectMember: env.remove,
+  mutateProject: real.mutateProject,
   deleteProject: (id: string) => env.deleteProject(id),
   renameProject: (id: string, patch: Parameters<typeof real.renameProject>[1]) => env.realBridge ? real.renameProject(id, patch) : env.rename(id, patch),
   setSessionAssignee: env.assign, transferProjectOwner: env.transfer,
@@ -58,12 +65,39 @@ function pending<T>() {
   return { promise, resolve, reject };
 }
 beforeEach(() => {
+  Reflect.deleteProperty(window, 'electronAPI');
+  localStorage.clear();
   vi.resetAllMocks(); env.realBridge = false; env.route = { projectId: 'p1' }; env.changed = undefined; env.listeners = []; env.generation = 1;
   for (const action of [env.rename, env.add, env.remove, env.transfer, env.assign]) action.mockResolvedValue(undefined);
   env.deleteProject.mockResolvedValue(undefined);
   env.confirm.mockResolvedValue(false);
+  env.botStatus = 'ready'; env.bots = []; env.refreshBots.mockReset();
 });
 afterEach(cleanup);
+
+// Real progress section -> real read projection -> task row: active is storage
+// lifecycle, not doing. Existing page cases never provided progress records.
+it('shows the owner and shares recorded/unknown progress with the progress section', async () => {
+  const row = detail('p1', 'Coffee');
+  row.project.members = [{ subject: { kind: 'account', id: 'owner-1', displayName: 'Owner', avatar: null, avatarColor: null }, role: 'owner', addedAt: '' }];
+  row.workItems = ['recorded', 'unknown'].map(sessionId => ({ sessionId, title: sessionId, status: 'active', assignee: null, updatedAt: '' }));
+  env.read.mockResolvedValue(row);
+  Object.defineProperty(window, 'electronAPI', { configurable: true, value: { localDb: {
+    projectProgress: { read: vi.fn().mockResolvedValue({ projectId: 'p1', items: row.workItems.map(item => ({
+      sessionId: item.sessionId, projectId: 'p1', title: item.title, sessionStatus: 'active', bindingRevision: 0, assignee: null,
+      progress: item.sessionId === 'recorded' ? { sessionId: item.sessionId, projectId: 'p1', bindingRevision: 0, status: 'blocked', revision: 1, completionEventId: null } : null,
+    })), history: [], capabilities: { canRecord: false, canConfirmDone: false }, historyPage: { hasMore: false, nextBeforeEventId: null, limit: 100 } }) },
+    projectExecution: { read: vi.fn().mockResolvedValue({ projectId: 'p1', items: [] }) },
+  } } });
+  render(<ProjectDetailPage />);
+  const header = await screen.findByRole('banner');
+  expect(within(header).getByLabelText('ccAgent.projectCore.detail.ownerBadge').textContent).toContain('owner-1');
+  const taskRow = (title: string) => screen.getAllByRole('button', { name: title })
+    .map(button => button.closest('li')).find(Boolean)!;
+  await waitFor(() => expect(within(taskRow('recorded')).getByText('ccAgent.projectCore.progress.blocked')).toBeTruthy());
+  expect(within(taskRow('unknown')).getByText('ccAgent.projectCore.progress.unknown')).toBeTruthy();
+  expect(screen.queryByText('ccAgent.projectCore.detail.statusActive')).toBeNull();
+});
 
 it('control: renders the requested project normally', async () => {
   env.read.mockResolvedValue(detail('p1', 'Coffee'));
@@ -209,6 +243,8 @@ it('preserves materials/task navigation and member/assignee write inputs', async
   expect(env.transfer).toHaveBeenCalledExactlyOnceWith('p1', { kind: 'bot', id: 'partner' });
   await act(async () => fireEvent.click(screen.getByRole('button', { name: 'ccAgent.projectCore.detail.removeMember' })));
   expect(env.remove).toHaveBeenCalledExactlyOnceWith('p1', { kind: 'bot', id: 'partner' });
+  // D-3: a removal that settles must say so; silence left the user unable to tell it worked.
+  expect(env.toastSuccess).toHaveBeenCalledExactlyOnceWith('ccAgent.projectCore.detail.memberRemoved');
 });
 
 // Real page + shared confirm dialog mock: cancel must not send, confirm must delete and return.
@@ -234,22 +270,148 @@ it('deletes only after the typed project-name confirmation and returns to the pr
   expect(env.navigate).toHaveBeenCalledWith('/cc-agent/projects');
 });
 
-it('opens the composer for a new task bound to this project, with no duplicate entry', async () => {
+// D-1: the add-member control used to disappear while the teammate projection was not hydrated,
+// which reads exactly like "nobody can be added" and blocked the acceptance walkthrough.
+it('D1 keeps the add-member control visible but disabled while teammates are still loading', async () => {
+  env.botStatus = 'loading';
   env.read.mockResolvedValue(populated('p1'));
   render(<ProjectDetailPage />);
   await screen.findByRole('heading', { name: 'p1' });
-  // 页头只有一个「新建任务」入口，文案不再是「在项目中新建任务」。
-  const entries = screen.getAllByRole('button', { name: 'ccAgent.projectCore.detail.newTask' });
-  expect(entries).toHaveLength(1);
-  fireEvent.click(entries[0]);
-  expect(env.navigate).toHaveBeenCalledWith('/cc-agent/new', {
-    state: {
-      projectId: 'p1',
-      projectName: 'p1',
-      // 项目没有目录时显式传 null：新建页据此回落到托管目录。
-      projectWorkingDir: null,
-    },
-  });
+  // Visible status, not only a hover title: the picker is absent while the projection loads.
+  expect(screen.getByText('ccAgent.projectCore.detail.membersLoading')).toBeTruthy();
+  expect(screen.queryByRole('combobox', { name: 'ccAgent.projectCore.detail.addMember' })).toBeNull();
+});
+
+it('D1 shows a failed teammate read with a retry instead of an empty picker', async () => {
+  env.botStatus = 'failed';
+  env.read.mockResolvedValue(populated('p1'));
+  render(<ProjectDetailPage />);
+  await screen.findByRole('heading', { name: 'p1' });
+  expect(screen.getAllByRole('alert').some(node => node.textContent?.includes('ccAgent.projectCore.detail.membersLoadFailed'))).toBe(true);
+  expect(screen.queryByRole('combobox', { name: 'ccAgent.projectCore.detail.addMember' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'ccAgent.projectCore.detail.membersRetry' }));
+  expect(env.refreshBots).toHaveBeenCalledTimes(1);
+});
+
+it('D1 enables the picker once teammates load and states a real empty state when none are left', async () => {
+  env.bots = [{ id: 'partner', name: 'Partner' }];
+  env.read.mockResolvedValue(editable());
+  const page = render(<ProjectDetailPage />);
+  await screen.findByRole('heading', { name: 'Project' });
+  const select = screen.getByRole('combobox', { name: 'ccAgent.projectCore.detail.addMember' }) as HTMLSelectElement;
+  expect(select.disabled).toBe(false);
+  await act(async () => fireEvent.change(select, { target: { value: 'bot:partner' } }));
+  expect(env.add).toHaveBeenCalledWith('p1', { kind: 'bot', id: 'partner' });
+
+  // The partner is a member now and no other teammate exists: that is a real empty state,
+  // not the loading/failed one, and it must say so instead of silently rendering nothing.
+  env.bots = [];
+  page.rerender(<ProjectDetailPage />);
+  await waitFor(() => expect(screen.getByText('ccAgent.projectCore.detail.noAddableMembers')).toBeTruthy());
+  expect(screen.queryByRole('combobox', { name: 'ccAgent.projectCore.detail.addMember' })).toBeNull();
+});
+
+// Archived projects stay editable for members/settings and progress; only task creation and
+// execution stop. The page must say that, and deleting an archived project is even less reversible.
+it('explains what an archived project still allows and warns harder before deleting it', async () => {
+  const row = editable();
+  row.project.status = 'archived';
+  env.read.mockResolvedValue(row);
+  env.confirm.mockResolvedValue(false);
+  render(<ProjectDetailPage />);
+  await screen.findByRole('heading', { name: 'Project' });
+  expect(screen.getByText('ccAgent.projectCore.detail.archiveNotice')).toBeTruthy();
+  expect((screen.getByRole('button', { name: 'ccAgent.projectCore.detail.newTask' }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'ccAgent.projectCore.deleteProject.action' }));
+  await waitFor(() => expect(env.confirm).toHaveBeenCalledTimes(1));
+  const options = env.confirm.mock.calls[0]![0] as {
+    confirmVariant?: string; content?: { props: { children: string } }; description?: string;
+  };
+  expect(options.confirmVariant).toBe('destructive');
+  expect(options.content?.props.children).toBe('ccAgent.projectCore.deleteProject.archiveWarning');
+});
+
+it('opens project task creation without leaving the project or executing a task', async () => {
+  env.read.mockResolvedValue(populated('p1'));
+  render(<ProjectDetailPage />);
+  fireEvent.click(await screen.findByRole('button', { name: 'ccAgent.projectCore.detail.newTask' }));
+  expect(await screen.findByRole('dialog')).toBeTruthy();
+  expect(screen.getByLabelText(/taskCreate.name/)).toBeTruthy();
+  expect(env.navigate).not.toHaveBeenCalled();
+});
+
+// Production dialog/service retry: an uncertain receipt must retain one identity
+// and payload rather than create a second task. Tier: renderer unit + IPC fake.
+it('retries an uncertain project task creation with the same native identity and no navigation', async () => {
+  env.read.mockResolvedValue(populated('p1'));
+  const mutate = vi.fn().mockRejectedValueOnce(new Error('Lost receipt'))
+    .mockRejectedValueOnce(Object.assign(new Error('Revoked on retry'), { code: 'ASSIGNEE_NOT_MEMBER' }))
+    .mockImplementation(async (intent: {sessionId:string}) => ({ ok: true, projectId: 'p1', sessionId: intent.sessionId }));
+  Object.defineProperty(window, 'electronAPI', { configurable: true, value: { localDb: { projects: { mutate } } } });
+  render(<ProjectDetailPage />);
+  fireEvent.click(await screen.findByRole('button', { name: 'ccAgent.projectCore.detail.newTask' }));
+  fireEvent.change(screen.getByLabelText(/taskCreate.name/), { target: { value: 'Check owner' } });
+  fireEvent.change(screen.getByLabelText(/taskCreate.goal/), { target: { value: 'Names survive reload' } });
+  fireEvent.click(screen.getByRole('button', { name: 'ccAgent.projectCore.taskCreate.submit' }));
+  await screen.findByRole('alert');
+  expect((screen.getByLabelText(/taskCreate.name/) as HTMLInputElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'ccAgent.projectCore.form.cancel' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  fireEvent.click(screen.getByRole('button', { name: 'ccAgent.projectCore.detail.newTask' }));
+  expect((screen.getByLabelText(/taskCreate.name/) as HTMLInputElement).value).toBe('Check owner');
+  fireEvent.click(screen.getByRole('button', { name: 'ccAgent.projectCore.taskCreate.submit' }));
+  await screen.findByRole('alert');
+  expect((screen.getByLabelText(/taskCreate.name/) as HTMLInputElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'ccAgent.projectCore.taskCreate.submit' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(mutate).toHaveBeenCalledTimes(3);
+  expect(mutate.mock.calls[0][0]).toEqual(mutate.mock.calls[1][0]);
+  expect(mutate.mock.calls[1][0]).toEqual(mutate.mock.calls[2][0]);
+  expect(mutate.mock.calls[0][0]).toMatchObject({ action:'createWorkItem', projectId:'p1', title:'Check owner', taskObjective:'Names survive reload', assignee:null });
+  expect(env.navigate).not.toHaveBeenCalled();
+});
+
+it('opens the same task form from an empty project first-task entry', async () => {
+  env.read.mockResolvedValue(detail('p1'));
+  render(<ProjectDetailPage />);
+  fireEvent.click(await screen.findByRole('button', { name: 'ccAgent.projectCore.detail.createFirstTask' }));
+  expect(await screen.findByRole('dialog')).toBeTruthy();
+  expect(screen.getByLabelText(/taskCreate.goal/)).toBeTruthy();
+  expect(env.navigate).not.toHaveBeenCalled();
+});
+
+// Recovery storage is account-scoped. A corrupt record must not silently become
+// a new creation identity, and persistence failure must stop before IPC dispatch.
+it('does not restore another account pending task and fails closed on corrupt recovery', async () => {
+  const otherKey = 'cindy.projects.pendingCreate.v1.' + JSON.stringify(['owner-2','p1']) + '.other';
+  localStorage.setItem(otherKey, '{broken');
+  env.read.mockResolvedValue(populated('p1'));
+  const mutate = vi.fn();
+  Object.defineProperty(window, 'electronAPI', { configurable:true, value:{localDb:{projects:{mutate}}} });
+  const view = render(<ProjectDetailPage />);
+  fireEvent.click(await screen.findByRole('button', { name:'ccAgent.projectCore.detail.newTask' }));
+  expect((screen.getByLabelText(/taskCreate.name/) as HTMLInputElement).value).toBe('');
+  view.unmount(); env.generation = 2;
+  render(<ProjectDetailPage />);
+  fireEvent.click(await screen.findByRole('button', { name:'ccAgent.projectCore.detail.newTask' }));
+  fireEvent.click(screen.getByRole('button', { name:'ccAgent.projectCore.taskCreate.submit' }));
+  await screen.findByRole('alert');
+  expect(mutate).not.toHaveBeenCalled(); expect(localStorage.getItem(otherKey)).toBe('{broken');
+});
+
+it('does not dispatch a task when its recovery identity cannot be persisted', async () => {
+  env.read.mockResolvedValue(populated('p1'));
+  const mutate = vi.fn();
+  Object.defineProperty(window, 'electronAPI', { configurable:true, value:{localDb:{projects:{mutate}}} });
+  render(<ProjectDetailPage />);
+  fireEvent.click(await screen.findByRole('button', { name:'ccAgent.projectCore.detail.newTask' }));
+  fireEvent.change(screen.getByLabelText(/taskCreate.name/), {target:{value:'Name'}});
+  fireEvent.change(screen.getByLabelText(/taskCreate.goal/), {target:{value:'Goal'}});
+  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw Error('Storage unavailable'); });
+  try {
+    fireEvent.click(screen.getByRole('button', { name:'ccAgent.projectCore.taskCreate.submit' }));
+    await screen.findByRole('alert'); expect(mutate).not.toHaveBeenCalled();
+  } finally { write.mockRestore(); }
 });
 
 it('hides owner-only actions from plain members and offers the ownership takeover instead', async () => {

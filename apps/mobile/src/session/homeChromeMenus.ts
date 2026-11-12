@@ -24,6 +24,7 @@ import {
   type HomeVendorFilter,
 } from "@/session/homeDisplaySettings";
 import { serializeRemoteResourceTargets, type RemoteHomeCollection } from "@/device-link/remoteResources";
+import { PROJECT_COLLECTION_ID } from "@/projects/projectModel";
 
 export type { HomeListSortBy, HomeProjectOrder, HomeStatusFilter };
 
@@ -76,7 +77,8 @@ export const HOME_SCOPE_COLLECTION_PREFIX = "scope.collection:";
  * desktop, so their collection is never a scope to switch to.
  */
 export function homeScopeCollections<T extends { id: string }>(collections: readonly T[], teammateCollectionId: string): T[] {
-  return collections.filter((collection) => collection.id !== teammateCollectionId);
+  // 项目有自己的手机页面(不是通用资源列表),所以只出现在抽屉入口,不作作用域切换项。
+  return collections.filter((collection) => collection.id !== teammateCollectionId && collection.id !== PROJECT_COLLECTION_ID);
 }
 
 export function openHomeRemoteCollection(
