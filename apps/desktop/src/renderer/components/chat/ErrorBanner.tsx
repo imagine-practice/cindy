@@ -571,6 +571,12 @@ export function ErrorBanner({
           maxAttempts: overloadRetryProgress.maxAttempts,
         })
       : t(retryAction ? 'chat.errorBanner.overloadBusy' : 'chat.errorBanner.overloadBusyNoRetry');
+  } else if (isContentInspectionError) {
+    // 内容审核拒绝：文案与历史卡片（ErrorMessageCard）保持同一条——否则同一个错误
+    // 在活着的横幅与历史行上表现不一致。这一支不靠 `errorReason` 而靠文本兜底：
+    // Claude Code / Codex 的 translator 不产出 content-inspection reason（只有 Pi 有），
+    // 缺了它就会落到下面的 else，变成「回复未完成」+ 无重试（因为 hideRetry 已生效）。
+    displayError = t('chat.errorBanner.contentInspectionRejected');
   } else if (isStreamInterrupted) {
     // LiteLLM / Responses 流中途空壳 500。协议客户端会写成 OpenAI API error,
     // 对非 OpenAI 模型是误导。只改展示,不自动续跑。

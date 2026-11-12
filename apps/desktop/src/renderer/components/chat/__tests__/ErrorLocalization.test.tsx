@@ -197,6 +197,18 @@ describe.each(SUPPORTED_LOCALES)('error presentation in %s', locale => {
     expect(screen.queryByText(locales[locale].chat.errorBanner.retry)).toBeNull();
   });
 
+  // CC / Codex 的 translator 不产出 content-inspection reason（只有 Pi 有）。缺文案分支时
+  // 这条路径会落到 else，变成「回复未完成」+ 无重试——比修复前更难懂。
+  it('keeps the content-inspection copy when no stable reason is present (Claude Code / persisted rows)', async () => {
+    const i18n = createInstance();
+    await i18n.init({ lng: locale, fallbackLng: 'en', resources: allLocales });
+    render(<I18nextProvider i18n={i18n}><ErrorBanner error={inspectionBody}
+      retryText={inspectionBody} onRetry={vi.fn()} onChooseComputer={vi.fn()} /></I18nextProvider>);
+    expect(screen.getByText(locales[locale].chat.errorBanner.contentInspectionRejected)).toBeTruthy();
+    expect(screen.queryByText(locales[locale].chat.errorBanner.replyFailed)).toBeNull();
+    expect(screen.queryByText(locales[locale].chat.errorBanner.retry)).toBeNull();
+  });
+
   it('recognises a persisted content-inspection row that carries only the message text', async () => {
     const i18n = createInstance();
     await i18n.init({ lng: locale, fallbackLng: 'en', resources: allLocales });
