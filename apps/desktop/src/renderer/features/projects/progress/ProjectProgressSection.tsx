@@ -21,6 +21,11 @@ function assertProject(result: ProjectProgressReadResult, projectId: string): vo
     || result.history.some(event => event.projectId !== projectId)) throw new Error('INVALID_PROGRESS_SCOPE');
 }
 
+// The sidebar opens a fresh project URL, while the title-bar history only tracks
+// tasks. Keep the last viewed filter in this renderer, scoped to its owner epoch;
+// this is transient viewing state, never project data or execution authority.
+let rememberedFilter: { projectId: string; owner: ReturnType<typeof getDataOwnerGeneration>; filter: ProjectProgressFilter } | null = null;
+
 export function ProjectProgressSection({ projectId, refreshKey, onAccessLost, onOpenWorkItem, onStateChange, members = [] }: {
   projectId: string; refreshKey: number; onAccessLost: () => void; onOpenWorkItem: (id: string) => void;
   onStateChange?: (state: ProjectProgressState) => void;
@@ -30,10 +35,14 @@ export function ProjectProgressSection({ projectId, refreshKey, onAccessLost, on
   const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedFilter = searchParams.get('progress');
-  const filter: ProjectProgressFilter = requestedFilter === 'unknown'
-    || WORK_ITEM_STATUSES.some(status => status === requestedFilter)
-    ? requestedFilter as ProjectProgressFilter : 'all';
+  const filter: ProjectProgressFilter = requestedFilter === null && rememberedFilter?.projectId === projectId
+    && isDataOwnerGenerationCurrent(rememberedFilter.owner)
+    ? rememberedFilter.filter
+    : requestedFilter === 'unknown' || WORK_ITEM_STATUSES.some(status => status === requestedFilter)
+      ? requestedFilter as ProjectProgressFilter : 'all';
   const changeFilter = (next: ProjectProgressFilter) => {
+    if (!isDataOwnerGenerationCurrent(owner.current)) return;
+    rememberedFilter = { projectId, owner: owner.current, filter: next };
     setSearchParams(previous => {
       const params = new URLSearchParams(previous);
       if (next === 'all') params.delete('progress'); else params.set('progress', next);
@@ -51,6 +60,9 @@ export function ProjectProgressSection({ projectId, refreshKey, onAccessLost, on
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState(false);
   const owner = useRef(getDataOwnerGeneration());
+  useEffect(() => {
+    if (isDataOwnerGenerationCurrent(owner.current)) rememberedFilter = { projectId, owner: owner.current, filter };
+  }, [projectId, filter]);
   const mounted = useRef(false);
   const sequence = useRef(0);
   const current = useRef<ProjectProgressReadResult | null>(null);

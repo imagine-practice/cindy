@@ -69,8 +69,9 @@ function result(projectId = 'p1', count = 1, history: ProjectProgressApiHistoryE
 function pending<T>() { let resolve!: (v: T) => void; let reject!: (e: Error) => void;
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
 async function broadcast() { await act(async () => h.changed?.()); }
+let testGeneration = 0;
 beforeEach(() => {
-  vi.resetAllMocks(); h.route = { projectId: 'p1' }; h.generation = 1; h.realRouter = false; h.providers.mockReturnValue({ providers: [] });
+  vi.resetAllMocks(); h.route = { projectId: 'p1' }; h.generation = ++testGeneration; h.realRouter = false; h.providers.mockReturnValue({ providers: [] });
   h.detail.mockImplementation(async (id: string) => detail(id)); h.progress.mockResolvedValue(result());
   Object.defineProperty(window, 'electronAPI', { configurable: true, value: { localDb: { projectProgress: { read: h.progress } } } });
 });
@@ -158,7 +159,8 @@ function NativeTaskRouteProbe() {
   const location = useLocation();
   const navigate = useNavigate();
   return <><output data-testid="native-task-target">{location.pathname}:{sessionId}</output>
-    <button onClick={() => navigate(-1)}>Back to project</button></>;
+    <button onClick={() => navigate(-1)}>Back to project</button>
+    <button onClick={() => navigate('/cc-agent/projects/p1')}>Return via project sidebar</button></>;
 }
 
 it('opens assigned and unassigned original task IDs and preserves project filters on return', async () => {
@@ -174,10 +176,11 @@ it('opens assigned and unassigned original task IDs and preserves project filter
     projectExecution: { read: async () => ({ projectId: 'p1', items: [] }), request, followup },
     sessions: { create } } };
   Object.defineProperty(window, 'electronAPI', { configurable: true, value: bridge });
-  render(<MemoryRouter initialEntries={['/cc-agent/projects/p1?from=qa']}><Routes>
+  const app = () => <MemoryRouter initialEntries={['/cc-agent/projects/p1?from=qa']}><Routes>
     <Route path="/cc-agent/projects/:projectId" element={<ProjectDetailPage />} />
     <Route path="/cc-agent/:sessionId" element={<NativeTaskRouteProbe />} />
-  </Routes></MemoryRouter>);
+  </Routes></MemoryRouter>;
+  const page = render(app());
   fireEvent.click(await screen.findByRole('button', { name: `${key('unknown')} · 2` }));
   expect(screen.getByRole('button', { name: `${key('unknown')} · 2` }).getAttribute('aria-pressed')).toBe('true');
   expect(screen.queryByRole('button', { name: /p1 task 0/ })).toBeNull();
@@ -185,13 +188,19 @@ it('opens assigned and unassigned original task IDs and preserves project filter
     fireEvent.click(screen.getByRole('button', { name: `chat.botStartedTasks.open:p1 task ${index}` }));
     expect(await screen.findByTestId('native-task-target')).toHaveProperty('textContent', `/cc-agent/task-${index}:task-${index}`);
     expect(window.electronAPI).toBe(bridge);
-    fireEvent.click(screen.getByRole('button', { name: 'Back to project' }));
+    fireEvent.click(screen.getByRole('button', { name: index === 1 ? 'Return via project sidebar' : 'Back to project' }));
     await screen.findByRole('button', { name: `chat.botStartedTasks.open:p1 task ${index}` });
     expect(screen.getByRole('button', { name: `${key('unknown')} · 2` }).getAttribute('aria-pressed')).toBe('true');
     expect(screen.queryByRole('button', { name: /p1 task 0/ })).toBeNull();
   }
   expect(screen.queryByRole('textbox')).toBeNull();
   expect(request).not.toHaveBeenCalled(); expect(followup).not.toHaveBeenCalled(); expect(create).not.toHaveBeenCalled();
+  // No query remains after a sidebar return. A different owner epoch must not
+  // inherit the previous owner's in-memory viewing preference.
+  h.generation++;
+  page.rerender(app());
+  await screen.findByRole('button', { name: 'chat.botStartedTasks.open:p1 task 0' });
+  expect(screen.getByRole('button', { name: `${key('all')} · 3` }).getAttribute('aria-pressed')).toBe('true');
 });
 
 it('reads through the actual service, counts 120 full items and deduplicates 101 history entries by cursor', async () => {
