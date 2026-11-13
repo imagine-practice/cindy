@@ -171,6 +171,30 @@ function detailResource(overrides: Record<string, unknown> = {}) {
   };
 }
 
+// Regression: one explicit todo and two absent records must stay distinct.
+// Exercise the production screen with both new and old host read contracts;
+// a partial work-item page cannot prove an unrecorded total (unit/DOM tier).
+it.each([true, false])('separates unrecorded rows and counts only with host evidence: %s', async (extended) => {
+  const resource = detailResource();
+  Object.assign(resource.blocks[1].data!, {
+    counts: { todo: 3, doing: 0, blocked: 0, review: 0, done: 0 },
+    ...(extended ? { recordedCounts: { todo: 1, doing: 0, blocked: 0, review: 0, done: 0 }, unrecordedCount: 2 } : {}),
+  });
+  Object.assign(resource.blocks[2].data!, { items: [0, 1, 2].map((index) => ({
+    sessionId: `s${index}`, title: `Task ${index}`, status: 'todo', progressRevision: index === 0 ? 3 : 0,
+    ...(extended ? { hasProgressRecord: index === 0 } : {}),
+  })) });
+  h.get.mockResolvedValue(resource);
+  await act(async () => root.render(el(ProjectDetailScreen)));
+  expect($('projectDetail.progress.count.todo')?.textContent).toBe(`projects.progress.stage.todo:${extended ? 1 : 3}`);
+  expect($('projectDetail.progress.count.unrecorded')?.textContent ?? null).toBe(extended ? 'projects.progress.unrecorded:2' : null);
+  expect($('projectDetail.workItem.s0')?.textContent).toContain('projects.progress.stage.todo');
+  for (const id of ['s1', 's2']) {
+    expect($(`projectDetail.workItem.${id}`)?.textContent).toContain(extended ? 'projects.progress.unrecorded' : 'projects.progress.stage.todo');
+  }
+  expect(h.action).not.toHaveBeenCalled();
+});
+
 let container: HTMLDivElement;
 let root: Root;
 const $ = (testID: string) => container.querySelector<HTMLElement>(`[data-testid="${testID}"]`);

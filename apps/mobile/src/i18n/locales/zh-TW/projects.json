@@ -30,6 +30,7 @@
     "history": "最近進度",
     "historyEmpty": "暫無進度歷史",
     "actorUnknown": "未知操作者",
+    "unrecorded": "未記錄",
     "stage": {
       "todo": "未開始",
       "doing": "進行中",

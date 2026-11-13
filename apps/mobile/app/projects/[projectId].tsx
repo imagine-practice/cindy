@@ -231,10 +231,17 @@ function Section({ locale, section }: { locale: string; section: ProjectSection 
       <View style={styles.metrics}>
         {PROJECT_STAGES.map((stage) => <MainWindowMetric
           key={stage}
+          style={styles.metric}
           label={t(`projects.progress.stage.${stage}`)}
           testID={`projectDetail.progress.count.${stage}`}
           value={view.counts[stage]}
         />)}
+        {view.unrecordedCount !== undefined && <MainWindowMetric
+          style={styles.metric}
+          label={t('projects.progress.unrecorded')}
+          testID="projectDetail.progress.count.unrecorded"
+          value={view.unrecordedCount}
+        />}
       </View>
       <Text style={styles.groupLabel}>{t('projects.progress.history')}</Text>
       {view.events.length === 0
@@ -264,7 +271,8 @@ function Section({ locale, section }: { locale: string; section: ProjectSection 
           <Text numberOfLines={2} style={styles.rowLabel}>{item.title}</Text>
           <Text numberOfLines={2} style={styles.rowValue}>
             {[
-              item.status ? t(`projects.progress.stage.${item.status}`) : t('projects.status.unknown'),
+              item.hasProgressRecord === false ? t('projects.progress.unrecorded')
+                : item.status ? t(`projects.progress.stage.${item.status}`) : t('projects.status.unknown'),
               item.assignee ? (item.assignee.name || t('projects.members.unknown')) : t('projects.workItems.unassigned'),
               timeLabel(item.updatedAt, locale, t('projects.updated.unknown')),
             ].filter(Boolean).join(' · ')}
@@ -329,6 +337,7 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   bodyText: { color: colors.textPrimary, fontSize: typeScale.body, lineHeight: lineHeight.body },
   metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  metric: { flexBasis: 150, minWidth: 150 },
   event: { gap: spacing.xs },
   row: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },
   rowLabel: { color: colors.textPrimary, flexShrink: 1, fontSize: typeScale.bodySmall, lineHeight: lineHeight.bodySmall, fontWeight: fontWeight.medium },

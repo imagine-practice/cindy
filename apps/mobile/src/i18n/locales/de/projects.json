@@ -30,6 +30,7 @@
     "history": "Letzter Fortschritt",
     "historyEmpty": "Kein Fortschrittsverlauf",
     "actorUnknown": "Unbekannte Person",
+    "unrecorded": "Nicht erfasst",
     "stage": {
       "todo": "Nicht begonnen",
       "doing": "Läuft",

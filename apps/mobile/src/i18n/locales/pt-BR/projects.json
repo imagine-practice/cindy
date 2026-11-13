@@ -30,6 +30,7 @@
     "history": "Progresso recente",
     "historyEmpty": "Sem histórico de progresso",
     "actorUnknown": "Autor desconhecido",
+    "unrecorded": "Sem registro",
     "stage": {
       "todo": "Não iniciado",
       "doing": "Em andamento",

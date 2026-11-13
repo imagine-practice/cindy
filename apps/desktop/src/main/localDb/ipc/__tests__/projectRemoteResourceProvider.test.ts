@@ -182,6 +182,54 @@ afterAll(() => {
 });
 
 describe('projects remote collection: read', () => {
+  // Regression: absent progress is not explicit todo. Keep the legacy five-count
+  // wire contract, but expose a complete read-only breakdown (including off-page
+  // items). Real registry -> provider -> SQLite transactions; no synthetic writes.
+  it.each([
+    { statuses: ['todo', null, null], counts: { todo: 1, doing: 0, blocked: 0, review: 0, done: 0 }, missing: 2 },
+    { statuses: [null, null], counts: { todo: 0, doing: 0, blocked: 0, review: 0, done: 0 }, missing: 2 },
+    { statuses: ['todo', 'doing', 'blocked', 'review', 'done'], counts: { todo: 1, doing: 1, blocked: 1, review: 1, done: 1 }, missing: 0 },
+    { statuses: [], counts: { todo: 0, doing: 0, blocked: 0, review: 0, done: 0 }, missing: 0 },
+  ])('separates recorded progress from absence: $statuses', async ({ statuses, counts, missing }) => {
+    db.exec("DELETE FROM sessions WHERE project_id='p1'");
+    for (const [index, status] of statuses.entries()) {
+      db.prepare('INSERT INTO sessions (id,title,status,project_id,created_at,updated_at) VALUES (?,?,\'active\',\'p1\',1,1)')
+        .run(`stage-${index}`, `Task ${index}`);
+      if (status) await invoke('project.recordProgress', {
+        requestId: `stage-${index}`, sessionId: `stage-${index}`, to: status,
+        ...(status === 'blocked' ? { reason: 'Needs input', unblockCondition: 'Input received' } : {}),
+        ...(status === 'done' ? { completionNote: 'Owner checked' } : {}),
+      });
+    }
+    const eventsBefore = progressEvents();
+    const resource = await get();
+    const progress = resource.blocks?.find((block) => block.id === 'progress')?.data as Record<string, unknown>;
+    expect(progress).toMatchObject({ recordedCounts: counts, unrecordedCount: missing });
+    // Old clients still see all tasks in their closed five-state contract.
+    expect(progress.counts).toEqual({ ...counts, todo: counts.todo + missing });
+    const items = (resource.blocks?.find((block) => block.id === 'work-items')?.data as { items: Array<Record<string, unknown>> }).items;
+    expect(items).toHaveLength(statuses.length);
+    for (const [index, status] of statuses.entries()) {
+      expect(items.find((item) => item.sessionId === `stage-${index}`)).toMatchObject({
+        status: status ?? 'todo', hasProgressRecord: status !== null, progressRevision: status ? 1 : 0,
+      });
+    }
+    expect(progressEvents()).toBe(eventsBefore);
+    expect(sqlite<{ n: number }>('SELECT COUNT(*) AS n FROM work_item_progress')[0].n).toBe(statuses.length - missing);
+  });
+
+  it('counts unrecorded tasks beyond the bounded work-item page without double counting', async () => {
+    const insert = db.prepare("INSERT INTO sessions (id,title,status,project_id,created_at,updated_at) VALUES (?,?,'active','p1',1,1)");
+    for (let index = 0; index < 199; index++) insert.run(`extra-${index}`, `Task ${index}`);
+    const resource = await get();
+    expect(resource.blocks?.find((block) => block.id === 'progress')?.data).toMatchObject({
+      counts: { todo: 201, doing: 0, blocked: 0, review: 0, done: 0 },
+      recordedCounts: { todo: 0, doing: 0, blocked: 0, review: 0, done: 0 }, unrecordedCount: 201,
+    });
+    expect((resource.blocks?.find((block) => block.id === 'work-items')?.data as { items: unknown[] }).items).toHaveLength(200);
+    expect(progressEvents()).toBe(0);
+  });
+
   it('lists only the caller\u2019s projects newest first, with the contract limit and an opaque cursor', async () => {
     const page = await list();
     expect(page.collectionId).toBe(PROJECT_REMOTE_COLLECTION_ID);

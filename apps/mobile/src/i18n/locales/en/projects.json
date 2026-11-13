@@ -30,6 +30,7 @@
     "history": "Recent progress",
     "historyEmpty": "No progress history",
     "actorUnknown": "Unknown actor",
+    "unrecorded": "Not recorded",
     "stage": {
       "todo": "Not started",
       "doing": "In progress",

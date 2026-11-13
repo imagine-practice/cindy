@@ -73,6 +73,8 @@ export interface ProjectProgressEventView {
 
 export interface ProjectProgressView {
   counts: Record<ProjectStage, number>;
+  /** Absent on old hosts; never derive a total from the bounded item page. */
+  unrecordedCount?: number;
   events: ProjectProgressEventView[];
 }
 
@@ -81,6 +83,8 @@ export interface ProjectWorkItemView {
   title: string;
   objective: string | null;
   status: ProjectStage | null;
+  /** Read evidence only, not a writable progress state. Missing = legacy host. */
+  hasProgressRecord?: boolean;
   assignee: ProjectSubject | null;
   bindingRevision: number | null;
   /** 追加字段(契约允许):进度版本,带上就当严格并发校验用。 */
@@ -210,6 +214,17 @@ function progressView(data: Record<string, unknown>): ProjectProgressView | null
   const counts = record(data.counts);
   if (!counts) return null;
   const normalized = Object.fromEntries(PROJECT_STAGES.map((key) => [key, finite(counts[key]) ?? 0])) as Record<ProjectStage, number>;
+  const recorded = record(data.recordedCounts);
+  const unrecorded = data.unrecordedCount;
+  // Accept the extension only when it closes against the legacy counts.
+  // Partial/malformed metadata retains the old five-state projection.
+  const hasRecordedCounts = recorded !== null
+    && typeof unrecorded === 'number' && Number.isSafeInteger(unrecorded) && unrecorded >= 0
+    && PROJECT_STAGES.every((key) => {
+      const count = recorded[key];
+      return typeof count === 'number' && Number.isSafeInteger(count) && count >= 0
+        && count + (key === 'todo' ? unrecorded : 0) === normalized[key];
+    });
   const rawEvents = Array.isArray(data.events) ? data.events : [];
   const events = rawEvents.slice(0, 20).flatMap<ProjectProgressEventView>((value) => {
     const event = record(value);
@@ -226,7 +241,11 @@ function progressView(data: Record<string, unknown>): ProjectProgressView | null
       note: bounded(event.note, 4_000),
     }];
   });
-  return { counts: normalized, events };
+  return {
+    counts: hasRecordedCounts ? Object.fromEntries(PROJECT_STAGES.map((key) => [key, recorded[key]])) as Record<ProjectStage, number> : normalized,
+    ...(hasRecordedCounts ? { unrecordedCount: unrecorded } : {}),
+    events,
+  };
 }
 
 function workItemsView(data: Record<string, unknown>): ProjectWorkItemView[] | null {
@@ -241,6 +260,7 @@ function workItemsView(data: Record<string, unknown>): ProjectWorkItemView[] | n
       title,
       objective: bounded(item.taskObjective, 20_000),
       status: stage(item.status),
+      ...(typeof item.hasProgressRecord === 'boolean' ? { hasProgressRecord: item.hasProgressRecord } : {}),
       assignee: subject(item.assignee),
       bindingRevision: finite(item.bindingRevision),
       progressRevision: finite(item.progressRevision),

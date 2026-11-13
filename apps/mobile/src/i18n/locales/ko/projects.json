@@ -30,6 +30,7 @@
     "history": "최근 진행 상황",
     "historyEmpty": "진행 기록이 없습니다",
     "actorUnknown": "알 수 없는 작업자",
+    "unrecorded": "기록 없음",
     "stage": {
       "todo": "시작 전",
       "doing": "진행 중",

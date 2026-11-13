@@ -103,6 +103,8 @@ type Copy = {
 
 /** 术语按 `i18n/GLOSSARY.md`：Project / Task / Session 的既有裁决，不自造译法。 */
 const COPY = {
+  progressUnrecorded: { en: 'Not recorded', 'zh-CN': '未记录', 'zh-TW': '未記錄', ja: '未記録', ko: '기록 없음',
+    es: 'Sin registrar', fr: 'Non consigné', de: 'Nicht erfasst', 'pt-PT': 'Sem registo', 'pt-BR': 'Sem registro', 'zh-Hant-x-lzh': '未錄', 'zh-Hans-x-lzh': '未录' },
   title: { en: 'Projects', 'zh-CN': '项目', 'zh-TW': '專案', ja: 'プロジェクト', ko: '프로젝트',
     es: 'Proyectos', fr: 'Projets', de: 'Projekte', 'pt-PT': 'Projetos', 'pt-BR': 'Projetos', 'zh-Hant-x-lzh': '案', 'zh-Hans-x-lzh': '案' },
   statusActive: { en: 'In progress', 'zh-CN': '进行中', 'zh-TW': '進行中', ja: '進行中', ko: '진행 중',
@@ -415,7 +417,7 @@ function progressByItem(progress: ProjectProgressReadResult): Map<string, Projec
 }
 
 function itemStage(item: ProjectProgressApiItem | undefined): WorkItemStatus {
-  // 没有进度记录就是「未开始」：手机端 5 档计数必须闭合，不引入第 6 档。
+  // Preserve the legacy five-state wire contract; expose record evidence separately.
   return item?.progress?.status ?? 'todo';
 }
 
@@ -465,8 +467,12 @@ function progressMarkdown(
   events: readonly ProjectProgressApiHistoryEntry[],
   titles: ReadonlyMap<string, string>,
   locale?: string,
+  unrecordedCount = 0,
 ): string {
-  const head = WORK_ITEM_STATUSES.map((stage) => `${text(STAGE_COPY[stage], locale)} ${counts[stage]}`).join(' · ');
+  const head = [
+    ...WORK_ITEM_STATUSES.map((stage) => `${text(STAGE_COPY[stage], locale)} ${counts[stage]}`),
+    `${text(COPY.progressUnrecorded, locale)} ${unrecordedCount}`,
+  ].join(' · ');
   const lines = events.map((event) => {
     const title = titles.get(event.sessionId) ?? event.sessionId;
     const from = event.from ? text(STAGE_COPY[event.from], locale) : '—';
@@ -478,11 +484,11 @@ function progressMarkdown(
 }
 
 function workItemsMarkdown(
-  rows: readonly { title: string; stage: WorkItemStatus; assignee: { displayName?: string | null } | null }[],
+  rows: readonly { title: string; stage: WorkItemStatus | null; assignee: { displayName?: string | null } | null }[],
   locale?: string,
 ): string {
   return rows
-    .map((row) => `- ${clip(row.title, 120)} — ${text(STAGE_COPY[row.stage], locale)} · ${
+    .map((row) => `- ${clip(row.title, 120)} — ${text(row.stage ? STAGE_COPY[row.stage] : COPY.progressUnrecorded, locale)} · ${
       row.assignee?.displayName?.trim() || text(COPY.assigneeNone, locale)}`)
     .join('\n')
     .slice(0, MAX_FALLBACK_CHARS);
@@ -589,12 +595,15 @@ export function projectRemoteResource(input: {
   const { record, progress, groupLink, locale } = input;
   const byItem = progressByItem(progress);
   // 工作项名单以详情读为准（它带着 `taskObjective`），进度状态与版本按 sessionId 合并。
-  const workItems = input.workItems.slice(0, MAX_WORK_ITEMS);
-  const rows = workItems.map((item) => ({
+  const allRows = input.workItems.map((item) => ({
     item,
     stage: itemStage(byItem.get(item.sessionId)),
+    recordedStage: byItem.get(item.sessionId)?.progress?.status ?? null,
   }));
-  const counts = summarizeWorkItems(rows.map((row) => ({ status: row.stage }))).counts;
+  const counts = summarizeWorkItems(allRows.map((row) => ({ status: row.stage }))).counts;
+  const recorded = summarizeWorkItems(allRows.map((row) => ({ status: row.recordedStage })));
+  const rows = allRows.slice(0, MAX_WORK_ITEMS);
+  const workItems = rows.map((row) => row.item);
   const events = progress.history.slice(0, MAX_PROGRESS_EVENTS);
   const titles = new Map(workItems.map((item) => [item.sessionId, item.title]));
   const owner = record.members.find((member) => member.role === 'owner');
@@ -620,9 +629,11 @@ export function projectRemoteResource(input: {
       id: 'progress',
       primitive: 'project-progress',
       title: localized(COPY.blockProgress),
-      fallbackMarkdown: progressMarkdown(counts, events, titles, locale),
+      fallbackMarkdown: progressMarkdown(recorded.counts, events, titles, locale, recorded.unknownCount),
       data: {
         counts,
+        recordedCounts: recorded.counts,
+        unrecordedCount: recorded.unknownCount,
         events: events.map((event) => {
           const title = titles.get(event.sessionId);
           const note = event.completionNote ?? event.resolution ?? event.reason ?? event.unblockCondition;
@@ -647,7 +658,7 @@ export function projectRemoteResource(input: {
       title: localized(COPY.blockWorkItems),
       fallbackMarkdown: workItemsMarkdown(rows.map((row) => ({
         title: row.item.title,
-        stage: row.stage,
+        stage: row.recordedStage,
         assignee: row.item.assignee,
       })), locale),
       data: {
@@ -662,6 +673,7 @@ export function projectRemoteResource(input: {
             title: item.title,
             ...(objective ? { taskObjective: objective } : {}),
             status: stage,
+            hasProgressRecord: progressItem?.progress != null,
             assignee: subjectPayload(item.assignee, memberFallback),
             bindingRevision: progressItem?.bindingRevision ?? item.bindingRevision ?? 0,
             updatedAt: progressItem?.progress?.updatedAt ?? timestamp(item.updatedAt) ?? 0,

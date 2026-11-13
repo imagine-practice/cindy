@@ -37,6 +37,30 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+// Optional read metadata is additive: old hosts and malformed extensions retain
+// their five-state counts instead of inventing an unrecorded number (unit tier).
+it.each([
+  { recordedCounts: { todo: 1, doing: 0, blocked: 0, review: 0, done: 0 }, unrecordedCount: 2, expected: 1 },
+  { recordedCounts: { todo: 0, doing: 0, blocked: 0, review: 0, done: 0 }, unrecordedCount: 3, expected: 0 },
+  { recordedCounts: { todo: 3, doing: 0, blocked: 0, review: 0, done: 0 }, unrecordedCount: 0, expected: 3 },
+  { recordedCounts: undefined, unrecordedCount: undefined, expected: 3 },
+  { recordedCounts: undefined, unrecordedCount: 2, expected: 3 },
+  { recordedCounts: { todo: 1, doing: 0, blocked: 0, review: 0, done: 0 }, unrecordedCount: -1, expected: 3 },
+  { recordedCounts: { todo: 1, doing: 0, blocked: 0, review: 0, done: 0 }, unrecordedCount: 1, expected: 3 },
+])('uses complete valid recorded breakdown or legacy counts: %j', ({ recordedCounts, unrecordedCount, expected }) => {
+  const view = projectDetailView(resource([{
+    id: 'progress', primitive: 'project-progress', fallbackMarkdown: 'Progress',
+    data: { counts: { todo: 3, doing: 0, blocked: 0, review: 0, done: 0 }, recordedCounts, unrecordedCount },
+  }]), 'en');
+  const section = view.sections[0];
+  expect(section.kind).toBe('progress');
+  if (section.kind !== 'progress') throw new Error('Expected progress');
+  const valid = recordedCounts !== undefined && unrecordedCount! >= 0 && recordedCounts.todo + unrecordedCount! === 3;
+  expect(section.view.counts).toEqual({ todo: expected, doing: 0, blocked: 0, review: 0, done: 0 });
+  expect(section.view).toMatchObject(valid ? { unrecordedCount } : { counts: { todo: 3 } });
+  if (!valid) expect(section.view).not.toHaveProperty('unrecordedCount');
+});
+
 const ref = { collectionId: 'projects', kind: 'project', id: 'p1' };
 
 function resource(blocks: RemoteResource['blocks'], actions: RemoteResource['actions'] = []): RemoteResource {

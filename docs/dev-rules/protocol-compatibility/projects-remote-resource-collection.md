@@ -44,3 +44,23 @@
   并发冲突、跨项目 sessionId 拒绝、未注册集合的旧端行为与四条通道常量）、
   `device-link/__tests__/remoteResourceRegistry.test.ts`、`device-link/__tests__/remoteResourcesIpc.test.ts`、
   `localDb/__tests__/projectProgressIpc.test.ts`。
+
+## 未记录进度的只读展示（2026-11-13）
+
+没有有效进度记录与明确记录 `todo` 分开显示，沿用桌面「未记录」用语。写入仍只有五种
+状态，不添加状态、数据行或 migration。为允许两端独立升级：
+
+- 保留 `project-progress.data.counts` 原五档含义（无记录计入 `todo`）和工作项的原 `status`。
+  旧手机无需更新即可算全总数。
+- 新 Host 追加 `recordedCounts`（只含实际记录的五档计数）、`unrecordedCount`，工作项追加
+  `hasProgressRecord: boolean`。统计基于完整有效工作项集合，先统计再截取最多 200 行，
+  不从手机收到的部分行反推总数；`sum(recordedCounts) + unrecordedCount = sum(counts)`。
+- 新手机仅在两个统计字段均完整、非负整数且逐档与旧字段闭合时使用新统计；字段缺失或
+  无效则保留旧显示，不推测「未记录」。任务行只有明确 `hasProgressRecord === false`
+  才显示「未记录」，缺省保留原 `status`。`progressRevision` 的并发校验语义不变。
+- Markdown 回退同样展示实际记录与「未记录」，其数据不回写。沿用既有五个 block、四条
+  Remote Resource 通道和 protocol version 1，不改变授权、通知频率、relay 封包或恢复。
+  官方／自建中转均透明转发已有业务 `data` 对象，无需同步改动中转或服务端。
+
+真实 SQLite provider 回归保留旧字段断言并覆盖混合／全未记录／全记录／空集及 201 行截断；
+手机投影和页面回归覆盖新字段与旧 Host 缺省路径，不以缓存或补写 `todo` 制造一致。
