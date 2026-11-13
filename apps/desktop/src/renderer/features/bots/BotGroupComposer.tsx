@@ -180,6 +180,7 @@ export function BotGroupComposer({
   draftKey,
   members,
   running,
+  canStop = true,
   disabled = false,
   planState = null,
   divisionSteps = false,
@@ -204,6 +205,7 @@ export function BotGroupComposer({
   draftKey: string;
   members: readonly BotGroupMemberView[];
   running: boolean;
+  canStop?: boolean;
   /** Archived group: nothing can be sent. */
   disabled?: boolean;
   /** The group's open plan, for placeholders and the 「安排分工」 gate. */
@@ -304,7 +306,7 @@ export function BotGroupComposer({
   const tooManyAttachments = attachmentCount > BOT_GROUP_ATTACHMENTS_MAX;
   const canSend =
     !disabled && (trimmed.length > 0 || attachmentCount > 0) && !tooLong && !tooManyAttachments && hasMembers;
-  const showStop = !thread && running && trimmed.length === 0 && attachmentCount === 0;
+  const showStop = !thread && canStop && running && trimmed.length === 0 && attachmentCount === 0;
   const divisionBlocked = isBotGroupDivisionBlocked(planState);
 
   // Picking 引用回复 brings the caret here, ready to type the reply; picking the same message
@@ -631,7 +633,7 @@ export function BotGroupComposer({
 
   return (
     <div className={cn(BOT_GROUP_COMPOSER_DOCK, thread && 'px-4')}>
-      <div className={BOT_GROUP_COMPOSER_COLUMN}>
+      <div className={cn(BOT_GROUP_COMPOSER_COLUMN, thread && 'max-w-none')}>
         {error ? <p role="alert" className="mb-2 text-13 text-[var(--error-fg)]">{error}</p> : null}
         {/* Same floating slot above the card as a task's composer: files that did not attach. */}
         {attachmentState.rejections.length > 0 ? (
