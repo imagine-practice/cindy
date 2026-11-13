@@ -1,76 +1,24 @@
 import type { ProjectMember } from '../../../../shared/projects';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useConfirmDialog } from '@/components/ui/confirm-dialog-provider';
 import { Button } from '@/components/ui/button';
-import { getDataOwnerGeneration, isDataOwnerGenerationCurrent, isDataOwnerPushCurrent } from '@/contexts/dataOwnerGeneration';
+import { getDataOwnerGeneration, isDataOwnerGenerationCurrent } from '@/contexts/dataOwnerGeneration';
 import type { ProjectProgressReadResult } from '../../../../shared/projectProgressApi';
-import { ProjectProgressView, type ProjectProgressState } from './ProjectProgressView';
+import { ProjectProgressView, type ProjectProgressState, type ProjectProgressFilter } from './ProjectProgressView';
 import { WorkItemProgressDialog, type WorkItemProgressSnapshot } from './WorkItemProgressDialog';
 import type { WorkItemProgressIntent, WorkItemProgressResult } from '../../../../shared/workItemProgress';
-import type {
-  WorkItemExecutionEntry,
-  WorkItemFollowupAction,
-  ProjectWorkItemFollowupIntent,
-  ProjectWorkItemFollowupResult,
-} from '../../../../shared/projectWorkItemExecutionRequest';
-import { useProviders } from '@/hooks/useProviders';
+import type { WorkItemExecutionEntry } from '../../../../shared/projectWorkItemExecutionRequest';
+import { WORK_ITEM_STATUSES } from '../../../../shared/workItemStatus';
+import { useSearchParams } from 'react-router-dom';
 import {
   readProjectProgress,
   readProjectWorkItemExecution,
-  requestProjectWorkItemExecution,
-  requestProjectWorkItemFollowup,
   updateProjectProgress,
 } from './projectProgressService';
 
 function assertProject(result: ProjectProgressReadResult, projectId: string): void {
   if (result.projectId !== projectId || result.items.some(item => item.projectId !== projectId)
     || result.history.some(event => event.projectId !== projectId)) throw new Error('INVALID_PROGRESS_SCOPE');
-}
-
-/** 投递结果 → 界面文案叶子。代码名不当作文案，i18n 只消费这里的固定枚举。 */
-function noticeKey(code: unknown): 'requested' | 'alreadyRequested' | 'unknown' | 'dispatchFailed'
-  | 'hostNotReady' | 'unavailable' | 'generic' | 'agentRemote' {
-  switch (code) {
-    case 'OUTCOME_UNKNOWN': return 'unknown';
-    case 'DISPATCH_FAILED': return 'dispatchFailed';
-    case 'AGENT_NOT_READY': return 'agentRemote';
-    case 'HOST_NOT_READY': return 'hostNotReady';
-    case 'UNASSIGNED':
-    case 'ASSIGNEE_NOT_BOT':
-    case 'EXECUTOR_INACTIVE':
-    case 'EXECUTOR_NOT_MEMBER':
-    case 'PROJECT_ARCHIVED':
-      return 'unavailable';
-    default: return 'generic';
-  }
-}
-
-type FollowupNotice = { sessionId: string; key: string; vars?: Record<string, string | number> };
-
-/** 后续动作回执 → 界面文案叶子。main 的真实原因（换模型失败等）作为插值展示。 */
-export function followupNoticeKey(
-  result: ProjectWorkItemFollowupResult,
-): Omit<FollowupNotice, 'sessionId'> {
-  if (!result.ok) {
-    switch (result.code) {
-      case 'FOLLOWUP_UNAVAILABLE': return { key: 'unavailable' };
-      case 'CONFIRMATION_STALE': return { key: 'confirmationStale' };
-      case 'MODEL_CHANGE_FAILED': return { key: 'modelFailed', vars: { detail: result.message } };
-      case 'IDEMPOTENCY_CONFLICT': return { key: 'idempotencyConflict' };
-      case 'HOST_NOT_READY': return { key: 'hostNotReady' };
-      case 'DISPATCH_FAILED': return { key: 'dispatchFailed' };
-      default: return { key: 'generic' };
-    }
-  }
-  if (result.action === 'approve') return { key: 'approved' };
-  if (result.action === 'model')
-    return { key: result.model?.status === 'deferred' ? 'modelDeferred' : 'modelChanged' };
-  if (result.wakeKind === 'queued')
-    return result.queuedPosition === null
-      ? { key: 'queuedUnknownPosition' }
-      : { key: 'queued', vars: { position: result.queuedPosition } };
-  return { key: result.replayed ? 'alreadySent' : 'continued' };
 }
 
 export function ProjectProgressSection({ projectId, refreshKey, onAccessLost, onOpenWorkItem, onStateChange, members = [] }: {
@@ -80,19 +28,23 @@ export function ProjectProgressSection({ projectId, refreshKey, onAccessLost, on
   members?: readonly ProjectMember[];
 }) {
   const { t } = useTranslation();
-  // 换模型候选来自宿主模型目录（本机已连接、未停用的来源）。
-  const { providers } = useProviders();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedFilter = searchParams.get('progress');
+  const filter: ProjectProgressFilter = requestedFilter === 'unknown'
+    || WORK_ITEM_STATUSES.some(status => status === requestedFilter)
+    ? requestedFilter as ProjectProgressFilter : 'all';
+  const changeFilter = (next: ProjectProgressFilter) => {
+    setSearchParams(previous => {
+      const params = new URLSearchParams(previous);
+      if (next === 'all') params.delete('progress'); else params.set('progress', next);
+      return params;
+    }, { replace: true });
+  };
   const [editor, setEditor] = useState<WorkItemProgressSnapshot | null>(null);
   const editorRef = useRef<WorkItemProgressSnapshot | null>(null);
   const selectEditor = (value: WorkItemProgressSnapshot | null) => { editorRef.current = value; setEditor(value); };
   const [execution, setExecution] = useState<Record<string, WorkItemExecutionEntry>>({});
   const [executionUnavailable, setExecutionUnavailable] = useState(false);
-  const [executionBusySessionId, setExecutionBusySessionId] = useState<string | null>(null);
-  const [executionNotice, setExecutionNotice] = useState<{ sessionId: string; key: string } | null>(null);
-  const confirmDialog = useConfirmDialog();
-  const [followupBusy, setFollowupBusy] = useState<{ sessionId: string; action: WorkItemFollowupAction } | null>(null);
-  const followupBusyRef = useRef(false);
-  const [followupNotice, setFollowupNotice] = useState<FollowupNotice | null>(null);
   const [state, setState] = useState<ProjectProgressState>({ status: 'loading' });
   useEffect(() => { onStateChange?.(state); }, [state, onStateChange]);
   const [page, setPage] = useState<ProjectProgressReadResult['historyPage'] | null>(null);
@@ -139,11 +91,7 @@ export function ProjectProgressSection({ projectId, refreshKey, onAccessLost, on
       const next:Record<string,WorkItemExecutionEntry>={};
       for (const entry of value.items) next[entry.sessionId]=entry;
       setExecution(next);setExecutionUnavailable(false);
-      setExecutionNotice(notice => {
-        if (!notice || (notice.key !== 'requested' && notice.key !== 'alreadyRequested')) return notice;
-        const latest = next[notice.sessionId];
-        return latest && latest.state !== 'none' && latest.state !== 'requested' ? null : notice;
-      });
+
     } catch {
       if (!mounted.current || !isDataOwnerGenerationCurrent(owner.current) || ticket!==executionSequence.current) return;
       setExecution({});setExecutionUnavailable(true);
@@ -188,11 +136,7 @@ export function ProjectProgressSection({ projectId, refreshKey, onAccessLost, on
     };
     const maker=window.electronAPI?.maker;
     const unsubscribes=[maker?.onInputProjection?.(changed),maker?.onStatusChanged?.(changed),
-      maker?.onInteractionRequest?.(changed),maker?.onInteractionDismissed?.(changed),
-      window.electronAPI?.localDb?.sessionsPush?.onPatched?.((payload,ownerStamp)=>{
-        if (!isDataOwnerPushCurrent(ownerStamp) || !payload.patch || typeof payload.patch !== 'object') return;
-        if (['agentSwitchIntent','agentSwitchIntentCanceled','model','providerId','agentKind'].some(key=>key in payload.patch)) changed(payload);
-      })];
+      maker?.onInteractionRequest?.(changed),maker?.onInteractionDismissed?.(changed)];
     return ()=>{closed=true;pendingRuntimeRefresh.current=false;scheduleRuntimeRefresh.current=undefined;
       for (const unsubscribe of unsubscribes) unsubscribe?.();};
   }, [projectId]);
@@ -244,128 +188,11 @@ export function ProjectProgressSection({ projectId, refreshKey, onAccessLost, on
     if (mounted.current && isDataOwnerGenerationCurrent(owner.current) && !editorRef.current) void loadRef.current();
     return result;
   };
-  /** 真正的投递，不带 busy 守卫：本机接管后要复用同一条路径。 */
-  const dispatchExecutionRequest = async (sessionId: string) => {
-    const ticket = sequence.current;
-    try {
-      const result = await requestProjectWorkItemExecution({ projectId, sessionId });
-      if (!mounted.current || !isDataOwnerGenerationCurrent(owner.current)) return;
-      setExecutionNotice({
-        sessionId,
-        key: result.ok ? (result.replayed ? 'alreadyRequested' : 'requested') : noticeKey(result.code),
-      });
-      // Read the real state again instead of trusting the reply (or any local cache).
-      if (ticket === sequence.current) await loadRef.current();
-    } catch (error) {
-      if (!mounted.current || !isDataOwnerGenerationCurrent(owner.current)) return;
-      const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
-      if (code === 'FORBIDDEN' || code === 'NOT_PROJECT_MEMBER') { fail(error); return; }
-      setExecutionNotice({ sessionId, key: noticeKey(code) });
-    } finally {
-      if (mounted.current) setExecutionBusySessionId(null);
-    }
-  };
-  const requestExecution = async (sessionId: string) => {
-    if (executionBusySessionId) return;
-    setExecutionBusySessionId(sessionId); setExecutionNotice(null);
-    await dispatchExecutionRequest(sessionId);
-  };
-
-  /**
-   * 伙伴的主力电脑是另一台时：先在本机接管它，再立刻重试一次。
-   * 接管失败要如实说原因（正在别处执行 / 别处已接管 / 那台离线…），不假装成功。
-   */
-  const takeOverAndExecute = async (sessionId: string, botId: string, botName: string) => {
-    if (executionBusySessionId) return;
-    const confirmed = await confirmDialog.confirm({
-      title: t('ccAgent.projectCore.progress.execution.takeOver.title', { name: botName }),
-      description: t('ccAgent.projectCore.progress.execution.takeOver.desc'),
-      confirmText: t('ccAgent.projectCore.progress.execution.takeOver.confirm'),
-      cancelText: t('ccAgent.projectCore.progress.execution.takeOver.cancel'),
-    });
-    if (!confirmed || !mounted.current || !isDataOwnerGenerationCurrent(owner.current)) return;
-    setExecutionBusySessionId(sessionId);
-    setExecutionNotice(null);
-    try {
-      const result = await window.electronAPI.maker.takeOverCompanion(botId);
-      if (!mounted.current || !isDataOwnerGenerationCurrent(owner.current)) return;
-      if (!result.ok) {
-        setExecutionNotice({ sessionId, key: `takeOverFailed.${result.code}` });
-        return;
-      }
-      await dispatchExecutionRequest(sessionId);
-    } catch {
-      if (mounted.current) setExecutionNotice({ sessionId, key: 'takeOverFailed.FAILED' });
-    } finally {
-      if (mounted.current) setExecutionBusySessionId(null);
-    }
-  };
-  const modelChoices = useMemo(() => {
-    const byAgent: Record<string, { model: string; providerId: string | null; label: string }[]> = {};
-    for (const agentKind of ['claude-code', 'codex', 'pi'] as const) {
-      const seen = new Set<string>();
-      const list: { model: string; providerId: string | null; label: string }[] = [];
-      for (const provider of providers) {
-        if (!provider.connected || provider.suspended) continue;
-        if (!provider.agents?.includes(agentKind)) continue;
-        for (const model of provider.models?.[agentKind] ?? []) {
-          if (model.disabled) continue;
-          const key = `${provider.id}::${model.id}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          list.push({
-            model: model.id,
-            providerId: provider.id,
-            label: `${model.name ?? model.id} · ${provider.name}`,
-          });
-        }
-      }
-      byAgent[agentKind] = list;
-    }
-    return byAgent;
-  }, [providers]);
-
-  const followup = async (
-    sessionId: string,
-    action: WorkItemFollowupAction,
-    payload?: { text?: string; model?: string; providerId?: string | null },
-  ) => {
-    // 同一个动作连点只走一次：在飞期间直接忽略，main 侧还有同键去重兜底。
-    if (followupBusyRef.current) return;
-    followupBusyRef.current = true;
-    setFollowupBusy({ sessionId, action });
-    setFollowupNotice(null);
-    try {
-      const intent: ProjectWorkItemFollowupIntent = action === 'model'
-        ? { projectId, sessionId, action, model: payload?.model ?? '', providerId: payload?.providerId ?? null }
-        : action === 'approve'
-          ? { projectId, sessionId, action }
-          : { projectId, sessionId, action, ...(payload?.text ? { text: payload.text } : {}) };
-      const result = await requestProjectWorkItemFollowup(intent);
-      if (!valid(sequence.current)) return;
-      setFollowupNotice({ sessionId, ...followupNoticeKey(result) });
-      // 状态、可用性与待确认项一律重新读；界面不保留「已批准 / 已完成」的印象。
-      await loadRef.current();
-    } catch (error) {
-      if (!valid(sequence.current)) return;
-      const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
-      if (code === 'FORBIDDEN' || code === 'NOT_PROJECT_MEMBER') { fail(error); return; }
-      setFollowupNotice({ sessionId, key: 'generic' });
-    } finally {
-      followupBusyRef.current = false;
-      if (mounted.current) setFollowupBusy(null);
-    }
-  };
-
   return <div className="flex min-w-0 flex-col gap-3">
     <ProjectProgressView projectId={projectId} members={members} state={state} onOpenWorkItem={onOpenWorkItem}
       onRefresh={() => void loadRef.current()}
       execution={execution} executionUnavailable={executionUnavailable}
-      executionBusySessionId={executionBusySessionId} executionNotice={executionNotice}
-      onTakeOverAndExecute={takeOverAndExecute}
-      followupBusy={followupBusy} followupNotice={followupNotice} modelChoices={modelChoices}
-      onRequestExecution={id => void requestExecution(id)}
-      onFollowup={(id, action, payload) => void followup(id, action, payload)}
+      filter={filter} onFilterChange={changeFilter}
       onEditWorkItem={state.status === 'ready' && current.current?.capabilities.canRecord ? openEditor : undefined} />
     {state.status === 'ready' && page?.hasMore && <div className="flex min-w-0 flex-col items-start gap-2">
       {moreError && <p role="alert" className="text-13 text-[var(--text-danger)]">{t('ccAgent.projectCore.progress.earlierFailed')}</p>}

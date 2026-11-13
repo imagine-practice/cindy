@@ -6,14 +6,28 @@
  */
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
+import { MemoryRouter, Routes, Route, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ProjectDetailPage } from '../ProjectDetailPage';
 import type { ProjectDetail } from '../../../../shared/projects';
 import type { ProjectProgressReadResult, ProjectProgressApiHistoryEntry } from '../../../../shared/projectProgressApi';
-const h = vi.hoisted(() => ({ route: { projectId: 'p1' }, generation: 1,
+const h = vi.hoisted(() => ({ route: { projectId: 'p1' }, generation: 1, realRouter: false, providers: vi.fn(),
   detail: vi.fn(), progress: vi.fn(), navigate: vi.fn(), changed: undefined as undefined | (() => void) }));
-vi.mock('react-router-dom', () => ({ useParams: () => h.route, useNavigate: () => h.navigate }));
+vi.mock('react-router-dom', async importOriginal => {
+  const real = await importOriginal<typeof import('react-router-dom')>();
+  const { useState } = await import('react');
+  return { ...real,
+    useParams: () => h.realRouter ? real.useParams() : h.route,
+    useNavigate: () => h.realRouter ? real.useNavigate() : h.navigate,
+    useSearchParams: () => {
+      const [params, setParams] = useState(new URLSearchParams());
+      return h.realRouter ? real.useSearchParams()
+        : [params, (next: (p: URLSearchParams) => URLSearchParams) => setParams(next(params))];
+    },
+  };
+});
+vi.mock('@/hooks/useProviders', () => ({ useProviders: h.providers }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string,vars?:{model?:string}) =>
-  key==='newChat.chatInput.agentSwitch.deferred'?`${key}:${vars?.model}`:key, i18n: { language: 'en' } }) }));
+  key==='chat.botStartedTasks.open'?`${key}:${(vars as {title?:string})?.title}`:key==='newChat.chatInput.agentSwitch.deferred'?`${key}:${vars?.model}`:key, i18n: { language: 'en' } }) }));
 vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: () => ({ dataOwnerId: 'owner', dataOwnerGeneration: h.generation }), useOptionalDataOwnerGeneration: () => h.generation }));
 vi.mock('@/contexts/dataOwnerGeneration', () => ({ getDataOwnerGeneration: () => h.generation,
   isDataOwnerGenerationCurrent: (value: number) => value === h.generation,
@@ -56,128 +70,128 @@ function pending<T>() { let resolve!: (v: T) => void; let reject!: (e: Error) =>
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
 async function broadcast() { await act(async () => h.changed?.()); }
 beforeEach(() => {
-  vi.clearAllMocks(); h.route = { projectId: 'p1' }; h.generation = 1;
+  vi.resetAllMocks(); h.route = { projectId: 'p1' }; h.generation = 1; h.realRouter = false; h.providers.mockReturnValue({ providers: [] });
   h.detail.mockImplementation(async (id: string) => detail(id)); h.progress.mockResolvedValue(result());
   Object.defineProperty(window, 'electronAPI', { configurable: true, value: { localDb: { projectProgress: { read: h.progress } } } });
 });
 afterEach(cleanup);
 
-// Another task window only emits sessions:patched for a model intent. The
-// mounted project must reread it, without a project metadata mutation.
-it('refreshes current-project pending model intents from owner-scoped session patches',async()=>{
-  let model='model-b';
-  const execution=vi.fn(async()=>({projectId:'p1',items:[{
-    sessionId:'task-0',executor:{botId:'bot',displayName:'Bot'},state:'completed',canRequest:true,
-    unavailableReason:null,requestKey:null,requestRound:0,requestedAt:null,delegationId:null,
-    followup:{busy:false,pending:null,model:{current:'model-a',providerId:'p',agentKind:'codex',pending:{model,providerId:'p',agentKind:'codex'}},
-      actions:{continue:{allowed:true,reason:null},approve:{allowed:false,reason:'NO_PENDING_CONFIRMATION'},
-        queue:{allowed:false,reason:'NOT_BUSY'},model:{allowed:true,reason:null}}},
-  }]}));
-  let patched:((payload:{sessionId:string;patch:Record<string,unknown>},stamp?:{dataOwnerId:string;ownerGeneration:number})=>void)|undefined;
-  const unsubscribe=vi.fn();
-  Object.defineProperty(window,'electronAPI',{configurable:true,value:{localDb:{
-    projectProgress:{read:h.progress},projectExecution:{read:execution},
-    sessionsPush:{onPatched:(fn:typeof patched)=>{patched=fn;return unsubscribe;}},
-  }}});
-  const page=render(<ProjectDetailPage />);
-  await screen.findByText('newChat.chatInput.agentSwitch.deferred:model-b');
-  const first=execution.mock.calls.length;
-  model='model-c';
-  await act(async()=>patched?.({sessionId:'task-0',patch:{agentSwitchIntent:{model}}},{dataOwnerId:'owner',ownerGeneration:h.generation}));
-  await screen.findByText('newChat.chatInput.agentSwitch.deferred:model-c');
-  expect(execution.mock.calls.length).toBeGreaterThan(first);expect(h.progress).toHaveBeenCalledOnce();
-  const refreshed=execution.mock.calls.length;
-  await act(async()=>{
-    patched?.({sessionId:'outside-project',patch:{agentSwitchIntent:{model:'outside'}}});
-    patched?.({sessionId:'task-0',patch:{title:'unrelated'}});
-    patched?.({sessionId:'task-0',patch:{agentSwitchIntent:null}},{dataOwnerId:'owner',ownerGeneration:0});
-  });
-  expect(execution).toHaveBeenCalledTimes(refreshed);
-  const retained=patched;page.unmount();
-  await act(async()=>retained?.({sessionId:'task-0',patch:{agentSwitchIntent:null}}));
-  expect(execution).toHaveBeenCalledTimes(refreshed);expect(unsubscribe).toHaveBeenCalled();
-});
-
-// Runtime state is not a project metadata mutation. The already-open page must
-// reread execution/pending capabilities from Main when its task starts or asks.
-it('refreshes execution and permission actions from task runtime events without a project mutation',async()=>{
-  const progress=result();progress.items[0].sessionStatus='active';h.progress.mockResolvedValue(progress);
-  let entry:import('../../../../shared/projectWorkItemExecutionRequest').WorkItemExecutionEntry={
-    sessionId:'task-0',executor:{botId:'bot',displayName:'Bot'},state:'requested',canRequest:false,
-    unavailableReason:null,requestKey:'original',requestRound:0,requestedAt:1,delegationId:null,
-    followup:{busy:false,pending:null,model:null,actions:{
-      continue:{allowed:false,reason:'NO_TERMINAL_EXECUTION'},approve:{allowed:false,reason:'NO_PENDING_CONFIRMATION'},
-      queue:{allowed:false,reason:'NOT_BUSY'},model:{allowed:false,reason:'MODEL_UNAVAILABLE'}}}};
-  const execution=vi.fn(async()=>({projectId:'p1',items:[entry]}));
-  let inputEvent:((p:{sessionId:string})=>void)|undefined;
-  let pendingEvent:((p:{sessionId:string})=>void)|undefined;
-  let dismissedEvent:typeof pendingEvent;
-  const unsubscribed=vi.fn();
-  Object.defineProperty(window,'electronAPI',{configurable:true,value:{
-    localDb:{projectProgress:{read:h.progress},projectExecution:{read:execution}},
-    maker:{onInputProjection:(fn:typeof inputEvent)=>{inputEvent=fn;return unsubscribed;},
-      onInteractionRequest:(fn:typeof pendingEvent)=>{pendingEvent=fn;return unsubscribed;},
-      onInteractionDismissed:(fn:typeof pendingEvent)=>{dismissedEvent=fn;return unsubscribed;}}}});
-  const page=render(<ProjectDetailPage />);
-  const approve=await screen.findByRole('button',{name:key('execution.followup.action.approve')}) as HTMLButtonElement;
-  expect(approve.disabled).toBe(true);
-  const initial=execution.mock.calls.length;
-  entry={...entry,state:'running',followup:{...entry.followup,busy:true,
-    pending:{requestId:'exec',kind:'permission',summary:'Allow exec',raisedAt:2},
-    actions:{...entry.followup.actions,continue:{allowed:true,reason:null},approve:{allowed:true,reason:null}}}};
-  await act(async()=>{inputEvent?.({sessionId:'task-0'});pendingEvent?.({sessionId:'task-0'});});
-  await waitFor(()=>expect(approve.disabled).toBe(false));
-  expect(execution.mock.calls.length).toBeGreaterThan(initial);
-  expect(h.progress).toHaveBeenCalledOnce();
-  entry={...entry,followup:{...entry.followup,pending:null,actions:{...entry.followup.actions,approve:{allowed:false,reason:'NO_PENDING_CONFIRMATION'}}}};
-  await act(async()=>dismissedEvent?.({sessionId:'task-0'}));
-  await waitFor(()=>expect(approve.disabled).toBe(true));
-  const after=execution.mock.calls.length;
-  await act(async()=>inputEvent?.({sessionId:'other-project-task'}));
-  expect(execution).toHaveBeenCalledTimes(after);
-  // A retained runtime callback and its pending result cannot cross an owner
-  // generation, even when the project ID is unchanged.
-  const old=pending<{projectId:string;items:typeof entry[]}>();
-  execution.mockReturnValueOnce(old.promise);
-  await act(async()=>inputEvent?.({sessionId:'task-0'}));
-  h.generation++;
-  await act(async()=>old.resolve({projectId:'p1',items:[{...entry,followup:{...entry.followup,actions:{...entry.followup.actions,approve:{allowed:true,reason:null}}}}]}));
-  expect(approve.disabled).toBe(true);
-  const afterEpoch=execution.mock.calls.length;
-  await act(async()=>inputEvent?.({sessionId:'task-0'}));
-  expect(execution).toHaveBeenCalledTimes(afterEpoch);
-  const retained=inputEvent;page.unmount();
-  await act(async()=>retained?.({sessionId:'task-0'}));
-  expect(execution).toHaveBeenCalledTimes(afterEpoch);expect(unsubscribed).toHaveBeenCalled();
-});
-
-// The delivery receipt is transient. A later Main projection must retire its
-// "waiting for acceptance" notice even if no project metadata changed.
-it.each([
-  ['retires','running',true,false],
-  ['retires','completed',true,true],
-  ['retains the failure in','completed',false,false],
-] as const)('%s the request notice when runtime state becomes %s',async(_label,state,ok,replayed)=>{
-  const progress=result();progress.items[0].sessionStatus='active';h.progress.mockResolvedValue(progress);
-  let entry:import('../../../../shared/projectWorkItemExecutionRequest').WorkItemExecutionEntry={
-    sessionId:'task-0',executor:{botId:'bot',displayName:'Bot'},state:'none',canRequest:true,
-    unavailableReason:null,requestKey:null,requestRound:0,requestedAt:null,delegationId:null,
-    followup:{busy:false,pending:null,model:null,actions:{continue:{allowed:false,reason:'NO_TERMINAL_EXECUTION'},
-      approve:{allowed:false,reason:'NO_PENDING_CONFIRMATION'},queue:{allowed:false,reason:'NOT_BUSY'},model:{allowed:false,reason:'MODEL_UNAVAILABLE'}}}};
-  let event:((payload:{sessionId:string})=>void)|undefined;
-  const request=vi.fn(async()=>{entry={...entry,state:ok?'requested':'none',canRequest:!ok};return {ok,replayed,code:'DISPATCH_FAILED'};});
-  Object.defineProperty(window,'electronAPI',{configurable:true,value:{
-    localDb:{projectProgress:{read:h.progress},projectExecution:{read:async()=>({projectId:'p1',items:[entry]}),request}},
-    maker:{onStatusChanged:(fn:typeof event)=>{event=fn;return ()=>{};}}}});
+// Projects own read-only state; task pages own model/dialogue controls.
+// Do not subscribe to model-only patches or load the provider catalogue here.
+it('reads execution without loading a model catalogue or model-only subscriptions', async () => {
+  const execution = vi.fn(async () => ({ projectId: 'p1', items: [executionEntry()] }));
+  const patched = vi.fn();
+  Object.defineProperty(window, 'electronAPI', { configurable: true, value: { localDb: {
+    projectProgress: { read: h.progress }, projectExecution: { read: execution }, sessionsPush: { onPatched: patched },
+  } } });
   render(<ProjectDetailPage />);
-  fireEvent.click(await screen.findByRole('button',{name:key('execution.action')}));
-  const notice=key(`execution.notice.${ok?(replayed?'alreadyRequested':'requested'):'dispatchFailed'}`);
-  await screen.findByText(notice);
-  entry={...entry,state};
-  await act(async()=>event?.({sessionId:'task-0'}));
-  await screen.findByText(key(`execution.state.${state}`));
-  if(ok)expect(screen.queryByText(notice)).toBeNull();else expect(screen.getByText(notice)).toBeTruthy();
-  expect(request).toHaveBeenCalledOnce();
+  await screen.findByText(key('execution.state.completed'));
+  expect(execution).toHaveBeenCalledOnce();
+  expect(h.providers).not.toHaveBeenCalled();
+  expect(patched).not.toHaveBeenCalled();
+  expect(screen.queryByText(key('execution.followup.title'))).toBeNull();
+});
+
+function executionEntry(): import('../../../../shared/projectWorkItemExecutionRequest').WorkItemExecutionEntry {
+  return {
+    sessionId: 'task-0', executor: { botId: 'bot', displayName: 'Bot' }, state: 'completed', canRequest: true,
+    unavailableReason: null, requestKey: 'original', requestRound: 0, requestedAt: 1, delegationId: null,
+    followup: { busy: false, pending: null, model: { current: 'model-a', providerId: 'p', agentKind: 'codex' },
+      actions: { continue: { allowed: true, reason: null }, approve: { allowed: false, reason: 'NO_PENDING_CONFIRMATION' },
+        queue: { allowed: false, reason: 'NOT_BUSY' }, model: { allowed: true, reason: null } } },
+  };
+}
+
+// Real page/container/read service with controlled preload runtime events. Old
+// approval-button tests are replaced by read-only attention, preserving scope,
+// owner-generation and unmount guards; Main approval/service tests stay intact.
+it('refreshes read-only execution and attention while rejecting obsolete runtime events', async () => {
+  let entry = { ...executionEntry(), state: 'requested' as const } as ReturnType<typeof executionEntry>;
+  const execution = vi.fn(async () => ({ projectId: 'p1', items: [entry] }));
+  let inputEvent: ((p: { sessionId: string }) => void) | undefined;
+  let interactionEvent: typeof inputEvent;
+  let dismissedEvent: typeof inputEvent;
+  const unsubscribed = vi.fn();
+  Object.defineProperty(window, 'electronAPI', { configurable: true, value: {
+    localDb: { projectProgress: { read: h.progress }, projectExecution: { read: execution } },
+    maker: { onInputProjection: (fn: typeof inputEvent) => { inputEvent = fn; return unsubscribed; },
+      onInteractionRequest: (fn: typeof inputEvent) => { interactionEvent = fn; return unsubscribed; },
+      onInteractionDismissed: (fn: typeof inputEvent) => { dismissedEvent = fn; return unsubscribed; } },
+  } });
+  const page = render(<ProjectDetailPage />);
+  await screen.findByText(key('execution.state.requested'));
+  const initial = execution.mock.calls.length;
+  entry = { ...entry, state: 'running', followup: { ...entry.followup, busy: true,
+    pending: { requestId: 'exec', kind: 'permission', summary: 'Allow exec', raisedAt: 2 } } };
+  await act(async () => { inputEvent?.({ sessionId: 'task-0' }); interactionEvent?.({ sessionId: 'task-0' }); });
+  await screen.findByText('ccAgent.sidebar.status.needsAttention');
+  expect(execution.mock.calls.length).toBeGreaterThan(initial);
+  expect(screen.queryByRole('button', { name: key('execution.followup.action.approve') })).toBeNull();
+  expect(h.progress).toHaveBeenCalledOnce();
+  entry = { ...entry, followup: { ...entry.followup, pending: null } };
+  await act(async () => dismissedEvent?.({ sessionId: 'task-0' }));
+  await screen.findByText(key('execution.state.running'));
+  expect(screen.queryByText('ccAgent.sidebar.status.needsAttention')).toBeNull();
+  const after = execution.mock.calls.length;
+  await act(async () => inputEvent?.({ sessionId: 'other-project-task' }));
+  expect(execution).toHaveBeenCalledTimes(after);
+  const old = pending<{ projectId: string; items: typeof entry[] }>();
+  execution.mockReturnValueOnce(old.promise);
+  await act(async () => inputEvent?.({ sessionId: 'task-0' }));
+  h.generation++;
+  await act(async () => old.resolve({ projectId: 'p1', items: [{ ...entry, state: 'completed' }] }));
+  expect(screen.queryByText(key('execution.state.completed'))).toBeNull();
+  const afterEpoch = execution.mock.calls.length;
+  await act(async () => inputEvent?.({ sessionId: 'task-0' }));
+  expect(execution).toHaveBeenCalledTimes(afterEpoch);
+  const retained = inputEvent; page.unmount();
+  await act(async () => retained?.({ sessionId: 'task-0' }));
+  expect(execution).toHaveBeenCalledTimes(afterEpoch);
+  expect(unsubscribed).toHaveBeenCalled();
+});
+
+// This route probe verifies navigation only, not native task-page capabilities.
+// The production project -> native route keeps the same local renderer/bridge;
+// no remote device or replacement session is introduced.
+function NativeTaskRouteProbe() {
+  const { sessionId } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+  return <><output data-testid="native-task-target">{location.pathname}:{sessionId}</output>
+    <button onClick={() => navigate(-1)}>Back to project</button></>;
+}
+
+it('opens assigned and unassigned original task IDs and preserves project filters on return', async () => {
+  h.realRouter = true;
+  const progress = result('p1', 3);
+  progress.items[0].progress = { sessionId: 'task-0', projectId: 'p1', bindingRevision: 7, revision: 3,
+    status: 'todo', reason: null, unblockCondition: null, completionEventId: null,
+    updatedBy: { kind: 'account', id: 'owner' }, updatedAt: 1 };
+  progress.items[1].assignee = { kind: 'bot', id: 'bot' };
+  h.progress.mockResolvedValue(progress);
+  const request = vi.fn(), followup = vi.fn(), create = vi.fn();
+  const bridge = { localDb: { projectProgress: { read: h.progress },
+    projectExecution: { read: async () => ({ projectId: 'p1', items: [] }), request, followup },
+    sessions: { create } } };
+  Object.defineProperty(window, 'electronAPI', { configurable: true, value: bridge });
+  render(<MemoryRouter initialEntries={['/cc-agent/projects/p1?from=qa']}><Routes>
+    <Route path="/cc-agent/projects/:projectId" element={<ProjectDetailPage />} />
+    <Route path="/cc-agent/:sessionId" element={<NativeTaskRouteProbe />} />
+  </Routes></MemoryRouter>);
+  fireEvent.click(await screen.findByRole('button', { name: `${key('unknown')} · 2` }));
+  expect(screen.getByRole('button', { name: `${key('unknown')} · 2` }).getAttribute('aria-pressed')).toBe('true');
+  expect(screen.queryByRole('button', { name: /p1 task 0/ })).toBeNull();
+  for (const index of [1, 2]) {
+    fireEvent.click(screen.getByRole('button', { name: `chat.botStartedTasks.open:p1 task ${index}` }));
+    expect(await screen.findByTestId('native-task-target')).toHaveProperty('textContent', `/cc-agent/task-${index}:task-${index}`);
+    expect(window.electronAPI).toBe(bridge);
+    fireEvent.click(screen.getByRole('button', { name: 'Back to project' }));
+    await screen.findByRole('button', { name: `chat.botStartedTasks.open:p1 task ${index}` });
+    expect(screen.getByRole('button', { name: `${key('unknown')} · 2` }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByRole('button', { name: /p1 task 0/ })).toBeNull();
+  }
+  expect(screen.queryByRole('textbox')).toBeNull();
+  expect(request).not.toHaveBeenCalled(); expect(followup).not.toHaveBeenCalled(); expect(create).not.toHaveBeenCalled();
 });
 
 it('reads through the actual service, counts 120 full items and deduplicates 101 history entries by cursor', async () => {
@@ -194,16 +208,16 @@ it('reads through the actual service, counts 120 full items and deduplicates 101
   expect(screen.getAllByText('event-2')).toHaveLength(1);
   expect(h.progress).toHaveBeenLastCalledWith({ projectId: 'p1', beforeEventId: 2 });
   expect(screen.queryByRole('button', { name: key('loadEarlier') })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'p1 task 119' }));
+  fireEvent.click(screen.getByRole('button', { name: 'chat.botStartedTasks.open:p1 task 119' }));
   expect(h.navigate).toHaveBeenCalledWith('/cc-agent/task-119');
 });
 it('never stitches a late p1 progress response into the p2 detail', async () => {
   const old = pending<ProjectProgressReadResult>(); h.progress.mockReturnValueOnce(old.promise).mockResolvedValueOnce(result('p2'));
   const page = render(<ProjectDetailPage />); await screen.findByRole('heading', { name: 'Project p1' });
   h.route = { projectId: 'p2' }; page.rerender(<ProjectDetailPage />);
-  await screen.findByRole('button', { name: 'p2 task 0' });
+  await screen.findByRole('button', { name: 'chat.botStartedTasks.open:p2 task 0' });
   await act(async () => old.resolve(result('p1', 1, [event(55)])));
-  expect(screen.queryByText('event-55')).toBeNull(); expect(screen.queryByRole('button', { name: 'p1 task 0' })).toBeNull();
+  expect(screen.queryByText('event-55')).toBeNull(); expect(screen.queryByRole('button', { name: 'chat.botStartedTasks.open:p1 task 0' })).toBeNull();
 });
 it('refresh replaces history and ignores old pagination completed after the latest refresh', async () => {
   const old = pending<ProjectProgressReadResult>(); const first = result('p1', 1, [event(10)]);
@@ -217,7 +231,7 @@ it('refresh replaces history and ignores old pagination completed after the late
 it('drops an obsolete refresh failure after a newer successful refresh', async () => {
   const old = pending<ProjectProgressReadResult>(); h.progress.mockResolvedValueOnce(result()).mockReturnValueOnce(old.promise)
     .mockResolvedValueOnce(result('p1', 1, [event(30)]));
-  render(<ProjectDetailPage />); await screen.findByRole('button', { name: 'p1 task 0' }); await broadcast(); await broadcast();
+  render(<ProjectDetailPage />); await screen.findByRole('button', { name: 'chat.botStartedTasks.open:p1 task 0' }); await broadcast(); await broadcast();
   await screen.findByText('event-30'); await act(async () => old.reject(new Error('obsolete')));
   expect(screen.queryByText(key('error'))).toBeNull();
 });
@@ -241,7 +255,7 @@ it('shows loading/error/retry/empty and rejects a mismatched project envelope', 
   render(<ProjectDetailPage />); await screen.findByText(key('loading'));
   await act(async () => first.reject(new Error('unavailable'))); await screen.findByRole('alert');
   fireEvent.click(screen.getByRole('button', { name: key('retry') })); await screen.findByRole('alert');
-  expect(screen.queryByRole('button', { name: 'p2 task 0' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'chat.botStartedTasks.open:p2 task 0' })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: key('retry') })); await screen.findByText(key('empty'));
 });
 it('reloads the first page when a paginated response observes a new binding instead of merging epochs', async () => {

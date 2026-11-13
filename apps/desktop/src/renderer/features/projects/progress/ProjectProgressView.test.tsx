@@ -13,7 +13,6 @@ import { ProjectProgressView, type ProjectProgressState } from './ProjectProgres
 import type { ProjectMember } from '../../../../shared/projects';
 
 type ProjectProgressViewMembers = readonly ProjectMember[];
-import { followupNoticeKey } from './ProjectProgressSection';
 import {
   projectProgressView,
   type ProjectProgressItem,
@@ -33,6 +32,23 @@ await i18n.init({
   initAsync: false,
 });
 afterEach(cleanup);
+
+// Owner decision 2026-11-13: projects show progress/execution, while native task
+// pages own dialogue, approval, queue and model controls. A completed work item
+// must open the original task without offering a second execution surface.
+it('opens the original work item and leaves task controls to its native page', () => {
+  const onOpen = vi.fn();
+  render(<I18nextProvider i18n={i18n}><ProjectProgressView projectId="p"
+    state={ready([item()])} onOpenWorkItem={onOpen} onRefresh={vi.fn()}
+    execution={{ s: executionEntry({ state: 'completed' }) }} /></I18nextProvider>);
+  expect(screen.getByText('Completed')).toBeTruthy();
+  expect(screen.queryByText('Follow up')).toBeNull();
+  expect(screen.queryByText(/Current model:/)).toBeNull();
+  expect(screen.queryByRole('button', { name: /Ask .* to execute|Continue|Approve|Queue here|Change model/ })).toBeNull();
+  expect(screen.queryByRole('textbox')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Open task “Same title”' }));
+  expect(onOpen).toHaveBeenCalledExactlyOnceWith('s');
+});
 const record = (patch: Partial<WorkItemProgressRecord> = {}): WorkItemProgressRecord => ({
   sessionId: 's',
   projectId: 'p',
@@ -218,12 +234,12 @@ describe('project progress projection and component', () => {
   });
   it('uses one list for counts/filtering and opens duplicate titles by stable ID', () => {
     const ui = mount(ready([item(), item({ sessionId: 'second', progress: null })]));
-    fireEvent.click(screen.getAllByRole('button', { name: 'Same title' })[1]);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open task “Same title”' })[1]);
     expect(ui.onOpen).toHaveBeenCalledWith('second');
     fireEvent.click(screen.getByRole('button', { name: 'Not recorded · 1' }));
-    expect(screen.getAllByRole('button', { name: 'Same title' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Open task “Same title”' })).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: 'Confirmed complete · 1' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Same title' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open task “Same title”' }));
     expect(ui.onOpen).toHaveBeenLastCalledWith('s');
   });
   it.each(['loading', 'forbidden', 'error'] as const)(
@@ -247,7 +263,7 @@ describe('project progress projection and component', () => {
     expect(screen.getByRole('button', { name: 'All · 1' }).getAttribute('aria-pressed')).toBe(
       'true',
     );
-    expect(screen.getByRole('button', { name: 'Same title' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Open task “Same title”' })).toBeTruthy();
   });
   it('shows empty, no history, and missing block metadata without inventing reasons', () => {
     const ui = mount(ready([]));
@@ -321,354 +337,49 @@ describe('project progress projection and component', () => {
   });
 });
 
-/** 「请该伙伴执行」入口：执行者、禁用原因、六档状态与重发规则的呈现。 */
-describe('project work-item execution entry', () => {
-  const mountExecution = (
-    entry: WorkItemExecutionEntry | null,
-    notice: { sessionId: string; key: string } | null = null,
-  ) => {
-    const onRequest = vi.fn();
-    const onTakeOver = vi.fn();
-    render(
-      <I18nextProvider i18n={i18n}>
-        <ProjectProgressView
-          projectId="p"
-          state={ready([item()])}
-          onOpenWorkItem={vi.fn()}
-          onRefresh={vi.fn()}
-          execution={entry ? { s: entry } : {}}
-          executionNotice={notice}
-          onRequestExecution={onRequest}
-          onTakeOverAndExecute={onTakeOver}
-        />
-      </I18nextProvider>,
-    );
-    return { onRequest, onTakeOver };
-  };
-
-  it('names the assignee teammate and delivers on click', () => {
-    const ui = mountExecution(executionEntry());
-    fireEvent.click(screen.getByRole('button', { name: 'Ask Nova to execute' }));
-    expect(ui.onRequest).toHaveBeenCalledTimes(1);
-    expect(ui.onRequest).toHaveBeenCalledWith('s');
-  });
-
-  it('disables the entry without an assignee and never falls back to another executor', () => {
-    const ui = mountExecution(
-      executionEntry({
-        executor: null,
-        unavailableReason: 'UNASSIGNED',
-        canRequest: false,
-      }),
-    );
-    expect(screen.getByText('Set an assignee first')).toBeTruthy();
-    // A disabled control (not a hidden one) and no invented executor name.
-    const button = screen.getByRole('button', {
-      name: 'Ask the assignee to execute',
-    }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
-    fireEvent.click(button);
-    expect(ui.onRequest).not.toHaveBeenCalled();
-  });
-
-  it('renders the take-over failure notice as text, never as a raw i18n key', () => {
-    mountExecution(
-      executionEntry({
-        executor: { botId: 'bot-remote', displayName: 'Nova' },
-        unavailableReason: 'AGENT_NOT_READY',
-        canRequest: false,
-      }),
-      { sessionId: 's', key: 'takeOverFailed.FAILED' },
-    );
-    expect(screen.getByText(/Take-over did not finish/)).toBeTruthy();
-    expect(screen.queryByText(/ccAgent\.projectCore\.progress\.execution\.notice\./)).toBeNull();
-  });
-
-  it('offers taking the teammate over here when it runs on another computer', () => {
-    const ui = mountExecution(
-      executionEntry({
-        executor: { botId: 'bot-remote', displayName: 'Nova' },
-        unavailableReason: 'AGENT_NOT_READY',
-        canRequest: false,
-      }),
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Take over here and run' }));
-    // 只把「哪个工作项 + 哪个伙伴」交出去；接管与重试由外层执行。
-    expect(ui.onTakeOver).toHaveBeenCalledExactlyOnceWith('s', 'bot-remote', 'Nova');
-    expect(ui.onRequest).not.toHaveBeenCalled();
-  });
-
-  it('asks for a teammate when the assignee is an account, not a bot', () => {
-    // 处理人是账号时，「请处理人执行」是错的提示——要让人去指定一个伙伴。
-    mountExecution(
-      executionEntry({
-        executor: null,
-        unavailableReason: 'ASSIGNEE_NOT_BOT',
-        canRequest: false,
-      }),
-    );
-    const button = screen.getByRole('button', {
-      name: 'Pick a teammate to execute',
-    }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
-    expect(screen.getByText('The assignee is not a teammate, so it cannot execute this.')).toBeTruthy();
-  });
-
+/** Owner decision: execution is a read-only summary, not another task controller. */
+describe('read-only work-item execution', () => {
   it.each([
-    ['requested', 'Request delivered', 'Delivered and waiting for the teammate; it is not sent twice.'],
-    ['accepted', 'Teammate accepted', null],
-    ['running', 'Teammate running', null],
-    ['completed', 'Completed', null],
-  ] as const)('separates %s from the other stages', (state, label, hint) => {
-    mountExecution(executionEntry({ state, canRequest: state === 'completed' }));
-    expect(screen.getByText(label)).toBeTruthy();
-    if (hint) expect(screen.getByText(hint)).toBeTruthy();
+    ['none', 'Not executed'], ['requested', 'Request delivered'], ['accepted', 'Teammate accepted'],
+    ['running', 'Teammate running'], ['completed', 'Completed'], ['failed', 'Execution failed'],
+    ['unknown', 'Outcome unknown'],
+  ] as const)('shows %s and opens the original task without execution controls', (state, text) => {
+    const onOpen = vi.fn();
+    render(<I18nextProvider i18n={i18n}><ProjectProgressView projectId="p"
+      state={ready([item()])} onOpenWorkItem={onOpen} onRefresh={vi.fn()}
+      execution={{ s: executionEntry({ state }) }} /></I18nextProvider>);
+    expect(screen.getByText(text)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Open task “Same title”' }));
+    expect(onOpen).toHaveBeenCalledExactlyOnceWith('s');
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.queryByRole('combobox')).toBeNull();
+    expect(screen.queryByText('Follow up')).toBeNull();
+    if (state !== 'completed') expect(screen.queryByText('Completed')).toBeNull();
   });
 
-  it('keeps an unknown outcome visible, disabled, and reconcile-only', () => {
-    mountExecution(executionEntry({ state: 'unknown', canRequest: false }));
-    expect(screen.getByText('Outcome unknown')).toBeTruthy();
-    expect(
-      screen.getByText('Outcome unknown; reconcile only, nothing is sent again.'),
-    ).toBeTruthy();
-    const button = screen.getByRole('button', { name: 'Ask Nova to execute' }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
-    fireEvent.click(button);
+  it.each([null, 'UNASSIGNED'] as const)('keeps navigation available without executable evidence: %s', reason => {
+    const onOpen = vi.fn();
+    render(<I18nextProvider i18n={i18n}><ProjectProgressView projectId="p"
+      state={ready([item({ progress: null })])} onOpenWorkItem={onOpen} onRefresh={vi.fn()}
+      execution={reason ? { s: executionEntry({ executor: null, unavailableReason: reason, canRequest: false }) } : {}}
+      executionUnavailable={!reason} /></I18nextProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Open task “Same title”' }));
+    expect(onOpen).toHaveBeenCalledExactlyOnceWith('s');
+    expect(screen.getByText('Not recorded')).toBeTruthy();
+    expect(screen.queryByText('Completed')).toBeNull();
+    if (!reason) expect(screen.getByText('Execution state is unavailable right now; refresh to retry.')).toBeTruthy();
   });
 
-  it('reports a replayed request without claiming a second turn', () => {
-    mountExecution(executionEntry({ state: 'requested', canRequest: false }), {
-      sessionId: 's',
-      key: 'alreadyRequested',
-    });
-    expect(
-      screen.getByText('The request is already with this teammate; nothing was sent again.'),
-    ).toBeTruthy();
-  });
-});
-
-/** 执行后续：四个动作的可用性来自 main 的现读投影，界面不自己推断。 */
-describe('project work-item execution follow-ups', () => {
-  const mountFollowup = (
-    entry: WorkItemExecutionEntry,
-    options: {
-      busy?: { sessionId: string; action: 'continue' | 'approve' | 'queue' | 'model' } | null;
-      notice?: { sessionId: string; key: string; vars?: Record<string, string | number> } | null;
-      modelChoices?: Record<string, { model: string; providerId: string | null; label: string }[]>;
-    } = {},
-  ) => {
-    const onFollowup = vi.fn();
-    render(
-      <I18nextProvider i18n={i18n}>
-        <ProjectProgressView
-          projectId="p"
-          state={ready([item()])}
-          onOpenWorkItem={vi.fn()}
-          onRefresh={vi.fn()}
-          execution={{ s: entry }}
-          followupBusy={options.busy ?? null}
-          followupNotice={options.notice ?? null}
-          modelChoices={options.modelChoices}
-          onFollowup={onFollowup}
-        />
-      </I18nextProvider>,
-    );
-    return { onFollowup };
-  };
-  const button = (name: string) =>
-    screen.getByRole('button', { name }) as HTMLButtonElement;
-
-  it('keeps every follow-up disabled on an unknown outcome and says to reconcile', () => {
-    mountFollowup(
-      executionEntry({
-        state: 'unknown',
-        canRequest: false,
-        followup: followup({
-          actions: {
-            continue: { allowed: false, reason: 'OUTCOME_UNKNOWN' },
-            approve: { allowed: false, reason: 'OUTCOME_UNKNOWN' },
-            queue: { allowed: false, reason: 'OUTCOME_UNKNOWN' },
-            model: { allowed: false, reason: 'OUTCOME_UNKNOWN' },
-          },
-        }),
-      }),
-    );
-    for (const name of ['Continue', 'Approve', 'Queue here', 'Change model'])
-      expect(button(name).disabled).toBe(true);
-    expect(
-      screen.getByText(
-        'Outcome unknown: reconcile the original request only. No follow-up action is available.',
-      ),
-    ).toBeTruthy();
-  });
-
-  it('approves only when a real confirmation is waiting, and shows what is being approved', () => {
-    const idle = mountFollowup(executionEntry());
-    expect(button('Approve').disabled).toBe(true);
-    expect(screen.getByText('Nothing is waiting for your approval.')).toBeTruthy();
-    fireEvent.click(button('Approve'));
-    expect(idle.onFollowup).not.toHaveBeenCalled();
-    cleanup();
-
-    const waiting = mountFollowup(
-      executionEntry({
-        state: 'running',
-        followup: followup({
-          pending: {
-            requestId: 'r1',
-            kind: 'permission',
-            summary: 'Allow npm install',
-            raisedAt: 1,
-          },
-          actions: {
-            continue: { allowed: true, reason: null },
-            approve: { allowed: true, reason: null },
-            queue: { allowed: false, reason: 'NOT_BUSY' },
-            model: { allowed: true, reason: null },
-          },
-        }),
-      }),
-    );
-    expect(screen.getByText('Waiting for you: Allow npm install')).toBeTruthy();
-    fireEvent.click(button('Approve'));
-    expect(waiting.onFollowup).toHaveBeenCalledWith('s', 'approve', undefined);
-  });
-
-  it('sends continue with the typed instruction into the same task', () => {
-    const ui = mountFollowup(executionEntry({ state: 'completed' }));
-    fireEvent.click(button('Continue'));
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Fix the retry path.' } });
-    fireEvent.click(button('Send'));
-    expect(ui.onFollowup).toHaveBeenCalledTimes(1);
-    expect(ui.onFollowup).toHaveBeenCalledWith('s', 'continue', { text: 'Fix the retry path.' });
-  });
-
-  it('queues only while the teammate is running, and blocks a second click while in flight', () => {
-    const idle = mountFollowup(executionEntry({ state: 'running' }));
-    expect(button('Queue here').disabled).toBe(true);
-    fireEvent.click(button('Queue here'));
-    expect(idle.onFollowup).not.toHaveBeenCalled();
-    cleanup();
-
-    const ui = mountFollowup(
-      executionEntry({
-        state: 'running',
-        followup: followup({
-          busy: true,
-          actions: {
-            continue: { allowed: false, reason: 'NO_TERMINAL_EXECUTION' },
-            approve: { allowed: false, reason: 'NO_PENDING_CONFIRMATION' },
-            queue: { allowed: true, reason: null },
-            model: { allowed: true, reason: null },
-          },
-        }),
-      }),
-      { busy: { sessionId: 's', action: 'queue' } },
-    );
-    const inFlight = button('Sending…');
-    expect(inFlight.disabled).toBe(true);
-    fireEvent.click(inFlight);
-    expect(ui.onFollowup).not.toHaveBeenCalled();
-  });
-
-  it('maps an idempotency conflict to "changed, send again" instead of a delivered claim', () => {
-    expect(
-      followupNoticeKey({
-        ok: false,
-        sessionId: 's',
-        action: 'continue',
-        code: 'IDEMPOTENCY_CONFLICT',
-        reason: null,
-        message: 'This key already holds a different instruction; nothing new was delivered',
-        requestKey: 'k',
-      }),
-    ).toEqual({ key: 'idempotencyConflict' });
-    // 界面把 key 渲染成明确文案：不是「已发送」。
-    mountFollowup(executionEntry({ state: 'completed' }), {
-      notice: { sessionId: 's', key: 'idempotencyConflict' },
-    });
-    expect(
-      screen.getByText(
-        'The instruction sent with this key was different. Nothing new was delivered; refresh and send it again.',
-      ),
-    ).toBeTruthy();
-  });
-
-  it('changes the model through the host choices and reports the real failure text', () => {
-    const ui = mountFollowup(
-      executionEntry({
-        state: 'completed',
-        followup: followup({
-          model: { current: 'model-a', providerId: 'p1', agentKind: 'claude-code' },
-        }),
-      }),
-      {
-        modelChoices: {
-          'claude-code': [{ model: 'model-b', providerId: 'p2', label: 'Model B · Provider 2' }],
-        },
-        notice: { sessionId: 's', key: 'modelFailed', vars: { detail: 'still working' } },
-      },
-    );
-    expect(screen.getByText('Current model: model-a')).toBeTruthy();
-    expect(screen.getByText('The model was not changed: still working')).toBeTruthy();
-    fireEvent.click(button('Change model'));
-    fireEvent.click(screen.getByRole('combobox'));
-    fireEvent.click(screen.getByText('Model B · Provider 2'));
-    fireEvent.click(button('Use this model'));
-    expect(ui.onFollowup).toHaveBeenCalledWith('s', 'model', { model: 'model-b', providerId: 'p2' });
-  });
-
-  // Real picker QA: current A, pending B must allow choosing A again. The
-  // pending route is not the effective model; provider identity also matters.
-  it.each([
-    ['other model', 'model-b','p1'],
-    ['same model on another provider','model-a','p2'],
-  ])('can replace pending %s with the effective route without claiming it already applied',(_name,model,providerId)=>{
-    const pendingLabel=`${model} · ${providerId}`;
-    const route={current:'model-a',providerId:'p1',agentKind:'claude-code' as const,
-      pending:{model,providerId,agentKind:'claude-code' as const}};
-    const ui=mountFollowup(executionEntry({followup:followup({model:route})}),{
-      modelChoices:{'claude-code':[
-        {model:'model-a',providerId:'p1',label:'Model A current'},
-        {model,providerId,label:pendingLabel},
-      ]},
-    });
-    expect(screen.getByText('Current model: model-a')).toBeTruthy();
-    expect.soft(screen.queryByText(`Switch scheduled: will change to Claude Code · ${pendingLabel} when your next message is sent`)).toBeTruthy();
-    fireEvent.click(button('Change model'));
-    fireEvent.click(screen.getByRole('combobox'));
-    fireEvent.click(screen.getByRole('option',{name:'Model A current'}));
-    expect(button('Use this model').disabled).toBe(false);
-    fireEvent.click(button('Use this model'));
-    expect(ui.onFollowup).toHaveBeenCalledExactlyOnceWith('s','model',{model:'model-a',providerId:'p1'});
-  });
-
-  it.each([false,true])('keeps the effective model idempotent with matching pending intent=%s',matching=>{
-    const route={current:'model-a',providerId:'p1',agentKind:'claude-code' as const,
-      ...(matching?{pending:{model:'model-a',providerId:'p1',agentKind:'claude-code' as const}}:{})};
-    const ui=mountFollowup(executionEntry({followup:followup({model:route})}),{
-      modelChoices:{'claude-code':[{model:'model-a',providerId:'p1',label:'Model A current'}]},
-    });
-    fireEvent.click(button('Change model'));
-    expect(button('Use this model').disabled).toBe(true);
-    expect(screen.queryByText(/^Switch scheduled:/)).toBeNull();
-    fireEvent.click(button('Use this model'));
-    expect(ui.onFollowup).not.toHaveBeenCalled();
-  });
-
-  it('keeps another pending engine distinct from the current engine and does not select or apply it implicitly',()=>{
-    const route={current:'model-a',providerId:'p1',agentKind:'claude-code' as const,
-      pending:{model:'pi-model',providerId:'p2',agentKind:'pi' as const}};
-    const ui=mountFollowup(executionEntry({followup:followup({model:route})}),{
-      modelChoices:{'claude-code':[{model:'model-a',providerId:'p1',label:'Current engine A'}],
-        pi:[{model:'pi-model',providerId:'p2',label:'Pending Pi'}]},
-    });
-    expect(screen.getByText('Current model: model-a')).toBeTruthy();
-    expect(screen.getByText('Switch scheduled: will change to Pi · Pending Pi when your next message is sent')).toBeTruthy();
-    fireEvent.click(button('Change model'));fireEvent.click(screen.getByRole('combobox'));
-    expect(screen.getByRole('option',{name:'Current engine A'})).toBeTruthy();
-    expect(screen.queryByRole('option',{name:'Pending Pi'})).toBeNull();
-    expect(ui.onFollowup).not.toHaveBeenCalled();
+  it('shows current pending work as read-only attention and leaves approval in the task', () => {
+    render(<I18nextProvider i18n={i18n}><ProjectProgressView projectId="p"
+      state={ready([item()])} onOpenWorkItem={vi.fn()} onRefresh={vi.fn()}
+      execution={{ s: executionEntry({ state: 'running', followup: followup({
+        pending: { requestId: 'permission', kind: 'permission', summary: 'Allow exec', raisedAt: 1 },
+      }) }) }} /></I18nextProvider>);
+    expect(screen.getByText('Awaiting your input')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+    expect(screen.queryByText('Current model: model-a')).toBeNull();
+    expect(screen.queryByText('Allow exec')).toBeNull();
   });
 });
 

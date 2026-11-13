@@ -39,13 +39,14 @@ export default {
     assert.equal(await all.evaluate((el) => document.activeElement === el), true);
     await blocked.focus();
     await page.keyboard.press('Space');
-    assert.equal(await page.getByRole('button', { name: 'Same task', exact: true }).count(), 1);
+    const taskName = await ui.t('chat.botStartedTasks.open', { title: 'Same task' });
+    assert.equal(await page.getByRole('button', { name: taskName, exact: true }).count(), 1);
     await ui.capture('blocked');
     await page.keyboard.press('Tab');
     await page.keyboard.press('Shift+Tab');
     await all.focus();
     await page.keyboard.press('Enter');
-    const tasks = page.getByRole('button', { name: 'Same task', exact: true });
+    const tasks = page.getByRole('button', { name: taskName, exact: true });
     assert.equal(await tasks.count(), 6);
     await tasks.nth(1).focus();
     await page.keyboard.press('Enter');

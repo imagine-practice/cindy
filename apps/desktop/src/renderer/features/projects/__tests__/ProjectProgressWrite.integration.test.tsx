@@ -30,7 +30,15 @@ vi.mock('../../../../main/device-link/broadcast-tap', () => ({ captureDataOwnerB
   isDataOwnerBroadcastScopeCurrent: (scope: { generation: number }) => scope.generation === h.generation,
   tapWindowBroadcast: (...args: unknown[]) => { h.tap(...args); h.changed?.(); } }));
 vi.mock('../../../../main/logger', () => ({ createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }) }));
-vi.mock('react-router-dom', () => ({ useParams: () => h.route, useNavigate: () => h.navigate }));
+vi.mock('react-router-dom', async () => {
+  const { useState } = await import('react');
+  return { useParams: () => h.route, useNavigate: () => h.navigate,
+    useSearchParams: () => {
+      const [params, setParams] = useState(new URLSearchParams());
+      return [params, (next: (previous: URLSearchParams) => URLSearchParams) => setParams(next(params))];
+    },
+  };
+});
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }) }));
 vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: () => ({ dataOwnerId: h.user, dataOwnerGeneration: h.generation }), useOptionalDataOwnerGeneration: () => h.generation }));
 vi.mock('@/contexts/dataOwnerGeneration', () => ({ getDataOwnerGeneration: () => h.generation, isDataOwnerGenerationCurrent: (owner: number) => owner === h.generation }));

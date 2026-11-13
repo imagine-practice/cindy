@@ -15,7 +15,10 @@ export default {
   await page.getByRole('heading', { name: '春季项目', exact: true }).waitFor();
   if (scenario === 'loading' || scenario === 'error') await page.getByText(await t(scenario), { exact: true }).waitFor();
   else if (scenario === 'empty') await page.getByText(await t('empty'), { exact: true }).waitFor();
-  else await page.getByRole('button', { name: '整理交付记录', exact: true }).waitFor();
+  else {
+    const taskName = await page.evaluate(() => window.__uiPage.t('chat.botStartedTasks.open', { title: '整理交付记录' }));
+    await page.getByRole('button', { name: taskName, exact: true }).waitFor();
+  }
  },
  async check(page, ui) {
   const t = key => ui.t(`ccAgent.projectCore.progress.${key}`);
@@ -30,7 +33,7 @@ export default {
   await ui.capture('keyboard-focus');
   const more = page.getByRole('button', { name: await t('loadEarlier'), exact: true });
   await more.focus(); await page.keyboard.press('Enter'); await more.waitFor({ state: 'detached' });
-  const task = region.getByRole('button', { name: '整理交付记录', exact: true });
+  const task = region.getByRole('button', { name: await ui.t('chat.botStartedTasks.open', { title: '整理交付记录' }), exact: true });
   await task.focus(); await page.keyboard.press('Enter');
   assert.equal(await page.getByLabel('fixture-target').textContent(), 'task-2');
   await page.getByRole('button', { name: '返回模拟项目' }).click();

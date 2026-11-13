@@ -18,7 +18,15 @@ const env = vi.hoisted(() => ({
   refreshBots: vi.fn(),
   rename: vi.fn(), add: vi.fn(), remove: vi.fn(), transfer: vi.fn(), assign: vi.fn(),
 }));
-vi.mock('react-router-dom', () => ({ useParams: () => env.route, useNavigate: () => env.navigate }));
+vi.mock('react-router-dom', async () => {
+  const { useState } = await import('react');
+  return { useParams: () => env.route, useNavigate: () => env.navigate,
+    useSearchParams: () => {
+      const [params, setParams] = useState(new URLSearchParams());
+      return [params, (next: (previous: URLSearchParams) => URLSearchParams) => setParams(next(params))];
+    },
+  };
+});
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: () => ({ dataOwnerId: `owner-${env.generation}`, dataOwnerGeneration: env.generation }), useOptionalDataOwnerGeneration: () => env.generation }));
 vi.mock('@/contexts/dataOwnerGeneration', () => ({ getDataOwnerGeneration: () => env.generation,

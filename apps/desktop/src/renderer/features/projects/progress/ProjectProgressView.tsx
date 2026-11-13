@@ -4,14 +4,8 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { Select } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/input';
 import { WORK_ITEM_STATUSES, type WorkItemStatus } from '../../../../shared/workItemStatus';
-import type {
-  WorkItemExecutionEntry,
-  WorkItemFollowupAction,
-  WorkItemFollowupProjection,
-} from '../../../../shared/projectWorkItemExecutionRequest';
+import type { WorkItemExecutionEntry } from '../../../../shared/projectWorkItemExecutionRequest';
 import {
   projectProgressView,
   type ProjectProgressItem,
@@ -27,6 +21,8 @@ export type ProjectProgressState =
       history: readonly ProjectProgressHistoryEntry[];
     };
 
+export type ProjectProgressFilter = 'all' | 'unknown' | WorkItemStatus;
+
 export interface ProjectProgressViewProps {
   /** Members of this project: the only offline source of another account's display name. */
   members?: readonly ProjectMember[];
@@ -38,25 +34,8 @@ export interface ProjectProgressViewProps {
   /** Keyed by sessionId; absent = entry stays hidden (never guessed from progress data). */
   execution?: Readonly<Record<string, WorkItemExecutionEntry>>;
   executionUnavailable?: boolean;
-  executionBusySessionId?: string | null;
-  /** Localized outcome key of the last delivery attempt, e.g. 'requested' | 'alreadyRequested'. */
-  executionNotice?: { sessionId: string; key: string } | null;
-  onRequestExecution?: (sessionId: string) => void;
-  /** 伙伴的主力电脑是另一台时：在本机接管它，然后立刻重试一次执行请求。 */
-  onTakeOverAndExecute?: (sessionId: string, botId: string, botName: string) => void;
-  /** 后续动作的在飞状态（每个会话同时只允许一个动作在飞）。 */
-  followupBusy?: { sessionId: string; action: WorkItemFollowupAction } | null;
-  followupNotice?: { sessionId: string; key: string; vars?: Record<string, string | number> } | null;
-  /** 后续动作意图；payload 只带用户自己填的内容，执行者/键/模型合法性都由 main 判定。 */
-  onFollowup?: (
-    sessionId: string,
-    action: WorkItemFollowupAction,
-    payload?: { text?: string; model?: string; providerId?: string | null },
-  ) => void;
-  /** 换模型候选（来自宿主模型目录），按执行会话的引擎分组。 */
-  modelChoices?: Readonly<
-    Record<string, readonly { model: string; providerId: string | null; label: string }[]>
-  >;
+  filter?: ProjectProgressFilter;
+  onFilterChange?: (filter: ProjectProgressFilter) => void;
 }
 
 const PREFIX = 'ccAgent.projectCore.progress';
@@ -81,14 +60,8 @@ function ProgressContent({
   onEditWorkItem,
   execution,
   executionUnavailable,
-  executionBusySessionId,
-  executionNotice,
-  onRequestExecution,
-  onTakeOverAndExecute,
-  followupBusy,
-  followupNotice,
-  onFollowup,
-  modelChoices,
+  filter: controlledFilter,
+  onFilterChange,
 }: ProjectProgressViewProps) {
   const { t, i18n } = useTranslation();
   const label = (key: string) => t(`${PREFIX}.${key}`);
@@ -103,14 +76,8 @@ function ProgressContent({
     return subjectName(member?.subject ?? { kind: actor.kind, id: actor.id, displayName: null, avatar: null, avatarColor: null })
       ?? label('unknownActor');
   };
-  const [filter, setFilter] = useState<'all' | 'unknown' | WorkItemStatus>('all');
-  /**
-   * 执行动作默认收起：标题/状态一眼可见，动作点开再给。
-   * 任务不多（≤4）时不折——为了省两行而多点一次反而不友好。
-   */
-  const [openOverride, setOpenOverride] = useState<ReadonlyMap<string, boolean>>(() => new Map());
-  const actionsOpen = (sessionId: string, total: number): boolean =>
-    openOverride.get(sessionId) ?? total <= 4;
+  const [localFilter, setLocalFilter] = useState<ProjectProgressFilter>('all');
+  const filter = controlledFilter ?? localFilter;
   const [expanded, setExpanded] = useState(false);
   if (state.status !== 'ready' || state.projectId !== projectId) {
     const status = state.status === 'ready' ? 'loading' : state.status;
@@ -188,7 +155,7 @@ function ProgressContent({
               filter === status &&
                 '[--button-face-bg:var(--text-primary)] [--button-face-border:var(--text-primary)] text-[var(--surface-elevated)] hover:[--button-face-bg:var(--text-primary)]',
             )}
-            onClick={() => setFilter(status)}
+            onClick={() => { setLocalFilter(status); onFilterChange?.(status); }}
           >
             {label(status)} · {count(status)}
           </Button>
@@ -204,16 +171,6 @@ function ProgressContent({
           <ul className="min-w-0 divide-y divide-[var(--border-default)]">
             {visible.map((item) => {
               const executionEntry = execution?.[item.sessionId];
-              // Disabled entry must always say why; the reason comes from main's projection.
-              const executionHint = !executionEntry
-                ? null
-                : executionEntry.unavailableReason
-                  ? t(`${PREFIX}.execution.unavailable.${executionEntry.unavailableReason}`)
-                  : executionEntry.state === 'unknown'
-                    ? t(`${PREFIX}.execution.hint.unknown`)
-                    : executionEntry.state === 'requested'
-                      ? t(`${PREFIX}.execution.hint.requested`)
-                      : null;
               return (
               <li key={item.sessionId} className="flex min-w-0 flex-col gap-2 py-3">
                 <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
@@ -221,10 +178,14 @@ function ProgressContent({
                     variant="secondary"
                     tone="quiet"
                     className="min-w-0 max-w-full justify-start text-left"
+                    aria-label={t('chat.botStartedTasks.open', { title: item.title || label('untitled') })}
                     onClick={() => onOpenWorkItem(item.sessionId)}
                   >
                     <span className="whitespace-normal break-words [overflow-wrap:anywhere]">
                       {item.title || label('untitled')}
+                    </span>
+                    <span aria-hidden="true" className="text-12 text-[var(--text-secondary)]">
+                      {t('chat.botTaskLetter.openTask')}
                     </span>
                   </Button>
                   {onEditWorkItem && <Button variant="secondary" className="whitespace-normal"
@@ -244,26 +205,7 @@ function ProgressContent({
                   <span className="text-12 text-[var(--text-secondary)]">
                     {label(item.status ?? 'unknown')}
                   </span>
-                  {executionEntry && (
-                    <Button
-                      variant="secondary"
-                      tone="quiet"
-                      size="xs"
-                      compact
-                      aria-expanded={actionsOpen(item.sessionId, view.items.length)}
-                      onClick={() =>
-                        setOpenOverride((current) => {
-                          const next = new Map(current);
-                          next.set(item.sessionId, !actionsOpen(item.sessionId, view.items.length));
-                          return next;
-                        })
-                      }
-                    >
-                      {actionsOpen(item.sessionId, view.items.length)
-                        ? t(`${PREFIX}.collapseActions`)
-                        : t(`${PREFIX}.expandActions`)}
-                    </Button>
-                  )}
+
                 </div>
                 {item.status === 'blocked' && (
                   <dl className="flex min-w-0 flex-col gap-1 pl-3">
@@ -273,83 +215,12 @@ function ProgressContent({
                     <dd className={detailClass}>{missing(item.unblockCondition)}</dd>
                   </dl>
                 )}
-                {executionEntry && actionsOpen(item.sessionId, view.items.length) && (
-                  <div className="flex min-w-0 flex-col gap-2 pl-3">
-                    <p className="text-12 text-[var(--text-secondary)]">
-                      {label(`execution.state.${executionEntry.state}`)}
-                    </p>
-                    {executionEntry.executor && (
-                      <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <Button
-                          variant="secondary"
-                          className="whitespace-normal"
-                          disabled={
-                            !executionEntry.canRequest ||
-                            !onRequestExecution ||
-                            executionBusySessionId === item.sessionId
-                          }
-                          onClick={() => onRequestExecution?.(item.sessionId)}
-                        >
-                          {t(`${PREFIX}.execution.action`, {
-                            name: executionEntry.executor.displayName,
-                          })}
-                        </Button>
-                      </div>
-                    )}
-                    {!executionEntry.executor && (
-                      // 没有可执行的处理人时不给可点控件，也不编造一个执行者名字。
-                      // 处理人是账号（不是伙伴）时文案要跟着变：这时说「先指定处理人」是错的。
-                      <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <Button variant="secondary" className="whitespace-normal" disabled>
-                          {t(
-                            executionEntry.unavailableReason === 'ASSIGNEE_NOT_BOT'
-                              ? `${PREFIX}.execution.actionNeedBot`
-                              : `${PREFIX}.execution.actionUnnamed`,
-                          )}
-                        </Button>
-                      </div>
-                    )}
-                    {executionHint && (
-                      <p className="text-12 text-[var(--text-secondary)]">{executionHint}</p>
-                    )}
-                    {executionEntry.unavailableReason === 'AGENT_NOT_READY' &&
-                      executionEntry.executor &&
-                      onTakeOverAndExecute && (
-                        <div className="flex min-w-0 flex-wrap items-center gap-2">
-                          <Button
-                            variant="secondary"
-                            className="whitespace-normal"
-                            disabled={executionBusySessionId === item.sessionId}
-                            onClick={() =>
-                              onTakeOverAndExecute(
-                                item.sessionId,
-                                executionEntry.executor!.botId,
-                                executionEntry.executor!.displayName,
-                              )
-                            }
-                          >
-                            {t(`${PREFIX}.execution.takeOverAndRun`)}
-                          </Button>
-                        </div>
-                      )}
-                    {executionNotice?.sessionId === item.sessionId && (
-                      <p role="status" className="text-12 text-[var(--text-secondary)]">
-                        {t(`${PREFIX}.execution.notice.${executionNotice.key}`)}
-                      </p>
-                    )}
-                    {/* 没有可执行处理人时，后续动作（继续/批准/排队/换模型）全都做不了：
-                        只留上面那句「先指定处理人」，不再摆一排永远不可用的按钮。 */}
-                    {executionEntry.executor && (
-                      <FollowupControls
-                        sessionId={item.sessionId}
-                        entry={executionEntry}
-                        busy={followupBusy?.sessionId === item.sessionId ? followupBusy.action : null}
-                        notice={followupNotice?.sessionId === item.sessionId ? followupNotice : null}
-                        onFollowup={onFollowup}
-                        modelChoices={modelChoices}
-                      />
-                    )}
-                  </div>
+                {executionEntry && (
+                  <p className="text-12 text-[var(--text-secondary)]">
+                    {executionEntry.followup?.pending
+                      ? t('ccAgent.sidebar.status.needsAttention')
+                      : label(`execution.state.${executionEntry.state}`)}
+                  </p>
                 )}
               </li>
               );
@@ -414,193 +285,5 @@ function ProgressContent({
         )}
       </div>
     </section>
-  );
-}
-
-const FOLLOWUP_ORDER: readonly WorkItemFollowupAction[] = ['continue', 'approve', 'queue', 'model'];
-
-/**
- * 执行后续的四个动作。
- *
- * 可用性、待确认项与模型全部来自 main 的现读投影；这里不推断、不缓存，
- * 也不乐观地把按钮翻成「已完成 / 已批准」：动作返回后由外层重新读一次。
- */
-function FollowupControls({
-  sessionId,
-  entry,
-  busy,
-  notice,
-  onFollowup,
-  modelChoices,
-}: {
-  sessionId: string;
-  entry: WorkItemExecutionEntry;
-  busy: WorkItemFollowupAction | null;
-  notice: { sessionId: string; key: string; vars?: Record<string, string | number> } | null;
-  onFollowup?: ProjectProgressViewProps['onFollowup'];
-  modelChoices?: ProjectProgressViewProps['modelChoices'];
-}) {
-  const { t } = useTranslation();
-  const label = (key: string, vars?: Record<string, unknown>) =>
-    t(`${PREFIX}.execution.followup.${key}`, vars);
-  const projection: WorkItemFollowupProjection = entry.followup;
-  const [draft, setDraft] = useState<'continue' | 'model' | null>(null);
-  const [instruction, setInstruction] = useState('');
-  const [choice, setChoice] = useState('');
-  // 同一个会话同时只允许一个后续动作在飞；避免连点产生第二个回合。
-  const blocked = busy !== null || !onFollowup;
-  const allowed = (action: WorkItemFollowupAction) => projection.actions[action].allowed && !blocked;
-  const reasons = [...new Set(FOLLOWUP_ORDER.map((action) => projection.actions[action].reason).filter(
-    (reason): reason is NonNullable<typeof reason> => reason !== null,
-  ))];
-  const options = projection.model ? (modelChoices?.[projection.model.agentKind] ?? []) : [];
-  const route = projection.model;
-  const nextRoute = route?.pending;
-  const pendingDiffers = nextRoute && (nextRoute.agentKind !== route?.agentKind
-    || nextRoute.model !== route.current || nextRoute.providerId !== route.providerId);
-  const nextModelLabel = nextRoute && (modelChoices?.[nextRoute.agentKind]?.find(option =>
-    option.model === nextRoute.model && option.providerId === nextRoute.providerId)?.label ?? nextRoute.model);
-  const selected = choice || (nextRoute && nextRoute.agentKind === route?.agentKind
-    ? `${nextRoute.providerId ?? ''}::${nextRoute.model}`
-    : route ? `${route.providerId ?? ''}::${route.current}` : '');
-  const unchanged = route && (nextRoute
-    ? nextRoute.agentKind === route.agentKind && selected === `${nextRoute.providerId ?? ''}::${nextRoute.model}`
-    : selected === `${route.providerId ?? ''}::${route.current}`);
-  const send = (action: WorkItemFollowupAction, payload?: Parameters<NonNullable<ProjectProgressViewProps['onFollowup']>>[2]) => {
-    if (blocked) return;
-    setDraft(null);
-    onFollowup?.(sessionId, action, payload);
-  };
-  return (
-    // 只是一条分隔线与一组控件：不额外套卡片（避免卡片套卡片），圆角只由控件自己承担。
-    <div className="flex min-w-0 flex-col gap-2 border-t border-[var(--border-default)] pt-2">
-      <p className="text-12 font-medium text-[var(--text-secondary)]">{label('title')}</p>
-      {projection.pending && (
-        <p className="whitespace-pre-wrap break-words text-12 text-[var(--text-primary)]">
-          {label('pending', { summary: projection.pending.summary })}
-        </p>
-      )}
-      {projection.model && (
-        <p className="break-words text-12 text-[var(--text-secondary)]">
-          {label('currentModel', { model: projection.model.current })}
-        </p>
-      )}
-      {nextRoute && pendingDiffers && (
-        <p className="break-words text-12 text-[var(--text-secondary)]">
-          {t('newChat.chatInput.agentSwitch.deferred', {
-            agent: nextRoute.agentKind === 'codex' ? 'Codex' : nextRoute.agentKind === 'pi' ? 'Pi' : 'Claude Code',
-            model: nextModelLabel,
-          })}
-        </p>
-      )}
-      <div className="flex min-w-0 flex-wrap gap-2">
-        <Button
-          variant="secondary"
-          className="whitespace-normal"
-          disabled={!allowed('continue')}
-          aria-pressed={draft === 'continue'}
-          onClick={() => setDraft(draft === 'continue' ? null : 'continue')}
-        >
-          {label(busy === 'continue' ? 'inFlight' : 'action.continue')}
-        </Button>
-        <Button
-          variant="secondary"
-          className="whitespace-normal"
-          disabled={!allowed('approve')}
-          onClick={() => send('approve')}
-        >
-          {label(busy === 'approve' ? 'inFlight' : 'action.approve')}
-        </Button>
-        <Button
-          variant="secondary"
-          className="whitespace-normal"
-          disabled={!allowed('queue')}
-          onClick={() => send('queue')}
-        >
-          {label(busy === 'queue' ? 'inFlight' : 'action.queue')}
-        </Button>
-        <Button
-          variant="secondary"
-          className="whitespace-normal"
-          disabled={!allowed('model') || options.length === 0}
-          aria-pressed={draft === 'model'}
-          onClick={() => { setChoice(''); setDraft(draft === 'model' ? null : 'model'); }}
-        >
-          {label(busy === 'model' ? 'inFlight' : 'action.model')}
-        </Button>
-      </div>
-      {projection.actions.model.allowed && options.length === 0 && (
-        <p className="text-12 text-[var(--text-secondary)]">{label('modelChoicesUnavailable')}</p>
-      )}
-      {draft === 'continue' && (
-        <div className="flex min-w-0 flex-col gap-2">
-          <label className="text-12 text-[var(--text-secondary)]" htmlFor={`followup-text-${sessionId}`}>
-            {label('instruction')}
-          </label>
-          <Textarea
-            id={`followup-text-${sessionId}`}
-            value={instruction}
-            rows={3}
-            maxLength={4000}
-            placeholder={label('instructionPlaceholder')}
-            onChange={(value) => setInstruction(value)}
-          />
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="primary"
-              className="whitespace-normal"
-              disabled={busy !== null || !onFollowup}
-              onClick={() => send('continue', instruction.trim() ? { text: instruction.trim() } : undefined)}
-            >
-              {label('send')}
-            </Button>
-            <Button variant="secondary" className="whitespace-normal" onClick={() => setDraft(null)}>
-              {label('cancel')}
-            </Button>
-          </div>
-        </div>
-      )}
-      {draft === 'model' && (
-        <div className="flex min-w-0 flex-col gap-2">
-          <Select
-            label={label('chooseModel')}
-            value={selected}
-            disabled={busy !== null}
-            options={options.map((option) => ({
-              value: `${option.providerId ?? ''}::${option.model}`,
-              label: option.label,
-            }))}
-            onValueChange={(value) => setChoice(value)}
-          />
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="primary"
-              className="whitespace-normal"
-              disabled={busy !== null || !selected || !!unchanged}
-              onClick={() => {
-                const option = options.find((value) => `${value.providerId ?? ''}::${value.model}` === selected);
-                if (!option) return;
-                send('model', { model: option.model, providerId: option.providerId });
-              }}
-            >
-              {label('applyModel')}
-            </Button>
-            <Button variant="secondary" className="whitespace-normal" onClick={() => setDraft(null)}>
-              {label('cancel')}
-            </Button>
-          </div>
-        </div>
-      )}
-      {reasons.map((reason) => (
-        <p key={reason} className="text-12 text-[var(--text-secondary)]">
-          {label(`reason.${reason}`)}
-        </p>
-      ))}
-      {notice && (
-        <p role="status" className="break-words text-12 text-[var(--text-secondary)]">
-          {label(`notice.${notice.key}`, notice.vars)}
-        </p>
-      )}
-    </div>
   );
 }
