@@ -45,6 +45,7 @@ export type OwnerTurnDispatch = (
  *   - `setSessionModel` 复用既有的 SET_MODEL 语义（只改后续回合路由，历史不动）。
  */
 export interface OwnerTurnHost extends OwnerTurnDispatch {
+  readPendingModelSelection?(sessionId: string): import('../../shared/projectWorkItemExecutionRequest').WorkItemFollowupModelRoute['pending'];
   /** Host-consumed inputs in the current native turn; queued IDs are excluded. */
   readActiveInputClientIds?(sessionId: string): readonly string[];
   readPendingConfirmation?(sessionId:string): import('../../shared/projectWorkItemExecutionRequest').WorkItemFollowupPending | null;

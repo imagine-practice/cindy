@@ -454,7 +454,18 @@ function FollowupControls({
     (reason): reason is NonNullable<typeof reason> => reason !== null,
   ))];
   const options = projection.model ? (modelChoices?.[projection.model.agentKind] ?? []) : [];
-  const selected = choice || (projection.model ? `${projection.model.providerId ?? ''}::${projection.model.current}` : '');
+  const route = projection.model;
+  const nextRoute = route?.pending;
+  const pendingDiffers = nextRoute && (nextRoute.agentKind !== route?.agentKind
+    || nextRoute.model !== route.current || nextRoute.providerId !== route.providerId);
+  const nextModelLabel = nextRoute && (modelChoices?.[nextRoute.agentKind]?.find(option =>
+    option.model === nextRoute.model && option.providerId === nextRoute.providerId)?.label ?? nextRoute.model);
+  const selected = choice || (nextRoute && nextRoute.agentKind === route?.agentKind
+    ? `${nextRoute.providerId ?? ''}::${nextRoute.model}`
+    : route ? `${route.providerId ?? ''}::${route.current}` : '');
+  const unchanged = route && (nextRoute
+    ? nextRoute.agentKind === route.agentKind && selected === `${nextRoute.providerId ?? ''}::${nextRoute.model}`
+    : selected === `${route.providerId ?? ''}::${route.current}`);
   const send = (action: WorkItemFollowupAction, payload?: Parameters<NonNullable<ProjectProgressViewProps['onFollowup']>>[2]) => {
     if (blocked) return;
     setDraft(null);
@@ -472,6 +483,14 @@ function FollowupControls({
       {projection.model && (
         <p className="break-words text-12 text-[var(--text-secondary)]">
           {label('currentModel', { model: projection.model.current })}
+        </p>
+      )}
+      {nextRoute && pendingDiffers && (
+        <p className="break-words text-12 text-[var(--text-secondary)]">
+          {t('newChat.chatInput.agentSwitch.deferred', {
+            agent: nextRoute.agentKind === 'codex' ? 'Codex' : nextRoute.agentKind === 'pi' ? 'Pi' : 'Claude Code',
+            model: nextModelLabel,
+          })}
         </p>
       )}
       <div className="flex min-w-0 flex-wrap gap-2">
@@ -505,7 +524,7 @@ function FollowupControls({
           className="whitespace-normal"
           disabled={!allowed('model') || options.length === 0}
           aria-pressed={draft === 'model'}
-          onClick={() => setDraft(draft === 'model' ? null : 'model')}
+          onClick={() => { setChoice(''); setDraft(draft === 'model' ? null : 'model'); }}
         >
           {label(busy === 'model' ? 'inFlight' : 'action.model')}
         </Button>
@@ -557,7 +576,7 @@ function FollowupControls({
             <Button
               variant="primary"
               className="whitespace-normal"
-              disabled={busy !== null || !selected || selected === `${projection.model?.providerId ?? ''}::${projection.model?.current ?? ''}`}
+              disabled={busy !== null || !selected || !!unchanged}
               onClick={() => {
                 const option = options.find((value) => `${value.providerId ?? ''}::${value.model}` === selected);
                 if (!option) return;

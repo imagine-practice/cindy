@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useConfirmDialog } from '@/components/ui/confirm-dialog-provider';
 import { Button } from '@/components/ui/button';
-import { getDataOwnerGeneration, isDataOwnerGenerationCurrent } from '@/contexts/dataOwnerGeneration';
+import { getDataOwnerGeneration, isDataOwnerGenerationCurrent, isDataOwnerPushCurrent } from '@/contexts/dataOwnerGeneration';
 import type { ProjectProgressReadResult } from '../../../../shared/projectProgressApi';
 import { ProjectProgressView, type ProjectProgressState } from './ProjectProgressView';
 import { WorkItemProgressDialog, type WorkItemProgressSnapshot } from './WorkItemProgressDialog';
@@ -188,7 +188,11 @@ export function ProjectProgressSection({ projectId, refreshKey, onAccessLost, on
     };
     const maker=window.electronAPI?.maker;
     const unsubscribes=[maker?.onInputProjection?.(changed),maker?.onStatusChanged?.(changed),
-      maker?.onInteractionRequest?.(changed),maker?.onInteractionDismissed?.(changed)];
+      maker?.onInteractionRequest?.(changed),maker?.onInteractionDismissed?.(changed),
+      window.electronAPI?.localDb?.sessionsPush?.onPatched?.((payload,ownerStamp)=>{
+        if (!isDataOwnerPushCurrent(ownerStamp) || !payload.patch || typeof payload.patch !== 'object') return;
+        if (['agentSwitchIntent','agentSwitchIntentCanceled','model','providerId','agentKind'].some(key=>key in payload.patch)) changed(payload);
+      })];
     return ()=>{closed=true;pendingRuntimeRefresh.current=false;scheduleRuntimeRefresh.current=undefined;
       for (const unsubscribe of unsubscribes) unsubscribe?.();};
   }, [projectId]);

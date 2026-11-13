@@ -39,13 +39,16 @@ import { setOwnerTurnDispatch,getOwnerTurnDispatch } from '../../maker-ipc/owner
 import { AgentInputCoordinator } from '../../maker-ipc/agent-input-coordinator';
 import { botTaskDispatchHarness,wireNativeWorkItemHost } from '../../maker-ipc/__tests__/sendToSessionHarness';
 import { saveAgentInputQueueSnapshot,loadAgentInputQueueSnapshot,getPersistedInputClientIds,awaitAgentInputQueueSnapshotPersistence } from '../../localDb/agentInputQueueSnapshots';
+import { createCodexPickerHarness } from '../../maker-host/__tests__/codexPickerHarness';
+import { projectPendingAgentSwitchIntent } from '../../maker-ipc/sessionAgentSwitchHandler';
 
 const h = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => Promise<unknown>>(),
   trusted: true,
 }));
 
-vi.mock('electron', () => ({
+vi.mock('electron', async (importOriginal) => ({
+  ...await importOriginal<typeof import('electron')>(),
   ipcMain: {
     handle: (channel: string, handler: (...args: unknown[]) => Promise<unknown>) =>
       h.handlers.set(channel, handler),
@@ -288,6 +291,42 @@ it.each(['idle','busy'] as const)('retains input identity and native approval th
   }
 });
 afterEach(() => clearCurrentDbClient());
+
+// Ordinary SET_MODEL records a volatile next-send intent, not an applied route.
+// Exercise that production closure and native public intent projection through
+// the project's real host adapter + SQLite read/handler; no model send occurs.
+it('reads the pending native picker route separately and can replace B with current A',async()=>{
+  delegation('completed');
+  db.exec("UPDATE sessions SET agent_kind='codex',model='model-a',provider_id='openai',effort='medium',fast_mode=0,context_window=258400,context_tokens=0 WHERE id='w1'");
+  const original=db.prepare("SELECT * FROM sessions WHERE id='w1'").get();
+  const maker={getSession:()=>undefined,getSessionMeta:async()=>({id:'w1',agentKind:'codex',model:'model-a',providerId:'openai',workDir:dir})} as unknown as import('@cindy/maker-core').Maker;
+  const picker=createCodexPickerHarness({maker,db:client,workingDir:dir,createMessage:async()=>{throw Error('Model selection must not send');}});
+  expect(await picker.pick('w1','openai','model-b')).toMatchObject({deferred:true});
+  expect(projectPendingAgentSwitchIntent(picker.pending.get('w1'))).toMatchObject({targetAgentKind:'codex',model:'model-b',providerId:'openai',effort:'medium',fastMode:false});
+  const coordinator=new AgentInputCoordinator({sendToAgent:async()=>{throw Error('No dispatch');},steerToAgent:async()=>{},abortSession:async()=>{},
+    isTurnRunning:()=>false,hasPendingInteraction:()=>false,getAgentKind:()=> 'codex',getSdkSessionId:async()=>undefined,
+    createUserMessage:async()=>{throw Error('No message');},touchUserSend:async()=>{},emitProjection:()=>{}});
+  const host=botTaskDispatchHarness({w1:{permissionMode:'ask',planModeEnabled:false}});
+  wireNativeWorkItemHost(host,coordinator,setOwnerTurnDispatch,{
+    agentSwitchPending:picker.pending,projectPendingAgentSwitchIntent,
+    handleSetModel:(_id:string,model:string,providerId:string)=>picker.pick('w1',providerId,model),
+  });
+  expect.soft((await item()).followup.model).toMatchObject({current:'model-a',providerId:'openai',agentKind:'codex',
+    pending:{model:'model-b',providerId:'openai',agentKind:'codex'}});
+  const restored=await followup({projectId:'p',sessionId:'w1',action:'model',model:'model-a',providerId:'openai'});
+  expect(restored,JSON.stringify(restored)).toMatchObject({ok:true,model:{status:'deferred',model:'model-a',providerId:'openai'}});
+  expect.soft((await item()).followup.model).toMatchObject({current:'model-a',pending:{model:'model-a',providerId:'openai',agentKind:'codex'}});
+  expect(projectPendingAgentSwitchIntent(picker.pending.get('w1'))).toMatchObject({targetAgentKind:'codex',model:'model-a',providerId:'openai',effort:'medium',fastMode:false});
+  const neutral=picker.pending.get('w1');
+  host.scope.handleSetModel=async()=>({contextWindowConfirmationRequired:64000});
+  expect(await followup({projectId:'p',sessionId:'w1',action:'model',model:'model-b',providerId:'openai'}))
+    .toMatchObject({ok:false,code:'MODEL_CHANGE_FAILED',message:expect.stringContaining('context window confirmation')});
+  expect(picker.pending.get('w1')).toBe(neutral);
+  picker.pending.clear('w1');
+  expect((await item()).followup.model).toMatchObject({current:'model-a',providerId:'openai',pending:null});
+  expect(db.prepare("SELECT * FROM sessions WHERE id='w1'").get()).toEqual(original);
+  expect(messages('w1')).toEqual([]);
+});
 afterAll(() => {
   db.close();
   rmSync(dir, { recursive: true, force: true });

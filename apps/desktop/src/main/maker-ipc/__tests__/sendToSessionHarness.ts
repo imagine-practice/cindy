@@ -217,8 +217,11 @@ const authorizationSource=readFileSync(resolve(__dirname,'../botAuthorizationSer
 const authorizationAst=ts.createSourceFile('botAuthorizationService.ts',authorizationSource,ts.ScriptTarget.Latest,true);
 function functionText(ast:ts.SourceFile,name:string):string {
   let found:ts.FunctionDeclaration|undefined;
-  const visit=(node:ts.Node)=>{if(ts.isFunctionDeclaration(node)&&node.name?.text===name)found=node;else ts.forEachChild(node,visit);};
-  visit(ast);if(!found)throw Error(`Production function missing: ${name}`);
+  let initializer:ts.Expression|undefined;
+  const visit=(node:ts.Node)=>{if(ts.isFunctionDeclaration(node)&&node.name?.text===name)found=node;
+    else if(ts.isVariableDeclaration(node)&&node.name.getText(ast)===name)initializer=node.initializer;
+    else ts.forEachChild(node,visit);};
+  visit(ast);if(!found){if(initializer)return `const ${name}=${initializer.getText(ast)};`;throw Error(`Production function missing: ${name}`);}
   return found.getText(ast).replace(/^export /,'');
 }
 const hostStart=registerSource.indexOf('  setOwnerTurnDispatch(\n');
@@ -227,7 +230,7 @@ if(hostStart<0||hostEnd<hostStart)throw Error('Production owner host registratio
 const nativeHostSource=[
   ...['clearPendingInteraction','bindSharedPermission','cancelPendingInteraction','resolvePendingInteraction',
     'dismissRendererInteraction','persistInteractionDecision','getPendingInteractionsForSession',
-    'installDesktopInteractionListener','enqueueSendToSessionMessage','buildSessionControlInputItem']
+    'installDesktopInteractionListener','enqueueSendToSessionMessage','buildSessionControlInputItem','runtimeSelectionRequiresModelWindowConfirmation']
     .map(name=>functionText(registerAst,name)),
   ...['resolveBotAuthorizationDelivery','commitBotAuthorizationInput'].map(name=>functionText(authorizationAst,name)),
   registerSource.slice(hostStart,hostEnd),

@@ -200,6 +200,7 @@ export async function readFollowupProjection(input: {
         current: input.row.sessionModel,
         providerId: input.row.sessionProviderId,
         agentKind: kind,
+        pending: host?.readPendingModelSelection?.(input.row.sessionId) ?? null,
       }
     : null;
   return {

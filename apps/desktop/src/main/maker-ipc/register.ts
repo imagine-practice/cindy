@@ -13531,6 +13531,12 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
   // 输入协调器的实时队列边界、既有 owner 确认解析器、既有 SET_MODEL 语义。
   setOwnerTurnDispatch(
     Object.assign(dispatchBotSessionMessage, {
+      readPendingModelSelection: (sessionId: string) => {
+        const pending = agentSwitchPending.get(sessionId);
+        if (!pending) return null;
+        const intent = projectPendingAgentSwitchIntent(pending)!;
+        return { model: intent.model, providerId: intent.providerId, agentKind: intent.targetAgentKind };
+      },
       readActiveInputClientIds: (sessionId: string) => inputCoordinator.getActiveInputClientIds(sessionId),
       readSessionBusy: (sessionId: string) =>
         inputCoordinator.getProjection(sessionId).turnInProgress,

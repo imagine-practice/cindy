@@ -5,6 +5,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import ts from 'typescript';
 import { eq } from 'drizzle-orm';
+import { buildUserProvider, uniqueRenamedSessionModelId } from '@cindy/model-providers';
 import type { Maker } from '../../../../../../packages/maker-core/src/maker.js';
 import type { DbClient } from '../../localDb/client/DbClient.js';
 import { sessions } from '../../localDb/schema.js';
@@ -27,6 +28,9 @@ import { acquireSendToSessionLock, withSendToSessionLock } from '../../maker-ipc
 import type { IpcHandler } from '../../maker-ipc/ipcHandlerRegistry.js';
 import { MAKER_INVOKE } from '../../maker-ipc/channels.js';
 import { createSharedTaskSettingGuard } from '../../maker-ipc/sharedTaskSetting.js';
+import { takeOverLocalAgentVisibleSession } from '../../local-agent/visibleSessions.js';
+import { recoverRenamedSessionModelBeforeSend } from '../../maker-ipc/renamedSessionModelRecovery.js';
+import { createBotModelRouteReconciler } from '../../maker-ipc/botModelRouteReconciler.js';
 
 // Execute the full production closures, not copied branches or source assertions.
 // Electron ingress, owner, catalog metadata and UI broadcasts are fixture inputs;
@@ -56,6 +60,17 @@ export function createCodexPickerHarness(input: {
   const pending = createPendingAgentSwitchRegistry();
   const noop = () => {};
   const asyncNoop = async () => {};
+  const fixtureProviders = () => ['openai', 'xd', 'cprov-fixture'].map(id => ({ ...buildUserProvider({
+    id, name: id, auth: { method: 'none' }, runtimes: { codex: { baseUrl: 'http://127.0.0.1/fixture', wireProtocol: 'openai-responses',
+      models: ['fixture-model', 'fixture-model-two', 'model-a', 'model-b'].map(model => ({ id: model, name: model })),
+    } },
+  }), id, connected: true }));
+  // These local fixture tasks are not canonical companion tasks. Exercise the
+  // real reconciler's no-profile branch, including its acceptTaskChoice port.
+  const reconcileBotModelRoute = createBotModelRouteReconciler({
+    ownerEpoch: () => 'synthetic-owner', read: async () => null,
+    apply: async () => { throw new Error('Unexpected companion profile in local picker fixture'); },
+  });
   const log = { info: noop, warn: noop, debug: noop, error: noop };
   const readRow = async (id: string) => (await db.drizzle.select().from(sessions).where(eq(sessions.id, id)).limit(1))[0];
   const bootstrap = async (id: string) => {
@@ -65,11 +80,31 @@ export function createCodexPickerHarness(input: {
   };
   const env: Record<string, unknown> = {
     ...providers, ...efforts, ...routeGuard, ...control, ...axes, ...relink, ...windowGate, ...overflow,
-    maker, sessions, eq, log, agentSwitchPending: pending,
+    maker, sessions, eq, log, agentSwitchPending: pending, uniqueRenamedSessionModelId,
     // Active local fixture: no scheduled model override or pending window budget.
     scheduledModelScope: { restore: asyncNoop },
     updateScheduledPreference: asyncNoop,
     isUserPendingAgentSwitchIntent, restoreArchivedSessionForSend: asyncNoop,
+    // The isolated native fixture has no external local-agent owner, subscription
+    // recovery controller or overflow rollover. Keep takeover and rename checks real.
+    takeOverLocalAgentVisibleSession,
+    prepareUnhealthySessionForSend: async () => false,
+    recoverRenamedSessionModelOnSend: async (id: string) => {
+      const row = await readRow(id);
+      if (!row?.model) return;
+      const route = { ...row, model: row.model, agentKind: 'codex' as const };
+      await recoverRenamedSessionModelBeforeSend({ route,
+        effectiveRoute: control.getSessionRuntimeControlSnapshot(id).effectiveOverride ?? route,
+        hasPendingSelection: !!pending.get(id), providers: fixtureProviders(),
+        apply: async (model,providerId) => {
+          const result = await apply(id,model,providerId,undefined,undefined,{source:'agent',sessionLockHeld:true,
+            applyingUserSelectionOnSend:true,persistRenamedSessionModel:true,
+            expectedGeneration:control.getSessionRuntimeControlSnapshot(id).generation});
+          return { deferred:!!result.deferred,superseded:!!result.superseded,
+            contextWindowConfirmationRequired:result.contextWindowConfirmationRequired };
+        },
+      });
+    },
     replayPendingSessionContextWindowBudgetUnderLock: asyncNoop,
     readStoredSessionContextWindowBudget: async () => null,
     // Ordinary local picker has no shared-task invocation context.
@@ -90,14 +125,14 @@ export function createCodexPickerHarness(input: {
     isSessionInTurn: (id: string) => maker.getSession(id)?.isTurnRunning() ?? false,
     getCodexProxyAuthInjectionState: () => 'oauth-bearer',
     getActiveCatalog: () => ({}), resolveConfiguredContextWindow: () => 258400,
-    getDesktopProviderService: () => ({ listProviders: async () => ['openai', 'xd', 'cprov-fixture'].map(id => ({ id, connected: true })) }),
+    getDesktopProviderService: () => ({ listProviders: async () => fixtureProviders() }),
     findCatalogModel: () => ({ id: 'fixture-model', efforts: ['high'], contextWindow: 258400, supportsFastMode: false }),
-    reconcileBotModelRoute: asyncNoop, contextOverflowRolloverHolder: null,
+    reconcileBotModelRoute, contextOverflowRolloverHolder: null,
     withRehydrateCloseSuppressed: async (_id: string, run: () => Promise<unknown>) => run(),
     persistSessionFields: async (id: string, patch: Partial<typeof sessions.$inferInsert>) => db.drizzle.update(sessions).set(patch).where(eq(sessions.id, id)),
   };
   const context = vm.createContext(env);
-  type Apply = (id: string, model: string, providerId: string | null | undefined, revision: unknown, selection: unknown, options: Record<string, unknown>) => Promise<{ deferred?: boolean; superseded?: boolean }>;
+  type Apply = (id: string, model: string, providerId: string | null | undefined, revision: unknown, selection: unknown, options: Record<string, unknown>) => Promise<{ deferred?: boolean; superseded?: boolean; contextWindowConfirmationRequired?:number }>;
   const apply = vm.runInContext(closure('handleSetModel'), context) as Apply;
   env.applySessionRuntimeSelection = (id: string, model: string, providerId: string | null | undefined, selection: unknown, options: Record<string, unknown>) => apply(id, model, providerId, undefined, selection, options);
   const switchDeps = {

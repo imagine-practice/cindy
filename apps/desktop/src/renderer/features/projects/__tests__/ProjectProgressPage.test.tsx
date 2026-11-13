@@ -12,10 +12,13 @@ import type { ProjectProgressReadResult, ProjectProgressApiHistoryEntry } from '
 const h = vi.hoisted(() => ({ route: { projectId: 'p1' }, generation: 1,
   detail: vi.fn(), progress: vi.fn(), navigate: vi.fn(), changed: undefined as undefined | (() => void) }));
 vi.mock('react-router-dom', () => ({ useParams: () => h.route, useNavigate: () => h.navigate }));
-vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }) }));
+vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string,vars?:{model?:string}) =>
+  key==='newChat.chatInput.agentSwitch.deferred'?`${key}:${vars?.model}`:key, i18n: { language: 'en' } }) }));
 vi.mock('@/contexts/AuthContext', () => ({ useOptionalAuth: () => ({ dataOwnerId: 'owner', dataOwnerGeneration: h.generation }), useOptionalDataOwnerGeneration: () => h.generation }));
 vi.mock('@/contexts/dataOwnerGeneration', () => ({ getDataOwnerGeneration: () => h.generation,
-  isDataOwnerGenerationCurrent: (value: number) => value === h.generation }));
+  isDataOwnerGenerationCurrent: (value: number) => value === h.generation,
+  isDataOwnerPushCurrent: (stamp?:{dataOwnerId:string;ownerGeneration:number}) => stamp===undefined
+    || (stamp.dataOwnerId==='owner'&&stamp.ownerGeneration===h.generation) }));
 vi.mock('@/features/bots/botStore', () => ({ useBotProfiles: () => [], useBotProfilesStatus: () => 'ready' }));
 vi.mock('../projectLabels', async (importOriginal) => ({
   ...await importOriginal<typeof import('../projectLabels')>(),
@@ -58,6 +61,42 @@ beforeEach(() => {
   Object.defineProperty(window, 'electronAPI', { configurable: true, value: { localDb: { projectProgress: { read: h.progress } } } });
 });
 afterEach(cleanup);
+
+// Another task window only emits sessions:patched for a model intent. The
+// mounted project must reread it, without a project metadata mutation.
+it('refreshes current-project pending model intents from owner-scoped session patches',async()=>{
+  let model='model-b';
+  const execution=vi.fn(async()=>({projectId:'p1',items:[{
+    sessionId:'task-0',executor:{botId:'bot',displayName:'Bot'},state:'completed',canRequest:true,
+    unavailableReason:null,requestKey:null,requestRound:0,requestedAt:null,delegationId:null,
+    followup:{busy:false,pending:null,model:{current:'model-a',providerId:'p',agentKind:'codex',pending:{model,providerId:'p',agentKind:'codex'}},
+      actions:{continue:{allowed:true,reason:null},approve:{allowed:false,reason:'NO_PENDING_CONFIRMATION'},
+        queue:{allowed:false,reason:'NOT_BUSY'},model:{allowed:true,reason:null}}},
+  }]}));
+  let patched:((payload:{sessionId:string;patch:Record<string,unknown>},stamp?:{dataOwnerId:string;ownerGeneration:number})=>void)|undefined;
+  const unsubscribe=vi.fn();
+  Object.defineProperty(window,'electronAPI',{configurable:true,value:{localDb:{
+    projectProgress:{read:h.progress},projectExecution:{read:execution},
+    sessionsPush:{onPatched:(fn:typeof patched)=>{patched=fn;return unsubscribe;}},
+  }}});
+  const page=render(<ProjectDetailPage />);
+  await screen.findByText('newChat.chatInput.agentSwitch.deferred:model-b');
+  const first=execution.mock.calls.length;
+  model='model-c';
+  await act(async()=>patched?.({sessionId:'task-0',patch:{agentSwitchIntent:{model}}},{dataOwnerId:'owner',ownerGeneration:h.generation}));
+  await screen.findByText('newChat.chatInput.agentSwitch.deferred:model-c');
+  expect(execution.mock.calls.length).toBeGreaterThan(first);expect(h.progress).toHaveBeenCalledOnce();
+  const refreshed=execution.mock.calls.length;
+  await act(async()=>{
+    patched?.({sessionId:'outside-project',patch:{agentSwitchIntent:{model:'outside'}}});
+    patched?.({sessionId:'task-0',patch:{title:'unrelated'}});
+    patched?.({sessionId:'task-0',patch:{agentSwitchIntent:null}},{dataOwnerId:'owner',ownerGeneration:0});
+  });
+  expect(execution).toHaveBeenCalledTimes(refreshed);
+  const retained=patched;page.unmount();
+  await act(async()=>retained?.({sessionId:'task-0',patch:{agentSwitchIntent:null}}));
+  expect(execution).toHaveBeenCalledTimes(refreshed);expect(unsubscribe).toHaveBeenCalled();
+});
 
 // Runtime state is not a project metadata mutation. The already-open page must
 // reread execution/pending capabilities from Main when its task starts or asks.

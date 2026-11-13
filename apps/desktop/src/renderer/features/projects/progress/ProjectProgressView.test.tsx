@@ -617,6 +617,59 @@ describe('project work-item execution follow-ups', () => {
     fireEvent.click(button('Use this model'));
     expect(ui.onFollowup).toHaveBeenCalledWith('s', 'model', { model: 'model-b', providerId: 'p2' });
   });
+
+  // Real picker QA: current A, pending B must allow choosing A again. The
+  // pending route is not the effective model; provider identity also matters.
+  it.each([
+    ['other model', 'model-b','p1'],
+    ['same model on another provider','model-a','p2'],
+  ])('can replace pending %s with the effective route without claiming it already applied',(_name,model,providerId)=>{
+    const pendingLabel=`${model} · ${providerId}`;
+    const route={current:'model-a',providerId:'p1',agentKind:'claude-code' as const,
+      pending:{model,providerId,agentKind:'claude-code' as const}};
+    const ui=mountFollowup(executionEntry({followup:followup({model:route})}),{
+      modelChoices:{'claude-code':[
+        {model:'model-a',providerId:'p1',label:'Model A current'},
+        {model,providerId,label:pendingLabel},
+      ]},
+    });
+    expect(screen.getByText('Current model: model-a')).toBeTruthy();
+    expect.soft(screen.queryByText(`Switch scheduled: will change to Claude Code · ${pendingLabel} when your next message is sent`)).toBeTruthy();
+    fireEvent.click(button('Change model'));
+    fireEvent.click(screen.getByRole('combobox'));
+    fireEvent.click(screen.getByRole('option',{name:'Model A current'}));
+    expect(button('Use this model').disabled).toBe(false);
+    fireEvent.click(button('Use this model'));
+    expect(ui.onFollowup).toHaveBeenCalledExactlyOnceWith('s','model',{model:'model-a',providerId:'p1'});
+  });
+
+  it.each([false,true])('keeps the effective model idempotent with matching pending intent=%s',matching=>{
+    const route={current:'model-a',providerId:'p1',agentKind:'claude-code' as const,
+      ...(matching?{pending:{model:'model-a',providerId:'p1',agentKind:'claude-code' as const}}:{})};
+    const ui=mountFollowup(executionEntry({followup:followup({model:route})}),{
+      modelChoices:{'claude-code':[{model:'model-a',providerId:'p1',label:'Model A current'}]},
+    });
+    fireEvent.click(button('Change model'));
+    expect(button('Use this model').disabled).toBe(true);
+    expect(screen.queryByText(/^Switch scheduled:/)).toBeNull();
+    fireEvent.click(button('Use this model'));
+    expect(ui.onFollowup).not.toHaveBeenCalled();
+  });
+
+  it('keeps another pending engine distinct from the current engine and does not select or apply it implicitly',()=>{
+    const route={current:'model-a',providerId:'p1',agentKind:'claude-code' as const,
+      pending:{model:'pi-model',providerId:'p2',agentKind:'pi' as const}};
+    const ui=mountFollowup(executionEntry({followup:followup({model:route})}),{
+      modelChoices:{'claude-code':[{model:'model-a',providerId:'p1',label:'Current engine A'}],
+        pi:[{model:'pi-model',providerId:'p2',label:'Pending Pi'}]},
+    });
+    expect(screen.getByText('Current model: model-a')).toBeTruthy();
+    expect(screen.getByText('Switch scheduled: will change to Pi · Pending Pi when your next message is sent')).toBeTruthy();
+    fireEvent.click(button('Change model'));fireEvent.click(screen.getByRole('combobox'));
+    expect(screen.getByRole('option',{name:'Current engine A'})).toBeTruthy();
+    expect(screen.queryByRole('option',{name:'Pending Pi'})).toBeNull();
+    expect(ui.onFollowup).not.toHaveBeenCalled();
+  });
 });
 
 describe('automation origin badge', () => {

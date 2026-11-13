@@ -197,6 +197,9 @@ export interface WorkItemFollowupModelRoute {
   current: string;
   providerId: string | null;
   agentKind: 'claude-code' | 'codex' | 'pi';
+  /** Volatile next-send intent, separate from the effective persisted route.
+   * Optional for older Main projections; a matching neutral intent is valid. */
+  pending?: { model: string; providerId: string | null; agentKind: WorkItemFollowupModelRoute['agentKind'] } | null;
 }
 
 /** 一个工作项的后续动作可用性。全部字段都是 main 现读的结果，不得缓存。 */
