@@ -121,7 +121,7 @@ function ProjectsScreenContent({ targets }: { targets: RemoteResourceHostTarget[
             ? <ActivityIndicator color={colors.textSecondary} />
             : <RefreshCw color={colors.textSecondary} size={iconSize.sm} strokeWidth={iconStroke.regular} />}
         </Pressable>
-      </View> : null}
+      </View> : undefined}
       renderItem={({ item: hosted }) => {
         const row = projectRowView(hosted.item, i18n.language);
         const online = isOnline(hosted.host);
