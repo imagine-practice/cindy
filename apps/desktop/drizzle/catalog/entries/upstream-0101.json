@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 101,
+  "fileName": "0101_repair_cjk_fts_missing_rows.sql",
+  "sqlPath": "0101_repair_cjk_fts_missing_rows.sql",
+  "sqlHash": "b4e0497804e46e0a0b0b8c31975b062152d551bac49c3c2e80932567b4085dcd",
+  "scriptPath": "scripts/0101_repair_cjk_fts_missing_rows.ts",
+  "scriptHash": "fa7a77fe27809aba9e1bfb9cebe546fa26c1f14b0e41a305fda6ce3c14b28988",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 100
+    }
+  ],
+  "legacySeq": 101
+}

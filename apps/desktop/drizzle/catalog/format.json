@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "commonLegacyHead": 148,
+  "minimumRunner": "dual-chain-v2",
+  "bootstrap": {
+    "sqlPath": "catalog/bootstrap/0000_dual_chain_ledger.sql",
+    "sqlHash": "b7a38b6ecb795e243c8ead1b8559fdd59451113fb04c02141a978c95d8809587"
+  }
+}

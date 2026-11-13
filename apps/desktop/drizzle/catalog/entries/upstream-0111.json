@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 111,
+  "fileName": "0111_messy_newton_destine.sql",
+  "sqlPath": "0111_messy_newton_destine.sql",
+  "sqlHash": "4e55286228f14c2567a4aa0bf78d764691e7d2f9e0d2224e37e1867f2459a9dc",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 110
+    }
+  ],
+  "legacySeq": 111
+}

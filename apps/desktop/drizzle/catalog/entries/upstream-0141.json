@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 141,
+  "fileName": "0141_optimal_kate_bishop.sql",
+  "sqlPath": "0141_optimal_kate_bishop.sql",
+  "sqlHash": "dccf72f26b2dc0704290f40c6e12254d6f8d419c85aa48399cad8c10e90cc1ca",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 140
+    }
+  ],
+  "legacySeq": 141
+}

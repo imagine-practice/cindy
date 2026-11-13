@@ -469,7 +469,7 @@ try {
   database = createDbClientForHandle({
     db: opened.db,
     drizzle: opened.drizzle,
-    dispose: async () => opened.db.close(),
+    dispose: async () => opened.close(),
   });
   setCurrentDbClient(database, ownerId);
   const credentials = await createCredentialStore({

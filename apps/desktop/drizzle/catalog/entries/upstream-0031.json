@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 31,
+  "fileName": "0031_add_recent_workdirs.sql",
+  "sqlPath": "0031_add_recent_workdirs.sql",
+  "sqlHash": "896d9aae2f1c2988e2d2828cda71fbfab14773bf413d3e85d62e6121db4dc7f0",
+  "scriptPath": "scripts/0031_add_recent_workdirs.ts",
+  "scriptHash": "98d216882bb494129214d23c2935f9702cab2523b5d62eb59678577d1717cffc",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 30
+    }
+  ],
+  "legacySeq": 31
+}

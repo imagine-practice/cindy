@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 114,
+  "fileName": "0114_shared_task_events.sql",
+  "sqlPath": "0114_shared_task_events.sql",
+  "sqlHash": "8e6fea525b9338ea217b3e9852df4ec97ad352d90649737a7b08ffc10e490619",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 113
+    }
+  ],
+  "legacySeq": 114
+}

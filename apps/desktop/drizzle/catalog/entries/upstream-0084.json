@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 84,
+  "fileName": "0084_small_gwen_stacy.sql",
+  "sqlPath": "0084_small_gwen_stacy.sql",
+  "sqlHash": "8d1d280cacfe917e2b2e46223506722d0e2502a9aecaab63e36c3d7e32e5410f",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 83
+    }
+  ],
+  "legacySeq": 84
+}

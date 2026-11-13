@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 2,
+  "fileName": "0002_add_user_send_at.sql",
+  "sqlPath": "0002_add_user_send_at.sql",
+  "sqlHash": "f3ace06a49af4448a7b22667803d510656b4b26c39f1cc72f61956f9a204ed55",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 1
+    }
+  ],
+  "legacySeq": 2
+}

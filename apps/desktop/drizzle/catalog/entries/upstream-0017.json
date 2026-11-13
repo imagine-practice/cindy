@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 17,
+  "fileName": "0017_add_messages_fts.sql",
+  "sqlPath": "0017_add_messages_fts.sql",
+  "sqlHash": "bb5d8a556879fd24ee6a24521b66a6561223bad4c256bc7e0bcb09b22f4fabdf",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 16
+    }
+  ],
+  "legacySeq": 17
+}

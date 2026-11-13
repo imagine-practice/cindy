@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 58,
+  "fileName": "0058_daily_cobalt_man.sql",
+  "sqlPath": "0058_daily_cobalt_man.sql",
+  "sqlHash": "32c674d0abc44804b890823e78abdeaf31c137b4d50778d62b2e2989eb40a807",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 57
+    }
+  ],
+  "legacySeq": 58
+}

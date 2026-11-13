@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 28,
+  "fileName": "0028_drop_schedule_job_type.sql",
+  "sqlPath": "0028_drop_schedule_job_type.sql",
+  "sqlHash": "5f5918b4b7170a65a5a7511dbe1e4be35c6f364f0c7e08bb95abc79500c445c7",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 27
+    }
+  ],
+  "legacySeq": 28
+}

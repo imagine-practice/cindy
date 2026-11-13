@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 128,
+  "fileName": "0128_demonic_odin.sql",
+  "sqlPath": "0128_demonic_odin.sql",
+  "sqlHash": "823d19b1fff7f43ceba905d5860f258b138d352d1da09efcb7dfdf86daa58a46",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 127
+    }
+  ],
+  "legacySeq": 128
+}

@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 9,
+  "fileName": "0009_swift_stick.sql",
+  "sqlPath": "0009_swift_stick.sql",
+  "sqlHash": "fcf35490aaf5a3beb521caca840a02d2de79a387263a67b41fde96ff3c4ffb1e",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 8
+    }
+  ],
+  "legacySeq": 9
+}

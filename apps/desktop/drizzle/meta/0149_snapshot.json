@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "422bde40-9f84-4ed8-aaa7-d7c046d1f8fe",
+  "id": "37b05c44-2de8-4e4e-aa5f-21d3ed8bfc4c",
   "prevId": "eab5afda-1a33-4296-9e01-b3c76cfc20e6",
   "tables": {
     "account_usage_snapshots": {
@@ -2984,6 +2984,100 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "mcp_app_view_states": {
+      "name": "mcp_app_view_states",
+      "columns": {
+        "message_id": {
+          "name": "message_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "server_id": {
+          "name": "server_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "server_revision": {
+          "name": "server_revision",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "plugin_instance": {
+          "name": "plugin_instance",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "state_json": {
+          "name": "state_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "byte_length": {
+          "name": "byte_length",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_mcp_app_view_states_session": {
+          "name": "idx_mcp_app_view_states_session",
+          "columns": [
+            "session_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "mcp_app_view_states_message_id_messages_id_fk": {
+          "name": "mcp_app_view_states_message_id_messages_id_fk",
+          "tableFrom": "mcp_app_view_states",
+          "tableTo": "messages",
+          "columnsFrom": [
+            "message_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "mcp_app_view_states_session_id_sessions_id_fk": {
+          "name": "mcp_app_view_states_session_id_sessions_id_fk",
+          "tableFrom": "mcp_app_view_states",
+          "tableTo": "sessions",
+          "columnsFrom": [
+            "session_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "media_blobs": {
       "name": "media_blobs",
       "columns": {
@@ -4363,161 +4457,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "project_members": {
-      "name": "project_members",
-      "columns": {
-        "project_id": {
-          "name": "project_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "subject_kind": {
-          "name": "subject_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "subject_id": {
-          "name": "subject_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "role": {
-          "name": "role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'member'"
-        },
-        "added_at": {
-          "name": "added_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "uniq_project_members_project_subject_kind": {
-          "name": "uniq_project_members_project_subject_kind",
-          "columns": [
-            "project_id",
-            "subject_kind",
-            "subject_id"
-          ],
-          "isUnique": true
-        },
-        "uniq_project_members_owner": {
-          "name": "uniq_project_members_owner",
-          "columns": [
-            "project_id"
-          ],
-          "isUnique": true,
-          "where": "\"project_members\".\"role\" = 'owner'"
-        },
-        "idx_project_members_subject": {
-          "name": "idx_project_members_subject",
-          "columns": [
-            "subject_kind",
-            "subject_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "project_members_project_id_projects_id_fk": {
-          "name": "project_members_project_id_projects_id_fk",
-          "tableFrom": "project_members",
-          "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "projects": {
-      "name": "projects",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "goal": {
-          "name": "goal",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "owner_id": {
-          "name": "owner_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'active'"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "idx_projects_status_updated": {
-          "name": "idx_projects_status_updated",
-          "columns": [
-            "status",
-            "updated_at"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "recent_workdirs": {
       "name": "recent_workdirs",
       "columns": {
@@ -5856,27 +5795,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "project_id": {
-          "name": "project_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "assignee_kind": {
-          "name": "assignee_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "assignee_id": {
-          "name": "assignee_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "workspace_kind": {
           "name": "workspace_kind",
           "type": "text",
@@ -6311,13 +6229,6 @@
           "name": "idx_sessions_parent_session_id",
           "columns": [
             "parent_session_id"
-          ],
-          "isUnique": false
-        },
-        "idx_sessions_project_id": {
-          "name": "idx_sessions_project_id",
-          "columns": [
-            "project_id"
           ],
           "isUnique": false
         },

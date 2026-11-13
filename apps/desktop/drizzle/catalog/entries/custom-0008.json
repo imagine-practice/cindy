@@ -1,0 +1,16 @@
+{
+  "namespace": "custom",
+  "id": 8,
+  "fileName": "0156_project_schedule_project.sql",
+  "sqlPath": "0156_project_schedule_project.sql",
+  "sqlHash": "340f51e761ed07dd93ca22df200839cf94ed3cee64b6638c774314be791f8cba",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "custom",
+      "id": 7
+    }
+  ],
+  "legacySeq": 156
+}

@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 3,
+  "fileName": "0003_add_session_fork.sql",
+  "sqlPath": "0003_add_session_fork.sql",
+  "sqlHash": "f551156a67002a5e0a6a99866cb4edde676b0b21f6b17f59cffdf72d3d273edb",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 2
+    }
+  ],
+  "legacySeq": 3
+}

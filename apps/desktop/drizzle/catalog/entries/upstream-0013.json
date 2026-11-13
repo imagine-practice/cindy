@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 13,
+  "fileName": "0013_daily_wallflower.sql",
+  "sqlPath": "0013_daily_wallflower.sql",
+  "sqlHash": "8f05ae13831a0a26b79a29d09558f7d438f3efa2f757f777f4f19809e2715af3",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 12
+    }
+  ],
+  "legacySeq": 13
+}

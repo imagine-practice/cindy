@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 129,
+  "fileName": "0129_chemical_thor.sql",
+  "sqlPath": "0129_chemical_thor.sql",
+  "sqlHash": "51b515f0d6e221e4e8865c005e3598ccd28416837cb2c63368aaf669fa643388",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 128
+    }
+  ],
+  "legacySeq": 129
+}

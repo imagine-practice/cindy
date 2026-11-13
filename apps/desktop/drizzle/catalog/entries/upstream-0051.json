@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 51,
+  "fileName": "0051_late_echo.sql",
+  "sqlPath": "0051_late_echo.sql",
+  "sqlHash": "08bfb0b2bd669436f5798715beb2d0e585f45d0ad48e085f2e36c0e08d99ffd8",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 50
+    }
+  ],
+  "legacySeq": 51
+}

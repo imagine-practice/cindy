@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 71,
+  "fileName": "0071_bright_ultron.sql",
+  "sqlPath": "0071_bright_ultron.sql",
+  "sqlHash": "80d87a1da8a6626eb66371a1580fd3ec72a8e28274a2713a7c070cf34bb7e057",
+  "scriptPath": "scripts/0071_bright_ultron.ts",
+  "scriptHash": "79e8fa4c645a6760c66bab32e0847b85ec4a4018a00754a40339096d278ce73f",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 70
+    }
+  ],
+  "legacySeq": 71
+}

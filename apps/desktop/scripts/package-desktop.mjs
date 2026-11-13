@@ -87,6 +87,7 @@ import {
   assertPageManualCommitted,
 } from './ci/package-lib.mjs';
 import { PLUGIN_PAGE_MANUAL_SKILL_PATH } from '../src/shared/pluginPageManual.mjs';
+import { migrationBuildInfo } from './lib/migration-build-info.mjs';
 import { applyMacSigningConfigToEnv, applyReleaseCdnBaseUrlToEnv } from './ci/release-regions.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -118,7 +119,8 @@ function collectBuildMeta() {
     electronVersion = pkg.devDependencies?.electron ?? '';
   } catch { /* ignore */ }
 
-  return { schemaVersionMax, migrationFiles, commitSha, electronVersion };
+  return { schemaVersionMax, migrationFiles, commitSha, electronVersion,
+    migration: migrationBuildInfo(path.join(DESKTOP_ROOT,'drizzle')) };
 }
 
 function verifyPackagedSourceMetadata({ appName, platform, arch, expectedCommit }) {
@@ -672,6 +674,7 @@ async function main() {
         commitSha: meta.commitSha,
         electronVersion: meta.electronVersion,
         schemaVersionMax: meta.schemaVersionMax,
+        migration: meta.migration,
         migrationFiles: meta.migrationFiles,
         files,
         signing,

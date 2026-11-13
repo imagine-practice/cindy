@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 110,
+  "fileName": "0110_abandoned_scarlet_witch.sql",
+  "sqlPath": "0110_abandoned_scarlet_witch.sql",
+  "sqlHash": "62b4565d3f016c97bb10eff53de2e749baadee73b9b70dea03dbcb6f1a8e38ec",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 109
+    }
+  ],
+  "legacySeq": 110
+}

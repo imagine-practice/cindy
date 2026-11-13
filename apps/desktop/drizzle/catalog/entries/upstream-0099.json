@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 99,
+  "fileName": "0099_boring_champions.sql",
+  "sqlPath": "0099_boring_champions.sql",
+  "sqlHash": "b4e0497804e46e0a0b0b8c31975b062152d551bac49c3c2e80932567b4085dcd",
+  "scriptPath": "scripts/0099_boring_champions.ts",
+  "scriptHash": "353f473ef643cadd07f6fede066f27dd5d1f01ef73941bb4c678824e62d76fea",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 98
+    }
+  ],
+  "legacySeq": 99
+}

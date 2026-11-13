@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 122,
+  "fileName": "0122_auto_review_projections.sql",
+  "sqlPath": "0122_auto_review_projections.sql",
+  "sqlHash": "ba343dd5f5e0cd7286bb2662f712746980ef987133cb51434b45b0a5d7fc0f66",
+  "scriptPath": "scripts/0122_auto_review_projections.ts",
+  "scriptHash": "5946b614e43d29e2c0eeaa1f20aa6530523cf84dae8640e41bea805ef3e0b078",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 121
+    }
+  ],
+  "legacySeq": 122
+}

@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 25,
+  "fileName": "0025_reclassify_codex_projectless_dialogues.sql",
+  "sqlPath": "0025_reclassify_codex_projectless_dialogues.sql",
+  "sqlHash": "93eff6955cda1f8cfd0dfe4fe13c4479e72cf68149f5dbe8d478395df29cd583",
+  "scriptPath": "scripts/0025_reclassify_codex_projectless_dialogues.ts",
+  "scriptHash": "8a23fe1dbf174dfbbf3440679735bdcc6a02019efd26e8d2a71c5998ee319620",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 24
+    }
+  ],
+  "legacySeq": 25
+}

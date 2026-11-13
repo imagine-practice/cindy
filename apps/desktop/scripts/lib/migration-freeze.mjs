@@ -16,6 +16,7 @@ import { spawnSync } from 'node:child_process';
 
 const MIGRATION_PATH_RE = /^apps\/desktop\/drizzle\/\d{4}_.+\.sql$/;
 const MIGRATION_SCRIPT_PATH_RE = /^apps\/desktop\/drizzle\/scripts\/\d{4}_.+\.ts$/;
+const DUAL_RESOURCE_RE = /^apps\/desktop\/drizzle\/catalog\/(?:entries\/[^/]+\.json|custom\/.+\.(?:sql|ts)|bootstrap\/[^/]+\.sql|format\.json|legacy-fork-v1\.json)$/;
 const BASELINE_GIT_PATH = 'apps/desktop/drizzle/migration-baseline.json';
 const BASELINE_FILE = path.join('apps', 'desktop', 'drizzle', 'migration-baseline.json');
 
@@ -199,6 +200,13 @@ export function findFrozenMigrationChanges(repoRoot, ref, authoritativeRuntimePa
   );
 
   const violations = [];
+  for (const gitPath of treePaths.filter(p => DUAL_RESOURCE_RE.test(p))) {
+    const currentPath = path.join(repoRoot, ...gitPath.split('/'));
+    if (!fs.existsSync(currentPath)) violations.push({path:gitPath,kind:'deleted'});
+    else if (normalizedSha256(runGit(repoRoot,['show',`${commit}:${gitPath}`])) !== normalizedSha256(fs.readFileSync(currentPath,'utf8'))) {
+      violations.push({path:gitPath,kind:'modified-dual-runtime-identity'});
+    }
+  }
   try {
     const frozenBaseline = JSON.parse(runGit(repoRoot, ['show', `${commit}:${BASELINE_GIT_PATH}`]));
     if (frozenBaseline.version >= 2) {

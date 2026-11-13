@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 22,
+  "fileName": "0022_curvy_luckman.sql",
+  "sqlPath": "0022_curvy_luckman.sql",
+  "sqlHash": "a932d234fdc7c96cdfb5a2f664ba0cc3d813cad56e9be4c3bd7108be3290589c",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 21
+    }
+  ],
+  "legacySeq": 22
+}

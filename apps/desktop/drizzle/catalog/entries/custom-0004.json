@@ -1,0 +1,16 @@
+{
+  "namespace": "custom",
+  "id": 4,
+  "fileName": "0152_project_references.sql",
+  "sqlPath": "0152_project_references.sql",
+  "sqlHash": "2b5a1a0dca77658ff748de5fd69ba87e66e025118b88b2d7589a361addcdda13",
+  "scriptPath": "scripts/0152_project_references.ts",
+  "scriptHash": "903c9a040ee5ddf3d92578e273bca5f87cf536083408c039efd8d06719e1e666",
+  "dependsOn": [
+    {
+      "namespace": "custom",
+      "id": 3
+    }
+  ],
+  "legacySeq": 152
+}

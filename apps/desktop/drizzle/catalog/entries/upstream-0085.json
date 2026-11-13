@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 85,
+  "fileName": "0085_skinny_iron_man.sql",
+  "sqlPath": "0085_skinny_iron_man.sql",
+  "sqlHash": "27b4c7095e397a6187bae9a53c26017bf750c14a4e080ff4691b7161073fc4ac",
+  "scriptPath": "scripts/0085_skinny_iron_man.ts",
+  "scriptHash": "1e74cb6e302731ab0d414ce9e166998434db5a3645db4bf50c0cc5363313b1ab",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 84
+    }
+  ],
+  "legacySeq": 85
+}

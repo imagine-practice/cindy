@@ -31,6 +31,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { assertSupportedBuildInfo } from '../apps/desktop/scripts/ci/package-lib.mjs';
 
 import {
   OSS_ENV_NAMES_BY_REGION,
@@ -78,6 +79,7 @@ export function parsePublishPageManualArgs(argv) {
 /** 读取 build-info.json 中发布需要的字段；版本无关包与非法字段直接报错。 */
 export function readBuildInfo(buildInfoPath) {
   const buildInfo = JSON.parse(fs.readFileSync(buildInfoPath, 'utf8'));
+  assertSupportedBuildInfo(buildInfo);
   if (buildInfo.versionless === true || buildInfo.version === null) {
     throw new Error(`${buildInfoPath} 是版本无关包（version 为 null），不发布页面手册`);
   }

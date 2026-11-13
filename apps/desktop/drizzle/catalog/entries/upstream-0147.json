@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 147,
+  "fileName": "0147_chilly_dakota_north.sql",
+  "sqlPath": "0147_chilly_dakota_north.sql",
+  "sqlHash": "1318a8772498c98891e82a2e307319f50705b6aee6e3faa55504073a88a06271",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 146
+    }
+  ],
+  "legacySeq": 147
+}

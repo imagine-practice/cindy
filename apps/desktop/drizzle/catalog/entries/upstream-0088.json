@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 88,
+  "fileName": "0088_thankful_captain_midlands.sql",
+  "sqlPath": "0088_thankful_captain_midlands.sql",
+  "sqlHash": "bfa75ed882e46bea269df9049fabb36c5659ac405bb0a066d50575e7cc0581ce",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 87
+    }
+  ],
+  "legacySeq": 88
+}

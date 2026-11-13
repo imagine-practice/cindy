@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 18,
+  "fileName": "0018_session_used_project_context.sql",
+  "sqlPath": "0018_session_used_project_context.sql",
+  "sqlHash": "c5ad1852d8263121add2e88a231697112acbbb2cd181f994314e3d375034215c",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 17
+    }
+  ],
+  "legacySeq": 18
+}

@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 98,
+  "fileName": "0098_bright_baron_zemo.sql",
+  "sqlPath": "0098_bright_baron_zemo.sql",
+  "sqlHash": "b4e0497804e46e0a0b0b8c31975b062152d551bac49c3c2e80932567b4085dcd",
+  "scriptPath": "scripts/0098_bright_baron_zemo.ts",
+  "scriptHash": "0f81cc0b8f238878d4be4c67641a215bc0e4b9512d410a0a22ff42099db54a06",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 97
+    }
+  ],
+  "legacySeq": 98
+}

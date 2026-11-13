@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 112,
+  "fileName": "0112_backfill_task_tag_order.sql",
+  "sqlPath": "0112_backfill_task_tag_order.sql",
+  "sqlHash": "7a550653b226134155537e40b7ba114a2667c31969aee9a3f8710a2b20551547",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 111
+    }
+  ],
+  "legacySeq": 112
+}

@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 73,
+  "fileName": "0073_thankful_hex.sql",
+  "sqlPath": "0073_thankful_hex.sql",
+  "sqlHash": "45204245bf226cd740b99b013f73df0ca52e9254764f86dde5f182cc4151ad8a",
+  "scriptPath": "scripts/0073_thankful_hex.ts",
+  "scriptHash": "2e16a36256e00ad4be883438d11ecdd12306607e9ccf8f137c2887eb1452047e",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 72
+    }
+  ],
+  "legacySeq": 73
+}

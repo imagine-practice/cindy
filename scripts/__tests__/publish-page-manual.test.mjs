@@ -48,6 +48,7 @@ function fixture({ withManual = true, endpoint } = {}) {
 function buildInfoArg(repoRoot, fields = {}) {
   const file = path.join(repoRoot, `build-info-${fs.readdirSync(repoRoot).length}.json`);
   fs.writeFileSync(file, JSON.stringify({
+    schemaVersion: 2,
     version: VERSION,
     versionless: false,
     region: 'global',

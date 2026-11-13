@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 47,
+  "fileName": "0047_lame_malice.sql",
+  "sqlPath": "0047_lame_malice.sql",
+  "sqlHash": "06bfc3ee9e88b6c12fe951e027fb45d647d2a6d20b9745e611f8abf0e6e1d3de",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 46
+    }
+  ],
+  "legacySeq": 47
+}

@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 52,
+  "fileName": "0052_breezy_tag.sql",
+  "sqlPath": "0052_breezy_tag.sql",
+  "sqlHash": "7ccc61e7ddbd8d44ec0ae290d8728d2bd43cf79d360a5ad541d968f2e37616c0",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 51
+    }
+  ],
+  "legacySeq": 52
+}

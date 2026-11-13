@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 80,
+  "fileName": "0080_regional_money.sql",
+  "sqlPath": "0080_regional_money.sql",
+  "sqlHash": "b4e0497804e46e0a0b0b8c31975b062152d551bac49c3c2e80932567b4085dcd",
+  "scriptPath": "scripts/0080_regional_money.ts",
+  "scriptHash": "1706b12e69f7b00e8bbe22839fafa4d60c10732957c42e6dc4f8da8d53d58f75",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 79
+    }
+  ],
+  "legacySeq": 80
+}

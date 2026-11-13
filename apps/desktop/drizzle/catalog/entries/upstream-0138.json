@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 138,
+  "fileName": "0138_talented_blacklash.sql",
+  "sqlPath": "0138_talented_blacklash.sql",
+  "sqlHash": "b4e0497804e46e0a0b0b8c31975b062152d551bac49c3c2e80932567b4085dcd",
+  "scriptPath": "scripts/0138_talented_blacklash.ts",
+  "scriptHash": "7a16493334bdaf619fd161303968fb794f5d84c7dc51a142f59307b41d67802f",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 137
+    }
+  ],
+  "legacySeq": 138
+}

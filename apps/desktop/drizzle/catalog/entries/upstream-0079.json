@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 79,
+  "fileName": "0079_futuristic_hercules.sql",
+  "sqlPath": "0079_futuristic_hercules.sql",
+  "sqlHash": "9a631fc8e6985c750971777332fdccfcfd7f47fa2e88dc9746d1bc64415db97f",
+  "scriptPath": "scripts/0079_futuristic_hercules.ts",
+  "scriptHash": "e22a98267ba885e1d772e0f584f0f9a837709eb9d6bdf3d4c4d8e50c4cf51b8a",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 78
+    }
+  ],
+  "legacySeq": 79
+}

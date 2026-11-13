@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 92,
+  "fileName": "0092_fixed_zeigeist.sql",
+  "sqlPath": "0092_fixed_zeigeist.sql",
+  "sqlHash": "841eb6a3b43bcb17910ca487825b1fd2fab4d9f111fac79f90be436067f0911f",
+  "scriptPath": "scripts/0092_fixed_zeigeist.ts",
+  "scriptHash": "e9192d48ec87fa11db67a8147ff7c948fd789a0d9819982aec64d2c04ca96388",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 91
+    }
+  ],
+  "legacySeq": 92
+}

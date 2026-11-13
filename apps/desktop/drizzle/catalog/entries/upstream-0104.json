@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 104,
+  "fileName": "0104_schedule-model-harness.sql",
+  "sqlPath": "0104_schedule-model-harness.sql",
+  "sqlHash": "b4e0497804e46e0a0b0b8c31975b062152d551bac49c3c2e80932567b4085dcd",
+  "scriptPath": "scripts/0104_schedule-model-harness.ts",
+  "scriptHash": "8bfd127690395aac0298708694a9ea2546c0b64f005ea8ac5fef5e8996527ec1",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 103
+    }
+  ],
+  "legacySeq": 104
+}

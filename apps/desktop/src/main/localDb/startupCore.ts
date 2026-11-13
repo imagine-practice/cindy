@@ -24,7 +24,7 @@ import {
 } from './migrationRunner';
 import { ownerDatabasePath, prepareModelDefaultsProfile } from './modelDefaultsProfile';
 import { ensureCjkFtsTempTriggersInstalled } from './registerCjkSeg';
-import { acquireSchemaStartupLease, type SchemaMigrationLease } from './schemaMigrationLease';
+import { acquireSchemaStartupLease, acquireSchemaMigrationReaderLease, type SchemaMigrationLease } from './schemaMigrationLease';
 import { runSchemaStartupPolicy } from './schemaStartupPolicy';
 import { configureSqliteVecExtPath, loadSqliteVec } from './sqliteVecLoader';
 import * as schema from './schema';
@@ -55,6 +55,7 @@ export interface OpenedOwnerDatabase {
   db: Database.Database;
   drizzle: BetterSQLite3Database<typeof schema>;
   dbPath: string;
+  close(): void;
 }
 
 /** Same PRAGMA order as the worker: PRAGMA first, then TEMP trigger installation. */
@@ -92,6 +93,7 @@ export async function openOwnerDatabase(
   }
 
   let writerLease: SchemaMigrationLease | null = lease.kind === 'writer' ? lease.lease : null;
+  let readerLease: SchemaMigrationLease | null = lease.kind === 'reader' ? lease.lease : null;
   let db: Database.Database | null = null;
   try {
     if (writerLease) prepareModelDefaultsProfile(dbPath);
@@ -100,11 +102,11 @@ export async function openOwnerDatabase(
     ensureCjkFtsTempTriggersInstalled(db);
     loadSqliteVec(db);
 
-    await runSchemaStartupPolicy({
-      sharedPassive: false,
+    const startup = await runSchemaStartupPolicy({
+      sharedPassive: lease.kind === 'reader',
       checkCompatibility: () => checkMigrationCompatibility(db!, drizzleDir, dbPath),
       prepareRuntimeManifest: () => {
-        prepareMigrationRuntimeManifest(dbPath, drizzleDir, readSchemaVersion(db!));
+        prepareMigrationRuntimeManifest(dbPath, drizzleDir, readSchemaVersion(db!), db!);
       },
       runMigrations: () => runMigrations(db!, dbPath),
       // Electron's dev-only reflective drift repair and nuke flow stays with the
@@ -112,15 +114,23 @@ export async function openOwnerDatabase(
       handleSchemaDrift: async () => undefined,
       cleanupSchemaDdl: () => undefined,
     });
+    if (!startup.ready) throw new OwnerDatabaseError('MIGRATE_FAILED','Host reader schema is incompatible');
 
     ensureCjkFtsTempTriggersInstalled(db);
     writerLease?.release();
     writerLease = null;
+    if (!readerLease) {
+      const reader = await acquireSchemaMigrationReaderLease(dbPath);
+      if (!reader.acquired) throw new OwnerDatabaseError('DB_SCHEMA_LOCKED',`Schema changed during Host startup (${reader.reason})`);
+      readerLease = reader.lease;
+      if (!checkMigrationCompatibility(db,drizzleDir,dbPath).compatible) throw new OwnerDatabaseError('MIGRATE_FAILED','Schema changed before Host reader admission');
+    }
 
     return {
       db,
       drizzle: drizzle(db, { schema }),
       dbPath,
+      close() { try { db?.close(); } finally {readerLease?.release(); readerLease=null;} },
     };
   } catch (error) {
     try {
@@ -129,6 +139,7 @@ export async function openOwnerDatabase(
       /* best effort */
     }
     writerLease?.release();
+    readerLease?.release();
     lease.lease.release();
     if (error instanceof OwnerDatabaseError) throw error;
     const message = error instanceof Error ? error.message : String(error);

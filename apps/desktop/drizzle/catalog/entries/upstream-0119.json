@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 119,
+  "fileName": "0119_hard_vindicator.sql",
+  "sqlPath": "0119_hard_vindicator.sql",
+  "sqlHash": "583ce5bbefb12fea0bcd1fad3a851b8019c9a9bffdd6056f0ba7546ad1e1ecb0",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 118
+    }
+  ],
+  "legacySeq": 119
+}

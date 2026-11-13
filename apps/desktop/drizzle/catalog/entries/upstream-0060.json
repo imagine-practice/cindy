@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 60,
+  "fileName": "0060_orange_penance.sql",
+  "sqlPath": "0060_orange_penance.sql",
+  "sqlHash": "c102a337791107a5e5e747851b259b7fe77e6e3452e878977c174da7e51b9240",
+  "scriptPath": "scripts/0060_orange_penance.ts",
+  "scriptHash": "1d31303c10b5cdac5b66aec9345377f8e3a8dec52367ec19eccf3804ec44c7a4",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 59
+    }
+  ],
+  "legacySeq": 60
+}

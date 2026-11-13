@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 123,
+  "fileName": "0123_wonderful_oracle.sql",
+  "sqlPath": "0123_wonderful_oracle.sql",
+  "sqlHash": "2db11db121870ce40067e651edded65c000f051bd33575c659923791aff0503f",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 122
+    }
+  ],
+  "legacySeq": 123
+}

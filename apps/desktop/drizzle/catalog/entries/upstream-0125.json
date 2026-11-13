@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 125,
+  "fileName": "0125_magical_night_thrasher.sql",
+  "sqlPath": "0125_magical_night_thrasher.sql",
+  "sqlHash": "eeb8408032e7afaf5de29ed6e9947533a1613ec87562f8ce27de20b346c430ac",
+  "scriptPath": "scripts/0125_magical_night_thrasher.ts",
+  "scriptHash": "2c204d67a22b815ddc25571770486e34091b2e1db63c2d21c9ba3d9430edcd22",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 124
+    }
+  ],
+  "legacySeq": 125
+}

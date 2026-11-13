@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 108,
+  "fileName": "0108_lowly_scarlet_witch.sql",
+  "sqlPath": "0108_lowly_scarlet_witch.sql",
+  "sqlHash": "fb215136f189b841a392cc2bc34ab519be35f08ec8a304ea3d141c221413bde9",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 107
+    }
+  ],
+  "legacySeq": 108
+}

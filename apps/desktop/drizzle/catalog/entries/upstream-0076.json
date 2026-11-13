@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 76,
+  "fileName": "0076_melted_post.sql",
+  "sqlPath": "0076_melted_post.sql",
+  "sqlHash": "912e6d75166ee0bfaf51942d34ab527042d1803971db7929cf90429a8c2cebe8",
+  "scriptPath": "scripts/0076_melted_post.ts",
+  "scriptHash": "bf6aca5b143f9f7902146ee3032ff366a73887d54679ca7736b74395102dc4cc",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 75
+    }
+  ],
+  "legacySeq": 76
+}

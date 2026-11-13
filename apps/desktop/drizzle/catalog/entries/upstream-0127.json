@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 127,
+  "fileName": "0127_bot_group_task_posts.sql",
+  "sqlPath": "0127_bot_group_task_posts.sql",
+  "sqlHash": "1004e3de49d6a3695cf0f0df55a1d104b7dff970ea25d2d879206feb6fe5c836",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 126
+    }
+  ],
+  "legacySeq": 127
+}

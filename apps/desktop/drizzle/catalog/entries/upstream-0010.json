@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 10,
+  "fileName": "0010_complex_madame_hydra.sql",
+  "sqlPath": "0010_complex_madame_hydra.sql",
+  "sqlHash": "167dc549c5f81a55d14da1fa7badc3c4fcd99646d6e950af836e0362e7ed6e87",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 9
+    }
+  ],
+  "legacySeq": 10
+}

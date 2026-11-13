@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 132,
+  "fileName": "0132_abnormal_dazzler.sql",
+  "sqlPath": "0132_abnormal_dazzler.sql",
+  "sqlHash": "aaeb03dc05dc6e99216cb6b0c1fb805c7c4d280d9bd570d6bc0d41987e0a1f21",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 131
+    }
+  ],
+  "legacySeq": 132
+}

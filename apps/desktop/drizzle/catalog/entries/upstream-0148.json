@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 148,
+  "fileName": "0148_schedule_webhook_trigger.sql",
+  "sqlPath": "0148_schedule_webhook_trigger.sql",
+  "sqlHash": "b4e0497804e46e0a0b0b8c31975b062152d551bac49c3c2e80932567b4085dcd",
+  "scriptPath": "scripts/0148_schedule_webhook_trigger.ts",
+  "scriptHash": "e5c8cafd71fa13117b4345d086caff8f785c7d1fd6edbf790d68e9ef75459696",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 147
+    }
+  ],
+  "legacySeq": 148
+}

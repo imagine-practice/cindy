@@ -16,6 +16,7 @@
  */
 
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import type Database from 'better-sqlite3';
 
@@ -106,6 +107,11 @@ export function listIsoBackups(dbFilePath: string): string[] {
     .filter((f) => f.startsWith(`${base}.bak.`) && ISO_BACKUP_PATTERN.test(f))
     .map((f) => path.join(dir, f))
     .sort(); // ISO 时间戳天然字典序
+}
+
+/** Does not match legacy `.bak.<ISO>` enumeration: metadata is never a DB candidate. */
+export function migrationBackupWitnessPath(backupPath: string): string {
+  return path.join(path.dirname(backupPath), `.migration-witness-${path.basename(backupPath)}.json`);
 }
 
 /** 小库场景下备份总量的保底预算——不至于把 3 份小备份也裁掉。 */
@@ -221,6 +227,8 @@ export function pruneIsoBackupsToBudget(
     }
     try {
       fs.unlinkSync(p);
+      const witness = migrationBackupWitnessPath(p);
+      if (fs.existsSync(witness)) fs.unlinkSync(witness);
       removed.push(p);
     } catch (err) {
       log.warn('[localDb] pruneIsoBackupsToBudget failed for', p, err);
@@ -287,6 +295,44 @@ export function tryRestoreWithFallback(dbFilePath: string): RestoreResult | null
 }
 
 function tryRestoreFrom(srcBackup: string, dstDb: string): boolean {
+  let runtimeToRestore: unknown;
+  let sourceProbe: Database.Database | null = null;
+  try {
+    const currentPath = `${dstDb}.migration-runtime.json`;
+    const current = fs.existsSync(currentPath) ? JSON.parse(fs.readFileSync(currentPath,'utf8')) : null;
+    const witnessPath = migrationBackupWitnessPath(srcBackup);
+    const witness = fs.existsSync(witnessPath) ? JSON.parse(fs.readFileSync(witnessPath,'utf8')) : null;
+    if (current?.version === 2 && witness?.version !== 1) return false;
+    sourceProbe = createBetterSqliteDatabase(srcBackup,{readonly:true});
+    const hasMeta = sourceProbe.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='migration_meta'").get();
+    const scalar = hasMeta ? (sourceProbe.prepare("SELECT value FROM migration_meta WHERE key='schema_version'").get() as {value:string}|undefined)?.value : null;
+    const digest = (value:unknown) => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
+    if (scalar === 'cindy:dual-chain:2') {
+      if (witness?.version !== 1 || witness.runtimeManifest?.version !== 2) return false;
+      const row = sourceProbe.prepare("SELECT value FROM migration_state_v2 WHERE key='state'").get() as {value:string}|undefined;
+      if (!row) return false;
+      const state = JSON.parse(row.value);
+      const manifest = witness.runtimeManifest;
+      if (JSON.stringify(manifest.state) !== JSON.stringify(state) &&
+          !(manifest.phase === 'intent' && manifest.before === digest(state))) return false;
+      runtimeToRestore = manifest;
+    } else if (witness) {
+      if (witness.version !== 1 || witness.anchor?.value !== scalar) return false;
+      if (scalar !== null) {
+        const rows=sourceProbe.prepare('SELECT seq,file_name,content_hash,applied_at FROM migration_history ORDER BY seq').all();
+        if (digest(rows) !== digest(witness.anchor.rows)) return false;
+      }
+      if (current?.version === 2) {
+        if (JSON.stringify(current.state?.anchor) !== JSON.stringify(witness.anchor)) return false;
+        // Keep the durable v2 fence while restoring a pre-conversion backup. The
+        // normal preflight will verify and retry this exact bootstrap plan.
+        runtimeToRestore = {...current,phase:'intent',before:digest(witness.anchor)};
+      } else runtimeToRestore = witness.runtimeManifest;
+    }
+  } catch (error) {
+    log.warn('[localDb] backup migration witness unavailable',error);
+    return false;
+  } finally {sourceProbe?.close();}
   try {
     fs.copyFileSync(srcBackup, dstDb);
   } catch (err) {
@@ -301,7 +347,15 @@ function tryRestoreFrom(srcBackup: string, dstDb: string): boolean {
       | { quick_check?: string }
       | undefined;
     const value = row ? Object.values(row)[0] : undefined;
-    return value === 'ok';
+    if (value !== 'ok') return false;
+    if (runtimeToRestore) {
+      const target=`${dstDb}.migration-runtime.json`, temp=`${target}.${crypto.randomUUID()}.restore`;
+      try {
+        fs.writeFileSync(temp,JSON.stringify(runtimeToRestore),{mode:0o600,flag:'wx',flush:true});
+        fs.renameSync(temp,target);
+      } finally {if(fs.existsSync(temp))fs.unlinkSync(temp);}
+    }
+    return true;
   } catch (err) {
     log.warn('[localDb] tryRestoreFrom probe failed', srcBackup, err);
     return false;

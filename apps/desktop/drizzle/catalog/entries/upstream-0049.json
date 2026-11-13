@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 49,
+  "fileName": "0049_oval_lockheed.sql",
+  "sqlPath": "0049_oval_lockheed.sql",
+  "sqlHash": "bc6d3e472cb00f97c5e06131e23ec43ccd77565d70a0255a5a4fc4d686fa68b9",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 48
+    }
+  ],
+  "legacySeq": 49
+}

@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 67,
+  "fileName": "0067_freezing_molecule_man.sql",
+  "sqlPath": "0067_freezing_molecule_man.sql",
+  "sqlHash": "71a1a1f0c17cb33012d1f6f30c471708772bbe77418aa9bf2ef096e74953a06e",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 66
+    }
+  ],
+  "legacySeq": 67
+}

@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 30,
+  "fileName": "0030_slow_namora.sql",
+  "sqlPath": "0030_slow_namora.sql",
+  "sqlHash": "560941adf15f50de49a210e5113b70afea4590bad963795aeaa99c5b4c408489",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 29
+    }
+  ],
+  "legacySeq": 30
+}

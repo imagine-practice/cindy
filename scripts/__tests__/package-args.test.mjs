@@ -16,6 +16,8 @@ import {
   VERSIONLESS_VERSION,
   assertPageManualCommitted,
   buildBuildInfo,
+  assertSupportedBuildInfo,
+  assertMigrationSmoke,
   debianArch,
   pageManualBuildInfo,
   parsePackageArgs,
@@ -249,4 +251,22 @@ test('build-info 记录安装包内手册,打包拒绝未提交的手册', () =>
   assert.doesNotThrow(() => assertPageManualCommitted({ porcelain: '', versionless: false, manualPath }));
   assert.throws(() => assertPageManualCommitted({ porcelain: ' M x/PAGE-GENERATION.md\n', versionless: false, manualPath }), /未提交改动/);
   assert.doesNotThrow(() => assertPageManualCommitted({ porcelain: ' M x/PAGE-GENERATION.md\n', versionless: true, manualPath }));
+});
+
+test('build-info v3 carries the namespace vector, preserves v2 semantics and refuses unknown formats', () => {
+  const base={version:'1.2.3',versionless:false,region:'cn',platform:'win32',arch:'x64',schemaVersionMax:161,migrationFiles:['old.sql'],files:[],signing:{}};
+  const legacy=buildBuildInfo(base);
+  assert.equal(legacy.schemaVersion,2);assert.equal(legacy.schemaVersionMax,161);
+  assert.doesNotThrow(()=>assertSupportedBuildInfo(legacy));
+  const migration={format:2,minimumRunner:'dual-chain-v2',catalogSha256:'a'.repeat(64),bootstrapSha256:'b'.repeat(64),namespaces:[{namespace:'upstream',head:149,count:150},{namespace:'custom',head:13,count:13}]};
+  const current=buildBuildInfo({...base,migration});
+  assert.equal(current.schemaVersion,3);assert.equal(current.schemaVersionMax,undefined);
+  assert.equal(current.migrationFiles,undefined);assert.deepEqual(current.migration,migration);
+  assert.doesNotThrow(()=>assertSupportedBuildInfo(current));
+  assert.doesNotThrow(()=>assertMigrationSmoke({migration},migration));
+  assert.doesNotThrow(()=>assertMigrationSmoke({schema_version:161},null));
+  assert.throws(()=>assertMigrationSmoke({schema_version:161},migration),/mismatch/);
+  assert.throws(()=>assertMigrationSmoke({migration:{...migration,catalogSha256:'f'.repeat(64)}},migration),/mismatch/);
+  assert.throws(()=>assertSupportedBuildInfo({...current,schemaVersion:4}),/Unsupported/);
+  assert.throws(()=>assertSupportedBuildInfo({...current,schemaVersionMax:149}),/Unsupported/);
 });

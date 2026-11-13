@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 87,
+  "fileName": "0087_puzzling_shen.sql",
+  "sqlPath": "0087_puzzling_shen.sql",
+  "sqlHash": "5e1949cc23440b1a0ee7f8fe104cb7411e1671c1e451c3d3b4093daa0354a855",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 86
+    }
+  ],
+  "legacySeq": 87
+}

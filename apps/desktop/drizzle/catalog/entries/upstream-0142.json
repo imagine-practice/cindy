@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 142,
+  "fileName": "0142_overconfident_umar.sql",
+  "sqlPath": "0142_overconfident_umar.sql",
+  "sqlHash": "a31f455332cf9a5d50bf2e2725ee6368c7e7612bddfb8862e6c12776b55f1256",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 141
+    }
+  ],
+  "legacySeq": 142
+}

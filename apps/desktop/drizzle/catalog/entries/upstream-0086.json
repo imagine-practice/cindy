@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 86,
+  "fileName": "0086_orange_surge.sql",
+  "sqlPath": "0086_orange_surge.sql",
+  "sqlHash": "39414b94d99711391494f6f33d3c7391486033852ff9ff3c9009718be01dddf7",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 85
+    }
+  ],
+  "legacySeq": 86
+}

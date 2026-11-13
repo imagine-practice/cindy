@@ -2,6 +2,7 @@ import { registerProjectGroupLinksIpc } from './projectGroupLinks';
 import { registerProjectProgressIpc } from './projectProgress';
 import { readMaterialPreviewPdfBytes } from '../../materialPreviewBytes';
 import { MATERIALS_READ_PREVIEW_BYTES_CHANNEL } from '../../../shared/materials';
+import { reconcileDeletedTaskViewState } from '../../mcp-apps/viewStateStore.js';
 import { registerCompanionImport } from '../../bot-import/registration.js';
 import { registerTaskTagsIpc } from './taskTags';
 /**
@@ -173,6 +174,7 @@ export function registerLocalDbIpc(opts: RegisterLocalDbIpcOpts = {}): void {
       // Resume saved invitations after the database and account boundary are ready.
       await recoverActiveTeammateInvitations();
       if (!isReadyOwnerCurrent()) return;
+      void reconcileDeletedTaskViewState(client, isReadyOwnerCurrent);
       startMediaRefCompensationReconcile(userId, client, isReadyOwnerCurrent);
       const withSessionLock = opts.withSessionLock;
       const db = client.drizzle;

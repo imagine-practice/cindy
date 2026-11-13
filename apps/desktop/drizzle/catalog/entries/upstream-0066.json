@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 66,
+  "fileName": "0066_slim_messages_fts.sql",
+  "sqlPath": "0066_slim_messages_fts.sql",
+  "sqlHash": "bcf44a83da1bf244babb8b52acb7c3da7deda68cdc580df13050ced8cc09ce2c",
+  "scriptPath": "scripts/0066_slim_messages_fts.ts",
+  "scriptHash": "42f638fc5a119d80fd068b36232b5b3b47782658da23e5e725a1b569fae0477c",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 65
+    }
+  ],
+  "legacySeq": 66
+}

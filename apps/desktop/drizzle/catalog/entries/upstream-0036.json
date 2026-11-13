@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 36,
+  "fileName": "0036_drop_stale_orca_lead_index.sql",
+  "sqlPath": "0036_drop_stale_orca_lead_index.sql",
+  "sqlHash": "b0cb20db6fe0862889048d5c40043cbffd9d7af02e0e1b5b80832fb1563239bc",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 35
+    }
+  ],
+  "legacySeq": 36
+}

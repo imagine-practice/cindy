@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 41,
+  "fileName": "0041_robust_sue_storm.sql",
+  "sqlPath": "0041_robust_sue_storm.sql",
+  "sqlHash": "45942e508f8a70b945858ced30aa9bd06e19842c731a821f53583f4c02498709",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 40
+    }
+  ],
+  "legacySeq": 41
+}

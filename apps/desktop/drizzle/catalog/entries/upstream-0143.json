@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 143,
+  "fileName": "0143_wise_kitty_pryde.sql",
+  "sqlPath": "0143_wise_kitty_pryde.sql",
+  "sqlHash": "6cc1e3bd86654ada18760e814419eca2d7544f90f7ef56a89457e8c3cfd5cfd9",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 142
+    }
+  ],
+  "legacySeq": 143
+}

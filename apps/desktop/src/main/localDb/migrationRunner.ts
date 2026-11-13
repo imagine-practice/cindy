@@ -10,8 +10,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import type Database from 'better-sqlite3';
+import { hasDualMigrationCatalog, loadMigrationCatalog } from './migrationCatalog';
+import { assertDualMigrationReady, planDualMigrations } from './migrationLedger';
 
 export interface MigrationFile {
+  /** Absent only on the frozen legacy API; dual plans always carry ownership. */
+  namespace?: 'upstream' | 'custom';
   /** 文件名前 4 位转数字。0000 → 0。 */
   seq: number;
   fileName: string;
@@ -99,6 +103,8 @@ export interface MigrationCompatibilityReport {
 
 export interface RunMigrationReplayOptions {
   drizzleDir: string;
+  /** Explicit frozen legacy plan, used only for history fixtures and common-prefix bootstrap. */
+  migrations?: MigrationFile[];
   currentVersion?: number;
   scriptLoader?: (scriptPath: string) => unknown;
   onMigrationStart?: (migration: MigrationFile) => void;
@@ -247,6 +253,11 @@ export function prepareMigrationRuntimeManifest(
   databaseVersion: number,
   database?: Database.Database,
 ): { bootstrappedLegacyBaseline: boolean } {
+  if (hasDualMigrationCatalog(drizzleDir)) {
+    if (!database) throw new Error('Dual migration preparation requires the actual database');
+    planDualMigrations(database, dbFilePath, drizzleDir);
+    return { bootstrappedLegacyBaseline: false };
+  }
   if (!Number.isSafeInteger(databaseVersion) || databaseVersion < -1) {
     throw new Error(`invalid database schema_version for runtime manifest: ${databaseVersion}`);
   }
@@ -308,10 +319,19 @@ export function prepareMigrationRuntimeManifest(
 }
 
 export function listMigrations(drizzleDir: string): MigrationFile[] {
+  // Retained legacy API: the pre-dual fork lineage for historical fixtures. Production
+  // startup uses the namespace catalog and never chooses identities by numeric max.
+  if (hasDualMigrationCatalog(drizzleDir)) {
+    return loadMigrationCatalog(drizzleDir).entries
+      .filter(e => e.legacySeq !== undefined && (e.namespace === 'custom' || e.id <= 148))
+      .map(e => ({seq:e.legacySeq!,fileName:e.fileName,sqlPath:e.sqlPath,tsScriptPath:e.scriptPath ?? undefined}))
+      .sort((a,b)=>a.seq-b.seq);
+  }
   const files = fs
     .readdirSync(drizzleDir)
     .filter((fileName) => /^\d{4}_.*\.sql$/.test(fileName))
     .sort();
+  if (new Set(files.map(f=>f.slice(0,4))).size !== files.length) throw new Error('Ambiguous numeric migration directory: namespace catalog required');
 
   return files.map<MigrationFile>((fileName) => {
     const seq = parseInt(fileName.slice(0, 4), 10);
@@ -368,6 +388,16 @@ export function checkMigrationCompatibility(
   drizzleDir: string,
   dbFilePath?: string,
 ): MigrationCompatibilityReport {
+  if (hasDualMigrationCatalog(drizzleDir)) {
+    try {
+      if (!dbFilePath) throw new Error('Dual schema admission requires the database path');
+      assertDualMigrationReady(db, dbFilePath, drizzleDir);
+      return { compatible: true, databaseVersion: -1, checkoutVersion: -1, issues: [] };
+    } catch (error) {
+      return { compatible:false, databaseVersion:-1, checkoutVersion:-1,
+        issues:[{kind:'runtime-manifest-unavailable', error:error instanceof Error ? error.message : String(error)}] };
+    }
+  }
   const strictDatabaseVersion = readSchemaVersionStrict(db);
   const databaseVersion = strictDatabaseVersion ?? -1;
   let migrations: MigrationFile[];
@@ -502,27 +532,14 @@ export function runMigrationReplay(
   options: RunMigrationReplayOptions,
 ): MigrationReplayResult {
   const currentVersion = options.currentVersion ?? readSchemaVersion(db);
-  const pending = listPendingMigrations(options.drizzleDir, currentVersion);
-  const scriptLoader = options.scriptLoader ?? loadScriptWithRequire;
+  const pending = (options.migrations ?? listMigrations(options.drizzleDir)).filter(m => m.seq > currentVersion);
 
   for (const migration of pending) {
     options.onMigrationStart?.(migration);
     const startedAt = Date.now();
-    const sql = fs.readFileSync(migration.sqlPath, 'utf-8');
     const contentHash = hashMigrationFile(migration.sqlPath);
     const tx = db.transaction(() => {
-      if (!FROZEN_REPLAY_DEFECT_GUARDS[migration.fileName]?.(db)) {
-        db.exec(sql);
-      }
-      if (migration.tsScriptPath) {
-        const script = scriptLoader(migration.tsScriptPath) as {
-          run?: (db: Database.Database) => void;
-        };
-        if (typeof script?.run !== 'function') {
-          throw new Error(`${migration.fileName} 同名 TS 脚本未导出 run()`);
-        }
-        script.run(db);
-      }
+      executeMigration(db, migration, options.scriptLoader);
       writeSchemaVersion(db, migration.seq);
       writeMigrationHistory(
         db,
@@ -541,6 +558,20 @@ export function runMigrationReplay(
     finalVersion: pending.at(-1)?.seq ?? currentVersion,
     applied: pending,
   };
+}
+
+/** SQL/companion execution is shared by both storage formats; callers own the transaction. */
+export function executeMigration(
+  db: Database.Database, migration: MigrationFile,
+  scriptLoader: (scriptPath: string) => unknown = loadScriptWithRequire,
+): void {
+  const skipFrozenDefect = migration.namespace !== 'custom' && FROZEN_REPLAY_DEFECT_GUARDS[migration.fileName]?.(db);
+  if (!skipFrozenDefect) db.exec(fs.readFileSync(migration.sqlPath, 'utf8'));
+  if (migration.tsScriptPath) {
+    const script = scriptLoader(migration.tsScriptPath) as {run?: (db: Database.Database) => void};
+    if (typeof script?.run !== 'function') throw new Error(`${migration.fileName} 同名 TS 脚本未导出 run()`);
+    script.run(db);
+  }
 }
 
 function loadScriptWithRequire(scriptPath: string): unknown {

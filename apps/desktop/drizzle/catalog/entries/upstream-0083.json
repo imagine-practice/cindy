@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 83,
+  "fileName": "0083_gray_katie_power.sql",
+  "sqlPath": "0083_gray_katie_power.sql",
+  "sqlHash": "e58e1b24c036adfcf66fa2e086e08e04ef469ae4968bc741e2d9f2b47e30c0bc",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 82
+    }
+  ],
+  "legacySeq": 83
+}

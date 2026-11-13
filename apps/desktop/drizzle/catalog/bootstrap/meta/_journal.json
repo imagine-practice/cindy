@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1794551374426,
+      "tag": "0000_dual_chain_ledger",
+      "breakpoints": true
+    }
+  ]
+}

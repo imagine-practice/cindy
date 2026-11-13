@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "kind": "generation-baseline-only",
+  "catalogDigest": "df75e4ff909bae6d47b6c2382a9d796f05cde1ad25d0610a4045b4a0c2f91f82",
+  "upstreamSource": "90dc4314580edaf34b2ec1b4711561cf256b41de",
+  "legacyForkSource": "9c7b400a0098722d10390fdda871acc8f77efc22",
+  "metadataSha256": "53361947dab02b0c3fbdd403bee0ab080092b910adb0db67af10b60086546815",
+  "schemaSnapshotSha256": "1d7286dbd6427620b02088a24f93da18dd28c28e869a5ef44520b8b879542743"
+}

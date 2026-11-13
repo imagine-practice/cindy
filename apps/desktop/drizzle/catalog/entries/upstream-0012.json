@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 12,
+  "fileName": "0012_yummy_archangel.sql",
+  "sqlPath": "0012_yummy_archangel.sql",
+  "sqlHash": "a2a80fe0aa57855e7576145f963f1d46a3553b59b3dd9de6c121356e53fdcf72",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 11
+    }
+  ],
+  "legacySeq": 12
+}

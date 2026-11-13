@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 97,
+  "fileName": "0097_fresh_stryfe.sql",
+  "sqlPath": "0097_fresh_stryfe.sql",
+  "sqlHash": "17db4fd369edb9244b9f91d9aeed145c3d04ad8ba6e95d06247f07a63527d11a",
+  "scriptPath": "scripts/0097_fresh_stryfe.ts",
+  "scriptHash": "ceb0e267883bbbf0a8d23b86bf272ec7f704ca6a1d9424d9e5d593df8cf7d182",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 96
+    }
+  ],
+  "legacySeq": 97
+}

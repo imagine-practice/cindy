@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 126,
+  "fileName": "0126_melodic_toxin.sql",
+  "sqlPath": "0126_melodic_toxin.sql",
+  "sqlHash": "cb6a015fa34996838c14ba88ac80554535121daeb242bca1a4ab6da568a34cb8",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 125
+    }
+  ],
+  "legacySeq": 126
+}

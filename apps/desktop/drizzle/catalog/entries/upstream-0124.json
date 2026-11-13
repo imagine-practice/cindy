@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 124,
+  "fileName": "0124_funny_glorian.sql",
+  "sqlPath": "0124_funny_glorian.sql",
+  "sqlHash": "b4e0497804e46e0a0b0b8c31975b062152d551bac49c3c2e80932567b4085dcd",
+  "scriptPath": "scripts/0124_funny_glorian.ts",
+  "scriptHash": "bb1107fbe2f2571183a045e8045a1571cf7981565cca1d11a8accad82f433ca4",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 123
+    }
+  ],
+  "legacySeq": 124
+}

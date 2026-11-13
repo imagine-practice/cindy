@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 43,
+  "fileName": "0043_aromatic_speed.sql",
+  "sqlPath": "0043_aromatic_speed.sql",
+  "sqlHash": "594a4d8df0e3373ea4f8fef742e0c2b109e2d3ad0917c0f2fdf1f168ed8de820",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 42
+    }
+  ],
+  "legacySeq": 43
+}

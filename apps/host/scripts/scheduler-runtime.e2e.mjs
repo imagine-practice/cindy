@@ -31,7 +31,7 @@ try {
   const layout = hostRuntimeLayout();
   const opened = await openOwnerDatabase({ userDataDir: profile, ownerId, isPackaged: false,
     drizzleDir: layout.drizzleDir, sqliteVecExtPath: layout.sqliteVecPath });
-  database = createDbClientForHandle({ db: opened.db, drizzle: opened.drizzle, dispose: async () => opened.db.close() });
+  database = createDbClientForHandle({ db: opened.db, drizzle: opened.drizzle, dispose: async () => opened.close() });
   setCurrentDbClient(database, ownerId);
   const file = path.join(profile, 'automation.mjs');
   await fs.writeFile(file, `

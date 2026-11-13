@@ -276,7 +276,9 @@ test("database CI requires a supported platform and actual replay evidence, not 
 		name: path.join(ROOT, "apps/desktop/src/main/localDb/__tests__/migrationReplay.test.ts"),
 		status: "passed", assertionResults: [{ status: "passed" }],
 	};
-	assert.doesNotThrow(() => assertMigrationReplayRan({ success: true, testResults: [replay] }));
+	const dualReplay = {...replay,name:path.join(ROOT,'apps/desktop/src/main/localDb/__tests__/dualMigrationReplay.test.ts')};
+	assert.doesNotThrow(() => assertMigrationReplayRan({ success: true, testResults: [replay,dualReplay] }));
+	assert.throws(() => assertMigrationReplayRan({success:true,testResults:[replay]}),/Migration replay/);
 	for (const report of [
 		{}, { success: true, testResults: [] },
 		{ success: true, testResults: [{ ...replay, name: "otherMigration.test.ts" }] },
@@ -2510,6 +2512,22 @@ test("buildPnpmArgs switches vitest to related mode when related files are provi
 	assert.equal(args.includes("src/main/foo.ts"), true);
 	assert.equal(args.includes("src/main/foo.test.ts"), false);
 	assert.deepEqual(args.slice(-2), ["--exclude", "**/*.bench.ts"]);
+});
+
+test("related Vitest shards include passWithNoTests exactly once", () => {
+	const root = "F:/repo";
+	const workspace = { cwd: "packages/example" };
+	const selectedFiles = ["packages/example/src/only.test.ts"];
+	for (const shard of ["1/16", "16/16"]) {
+		const args = buildPnpmArgs(
+			root, workspace,
+			{ type: "packageBin", bin: "vitest", args: ["run", `--shard=${shard}`] },
+			{}, selectedFiles, ["packages/example/src/entry.ts"],
+		);
+		assert.equal(args.filter((arg) => arg === "--passWithNoTests").length, 1);
+		assert.ok(args.includes(`--shard=${shard}`));
+		assert.ok(args.includes("src/entry.ts"));
+	}
 });
 
 test("buildPnpmArgs only loosens Vitest sharding for undersized workspaces", () => {

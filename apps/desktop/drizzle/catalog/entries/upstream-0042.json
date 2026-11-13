@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 42,
+  "fileName": "0042_chemical_daredevil.sql",
+  "sqlPath": "0042_chemical_daredevil.sql",
+  "sqlHash": "4c26a7aadf051c69671fd4dd43ba6e73cb62e1dba05d7a39fa63a86b743d7069",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 41
+    }
+  ],
+  "legacySeq": 42
+}

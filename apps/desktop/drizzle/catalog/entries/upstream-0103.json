@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 103,
+  "fileName": "0103_bot_mode.sql",
+  "sqlPath": "0103_bot_mode.sql",
+  "sqlHash": "17f781990964f826f734710d40eebe8b3830571993c394db935f540062735985",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 102
+    }
+  ],
+  "legacySeq": 103
+}

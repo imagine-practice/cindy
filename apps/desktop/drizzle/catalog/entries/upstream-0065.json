@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 65,
+  "fileName": "0065_equal_shinobi_shaw.sql",
+  "sqlPath": "0065_equal_shinobi_shaw.sql",
+  "sqlHash": "2a65e5b3d6beceb537473ac9aebe686389bbb1eb78d299402b68d0f5b5dfe780",
+  "scriptPath": "scripts/0065_equal_shinobi_shaw.ts",
+  "scriptHash": "ea57a4a027be2167eed457a5f13dc7e95b9ed2122caf096e7070c2a23481c537",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 64
+    }
+  ],
+  "legacySeq": 65
+}

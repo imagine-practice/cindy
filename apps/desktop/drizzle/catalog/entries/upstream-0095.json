@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 95,
+  "fileName": "0095_scope_messages_fts_update_trigger.sql",
+  "sqlPath": "0095_scope_messages_fts_update_trigger.sql",
+  "sqlHash": "b4e0497804e46e0a0b0b8c31975b062152d551bac49c3c2e80932567b4085dcd",
+  "scriptPath": "scripts/0095_scope_messages_fts_update_trigger.ts",
+  "scriptHash": "feda1dd5b0870339395201e85ad8d9b5c22da484d07f1bbf5f9073f9d7ca53be",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 94
+    }
+  ],
+  "legacySeq": 95
+}

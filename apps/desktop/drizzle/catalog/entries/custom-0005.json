@@ -1,0 +1,16 @@
+{
+  "namespace": "custom",
+  "id": 5,
+  "fileName": "0153_project_group_links.sql",
+  "sqlPath": "0153_project_group_links.sql",
+  "sqlHash": "e7adced8523f5e2f40e8168044d8207ad6186bee99d2259694297745f42f0287",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "custom",
+      "id": 4
+    }
+  ],
+  "legacySeq": 153
+}

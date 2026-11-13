@@ -1,0 +1,16 @@
+{
+  "namespace": "custom",
+  "id": 12,
+  "fileName": "0160_work_item_automation_admission.sql",
+  "sqlPath": "0160_work_item_automation_admission.sql",
+  "sqlHash": "27527e43e5038fb2cd16fbb0ab9a922745e444b0214ab08ee8cd58af20b16f2a",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "custom",
+      "id": 11
+    }
+  ],
+  "legacySeq": 160
+}

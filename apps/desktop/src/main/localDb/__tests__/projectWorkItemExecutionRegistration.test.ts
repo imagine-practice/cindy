@@ -16,6 +16,7 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { createDbClient, createInprocDbClient, type DbClient } from '../client/DbClient';
 import { createProjectWorkItemExecutionService } from '../../maker-ipc/projectWorkItemExecutionService';
+import { DUAL_SCHEMA_VERSION } from '../migrationLedger';
 import { createProjectWorkItemExecution } from '../../mcp-integrations/projectWorkItemExecution';
 import { AgentInputCoordinator } from '../../maker-ipc/agent-input-coordinator';
 import { MCP_APP_MESSAGE_GUARD } from '../../mcp-apps/message';
@@ -52,6 +53,7 @@ afterAll(() => {
 for (const mode of ['inproc', 'file-worker'] as const) {
   it(`${mode}: original-key recovery preserves the existing Session and rechecks ACL/binding`, async () => {
     const file = path.join(dir, `${mode}.sqlite`); copyFileSync(template, file);
+    copyFileSync(`${template}.migration-runtime.json`,`${file}.migration-runtime.json`);
     const db = openJointFollowupDb(file); h.db = db;
     db.exec(`INSERT INTO sessions(id,title,source,status,working_dir,permission_mode,created_at,updated_at)
       VALUES ('caller','Bot lane','bot','active','/fixture/caller','ask',1,1),('work','Original title','desktop','active','/fixture/work','ask',1,1),
@@ -80,7 +82,10 @@ for (const mode of ['inproc', 'file-worker'] as const) {
     const requireView = (r: ProjectWorkItemExecutionResult) => { expect(r.ok).toBe(true); if (!r.ok) throw new Error(r.errorCode); return r.view; };
     const original = db.prepare('SELECT * FROM sessions ORDER BY id').all();
     try {
-      expect(await client.queryOne("SELECT value FROM migration_meta WHERE key='schema_version'")).toEqual({ value: '161' });
+      expect(await client.queryOne("SELECT value FROM migration_meta WHERE key='schema_version'")).toEqual({ value: DUAL_SCHEMA_VERSION });
+      expect(await client.query('SELECT namespace,max(id) AS head,count(*) AS n FROM migration_history_v2 GROUP BY namespace ORDER BY namespace'))
+        .toEqual([{namespace:'custom',head:13,n:13},{namespace:'upstream',head:149,n:150}]);
+      expect(await client.queryOne('SELECT max(seq) AS head FROM migration_history')).toEqual({head:161});
       const first = requireView(await execute({ ...request, action: 'inspect' }));
       const admit = {...request,action:'admit' as const,fingerprint:first.fingerprint,now:10};
       await client.exec("CREATE TRIGGER fail_workitem_ledger BEFORE INSERT ON project_work_item_executions BEGIN SELECT RAISE(ABORT,'injected ledger failure'); END");

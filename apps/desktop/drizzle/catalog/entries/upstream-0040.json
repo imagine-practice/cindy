@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 40,
+  "fileName": "0040_orca_multi_worker_phase1.sql",
+  "sqlPath": "0040_orca_multi_worker_phase1.sql",
+  "sqlHash": "544bf1494ed41fda95cc683d7abfa174c29c080a3fcb544418df2527e07d5522",
+  "scriptPath": "scripts/0040_orca_multi_worker_phase1.ts",
+  "scriptHash": "7ea9d259d40361c60d86281e18a4418a33ad81153067bdaa9233bc35b61a799d",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 39
+    }
+  ],
+  "legacySeq": 40
+}

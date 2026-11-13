@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 46,
+  "fileName": "0046_dapper_dracula.sql",
+  "sqlPath": "0046_dapper_dracula.sql",
+  "sqlHash": "d96aa2c5ab2c8e675a63a931ae59a30fcf7161eba8b7a0e80a5ded763f68647b",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 45
+    }
+  ],
+  "legacySeq": 46
+}

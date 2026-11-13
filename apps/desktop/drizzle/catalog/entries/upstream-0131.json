@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 131,
+  "fileName": "0131_amused_puff_adder.sql",
+  "sqlPath": "0131_amused_puff_adder.sql",
+  "sqlHash": "2ff6d8ebd0e86a085793f1a4da1b2e20f0ccc4086b123f1c6c3ffa78ceba6900",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 130
+    }
+  ],
+  "legacySeq": 131
+}

@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 96,
+  "fileName": "0096_stabilize_messages_fts_rows.sql",
+  "sqlPath": "0096_stabilize_messages_fts_rows.sql",
+  "sqlHash": "1a4eb081db536e1542aeff521c78c25b8f262fa63e61fc545ac6644e8abcb201",
+  "scriptPath": "scripts/0096_stabilize_messages_fts_rows.ts",
+  "scriptHash": "ecc20ddd4e168a7db66e7fb74fd7c1912bab9462e6db276de010b38b9c999ce4",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 95
+    }
+  ],
+  "legacySeq": 96
+}

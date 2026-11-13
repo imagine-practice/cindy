@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 117,
+  "fileName": "0117_spicy_valkyrie.sql",
+  "sqlPath": "0117_spicy_valkyrie.sql",
+  "sqlHash": "4b31ca644a1e8bb3a1f1a3168540c345192292db9e3af1517be17445b725c034",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 116
+    }
+  ],
+  "legacySeq": 117
+}

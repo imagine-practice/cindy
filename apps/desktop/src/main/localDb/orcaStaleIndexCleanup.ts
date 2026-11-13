@@ -26,13 +26,20 @@ const log = createLogger('orca-stale-index-cleanup');
 const STALE_INDEX_NAME = 'uniq_orca_workflows_lead_session_id';
 const MIN_SCHEMA_VERSION = 36;
 
+function reachedCleanupMigration(db: Database.Database, value: string | undefined): boolean {
+  if (value === 'cindy:dual-chain:2') {
+    return Boolean(db.prepare("SELECT 1 FROM migration_history_v2 WHERE namespace='upstream' AND id=?").get(MIN_SCHEMA_VERSION));
+  }
+  const version = value === undefined ? -1 : Number(value);
+  return Number.isSafeInteger(version) && version >= MIN_SCHEMA_VERSION;
+}
+
 export function hasStaleOrcaLeadIndex(db: Database.Database): boolean {
   try {
     const versionRow = db
       .prepare(`SELECT value FROM migration_meta WHERE key='schema_version'`)
       .get() as { value: string } | undefined;
-    const version = versionRow ? parseInt(versionRow.value, 10) : -1;
-    if (!Number.isFinite(version) || version < MIN_SCHEMA_VERSION) return false;
+    if (!reachedCleanupMigration(db,versionRow?.value)) return false;
     return Boolean(
       db.prepare(`SELECT 1 FROM sqlite_master WHERE type='index' AND name=?`).get(STALE_INDEX_NAME),
     );
@@ -51,8 +58,7 @@ export function cleanupStaleOrcaLeadIndex(db: Database.Database): void {
     const versionRow = db
       .prepare(`SELECT value FROM migration_meta WHERE key='schema_version'`)
       .get() as { value: string } | undefined;
-    const version = versionRow ? parseInt(versionRow.value, 10) : -1;
-    if (!Number.isFinite(version) || version < MIN_SCHEMA_VERSION) return;
+    if (!reachedCleanupMigration(db,versionRow?.value)) return;
 
     const indexRow = db
       .prepare(`SELECT 1 FROM sqlite_master WHERE type='index' AND name=?`)

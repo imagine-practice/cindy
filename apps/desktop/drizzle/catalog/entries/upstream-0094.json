@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 94,
+  "fileName": "0094_repair_custom_provider_timestamps.sql",
+  "sqlPath": "0094_repair_custom_provider_timestamps.sql",
+  "sqlHash": "b4e0497804e46e0a0b0b8c31975b062152d551bac49c3c2e80932567b4085dcd",
+  "scriptPath": "scripts/0094_repair_custom_provider_timestamps.ts",
+  "scriptHash": "a2075d1a95d295d476ef015937230cb21d6663f6b71a3b989f6ee4bc6a9f15c9",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 93
+    }
+  ],
+  "legacySeq": 94
+}

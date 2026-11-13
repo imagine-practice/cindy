@@ -20,7 +20,9 @@
 | ----------------------------------- | ----------------------------------------------------------------- |
 | 当前 schema                         | `apps/desktop/src/main/localDb/schema.ts`                         |
 | Drizzle 生成配置                    | `apps/desktop/drizzle.config.ts`                                  |
-| SQL、snapshot、journal 与 companion | `apps/desktop/drizzle/`                                           |
+| 上游 SQL、snapshot、journal 与冻结 companion | `apps/desktop/drizzle/`                                  |
+| 双链资源身份与依赖 | `apps/desktop/drizzle/catalog/` |
+| 自定义组合 schema 生成基线（不随包执行） | `apps/desktop/migration-development/custom/` |
 | 静态完整性与历史冻结                | `apps/desktop/scripts/validate-migrations.mjs`                    |
 | 实际执行顺序与事务语义              | `apps/desktop/src/main/localDb/migrationRunner.ts`                |
 | 空库与历史库升级验证                | `apps/desktop/src/main/localDb/__tests__/migrationReplay.test.ts` |
@@ -42,9 +44,10 @@
   `drizzle/migration-baseline.json` 固定 SHA256；新仓已进入 `main` 的 migration
   继续由 Git 基线冻结。两部分都由 `db:validate` 检查。
 - `drizzle/meta/_journal.json` 与 `*_snapshot.json` 只能由 Drizzle 生成，不得手工修改。
-- migration 序号必须从 `0000` 连续递增，不得重复或跳号。
-- 生成 migration 前先基于最新 `origin/main`。多人分支撞号时，保留自己的 schema 意图，
-  以最新主干 migration 链重新生成；不得手改文件名、journal 或 snapshot 强行换号。
+- 上游 namespace 从 `0000` 连续递增，自定义 namespace 从 `0001` 连续递增；唯一身份是
+  `(namespace,id)`，不能再扫描整个目录取数值最大号。已应用旧编号、文件与 history 行不重排。
+- 生成前同步已选定上游链和自定义链。namespace 内未应用条目撞号时，保留 schema 意图，
+  在最新组合基线上重新生成；不得改已应用文件名、journal 或 snapshot 强行换号。
 - **migration 文件本体（`NNNN_*.sql` 与同名 companion）不写注释**。这些文件入 `main`
   即永久冻结，事后连注释都无法修改或删除——写进去的任何内部系统名、内部链接、
   评审编号、人名都会永远留在公开仓里。背景与动机写在 PR 描述或 `docs/`；存量
@@ -57,14 +60,14 @@
 3. 通过 Drizzle 生成 SQL、snapshot 与 journal 条目：
 
 ```bash
-pnpm --filter desktop db:generate
+pnpm --filter desktop db:generate -- --namespace=custom --name=<migration-name>
 ```
 
 纯数据迁移或只由 companion 执行的迁移也必须让 Drizzle 建立合法链条，使用 custom
 migration，不要手工创建序号、SQL 和元数据：
 
 ```bash
-pnpm --filter desktop db:generate --custom --name <migration-name>
+pnpm --filter desktop db:generate -- --namespace=custom --custom --name=<migration-name>
 ```
 
 4. Review 生成结果，确认 SQL 与目标 schema 一致。不得手工新建 migration 或伪造元数据。
@@ -91,6 +94,51 @@ tier 中的相关测试；删除源码、fixture 变化或无法确定事件基�
 不支持的平台，并校验 migration replay 报告确有通过用例、没有跳过。
 该步骤沿用 `Windows unit tests` 汇总门禁，静态 `db:validate`、既有伴侣 DB 回归
 与 guard 保持各自覆盖。回放只使用临时数据库，不读取用户 profile。
+
+## 上游／自定义双链格式
+
+应用版本与迁移身份分开。`migrationCatalog.ts` 校验 SQL/companion 指纹、资源归属、namespace
+内连续性及依赖 DAG；`migrationLedger.ts` 复用唯一的 SQL/companion 执行器。编号分流不能自动
+解决同表同列冲突，必须明确整合迁移或安全拒绝，不得泛化 `already exists` 容错。
+
+- 上游 `0000..0148` 为共同前缀；上游 `0149_damp_wind_dancer` 与旧本地 `0149_project_projects`
+  是不同身份。后者至旧 `0161_work_item_execution_body` 按固定 descriptor 接入 custom `0001..0013`。
+  原 SQL/companion 路径、内容、`migration_history` 的行、hash 和时间保持不变。
+- `drizzle/meta` 是上游真实生成链；旧 fork 生成元数据原字节保存在
+  `migration-development/legacy-fork-meta`。canonical `db:generate` 必须选 `--namespace=custom`，
+  在完整组合 snapshot 上生成差量到 `drizzle/catalog/custom`，不向上游链生成本地全量 schema。
+  组合基线绑定 catalog digest，过期即拒绝；整合上游后须核对回放并重新生成组合基线证据。
+  基线 SQL 只作开发输入，不执行、不记账、不随包；不能把全量 CREATE 当追加 migration。
+  选定真实上游 journal/SQL 后用 `pnpm --filter desktop db:import-upstream` 导入新身份；
+  已有 descriptor 不允许重新认领或覆盖，新增上游会使旧组合基线明确失效。
+- 一个 SQLite 事务内引导生成的账本表、导入可证实旧身份、执行 pending、严格 INSERT 新记录并
+  转换格式控制字段。`migration_meta.schema_version` 转为 `cindy:dual-chain:2`，不伪造全局数值
+  版本。原值、谱系、完整旧行及 v1 manifest 保存在 state anchor/witness 与备份；旧 history 不改。
+  空库、共同 148、fork 161、官方 149 与合法 fork 前缀按各自证据接入，不按最大号猜历史。
+  缺可信 v1 witness、未知 hash、缺行或未知混合谱系明确拒绝，不要求用户删文件绕过。
+- 原 `.migration-runtime.json` 使用显式 version 2。先刷盘发布 intent，SQLite FULL 提交整个计划，
+  再发布 committed。提交后文件发布失败只停止启动；重开核对 DB generation/集合后完成发布，
+  不恢复旧 DB、不重跑已提交 DDL。缺损清单不当首次 bootstrap。Windows rename 和进程终止
+  回放不等于证明物理断电耐久性。
+- 保留同一 schema writer/reader lease。新版 Desktop/Host 完成 writer 维护后持有 reader，重新
+  获取时再次核对。file/inline worker 都验证完整资源、账本、历史 witness 与 committed 清单。
+  历史等价特例仅按精确判据接入，不重写旧行；严格准入先于辅助 drift repair，不让它补平未知账本。
+- 成对备份 witness 使用 `.migration-witness-<backup-name>.json`，不匹配旧 `.bak.<ISO>` DB 枚举；
+  回收与 DB 成对。恢复先核对 witness，转链前备份恢复保留 v2 fence，再由预检恢复 intent。
+  对应关系无法证实时关闭，不覆盖未知证据。
+
+旧端支持窗口以实际冻结启动入口验证为准：已验证的 v1 primary 在非整数控制字段上拒绝，
+passive/packaged-reader 也拒绝；丢失 sidecar 不能重新认领。升级时应退出共用此库的旧客户端；
+不支持绕过启动器直接运行旧 raw worker，不承诺任意已存活旧二进制混跑或直接降级。
+
+双链发行用 build-info schemaVersion 3，携带 migration format、catalog/bootstrap hash 与两链
+向量，不压成旧 `schemaVersionMax`。v2 单链 build-info 按原义读取，未知格式拒绝。packaged
+smoke 核对实际开库后的向量与源码 catalog，不能只检查数值大于零。本仓开库保护不等于外部
+自动更新发布器已适配 v3；启用该渠道前须协调消费者，不能忽略字段降级。远程项目协议继续
+采用可选字段、能力判断和旧端降级，不要求手机与 Host 强制同版。
+
+真实回放、进程终止/恢复、worker、Host 和业务保全见 `dualMigrationReplay.test.ts`（migration
+tier）。旧单链回放仍保留为历史 fixture 入口。CI 要求两份回放都实际执行，跳过不计通过。
 
 ## Companion script
 

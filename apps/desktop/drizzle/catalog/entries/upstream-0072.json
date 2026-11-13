@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 72,
+  "fileName": "0072_first_lightspeed.sql",
+  "sqlPath": "0072_first_lightspeed.sql",
+  "sqlHash": "9f44429d7e8f49f2c114a1a103469e427be03e7fa2e6c7801472700fec6a5f9a",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 71
+    }
+  ],
+  "legacySeq": 72
+}

@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 61,
+  "fileName": "0061_bizarre_firestar.sql",
+  "sqlPath": "0061_bizarre_firestar.sql",
+  "sqlHash": "43574aefb477039821bc4b792e79bcec6b79bdc3223a15df64110ca319d0b134",
+  "scriptPath": "scripts/0061_bizarre_firestar.ts",
+  "scriptHash": "1a0e89015d051f7b2ae24ba4471dd1e3a1d2fe203d47e24247b05ced9e535677",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 60
+    }
+  ],
+  "legacySeq": 61
+}

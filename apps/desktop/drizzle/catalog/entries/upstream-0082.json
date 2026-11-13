@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 82,
+  "fileName": "0082_daffy_calypso.sql",
+  "sqlPath": "0082_daffy_calypso.sql",
+  "sqlHash": "f7fabe368b82f16c88de15004b03beb3febe35726ad5a966c234e187dd7beaf5",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 81
+    }
+  ],
+  "legacySeq": 82
+}

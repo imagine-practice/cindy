@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 44,
+  "fileName": "0044_early_talos.sql",
+  "sqlPath": "0044_early_talos.sql",
+  "sqlHash": "17440af6e1144e0449d169c6f91eb1a23134461a1c1f26261bb52d5f4c2a586f",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 43
+    }
+  ],
+  "legacySeq": 44
+}

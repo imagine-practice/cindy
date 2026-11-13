@@ -1,0 +1,16 @@
+{
+  "namespace": "custom",
+  "id": 1,
+  "fileName": "0149_project_projects.sql",
+  "sqlPath": "0149_project_projects.sql",
+  "sqlHash": "f88bba976cc621f7e7bb2659eb2c98db17084e8b69d0c169e5ab7db34762f7db",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 148
+    }
+  ],
+  "legacySeq": 149
+}

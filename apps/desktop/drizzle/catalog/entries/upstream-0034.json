@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 34,
+  "fileName": "0034_add_chat_embedding_vec.sql",
+  "sqlPath": "0034_add_chat_embedding_vec.sql",
+  "sqlHash": "c1ab1f6eef2989118cf38369858e85f50f061139d2f757c90c9432d4c5903378",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 33
+    }
+  ],
+  "legacySeq": 34
+}

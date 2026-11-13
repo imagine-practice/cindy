@@ -6,8 +6,17 @@ export const SUBSCRIPTION_ACCOUNTS_CHANGED = 'subscription-accounts:changed';
 /** Appended to legacy remote quota queries when the caller needs the CLI default account itself. */
 export const DEFAULT_ACCOUNT_USAGE_SCOPE = 'default-subscription-account';
 export type SubscriptionProvider = 'anthropic' | 'openai';
+/** Account-scoped target for the existing Codex reset control plane; never a model route. */
+export const CODEX_POOL_RESET_PREFIX = 'openai-account:';
+export function codexResetScope(accountId: string): string {
+  return accountId === 'default' ? 'openai' : `${CODEX_POOL_RESET_PREFIX}${accountId}`;
+}
 export interface SubscriptionAccountConfig {
   id: string;
+  /** Last identity confirmed by the official CLI, retained across logout/restart. No credentials. */
+  lastConfirmedIdentity?: string;
+  /** Owner-local recovery guard for an explicitly requested Claude re-login. No credentials. */
+  reloginIdentity?: string;
   paused: boolean;
   /** Stored value; the enforced limit comes from effectiveConcurrencyLimit (unset = unlimited). */
   limit: number;
@@ -46,14 +55,18 @@ export interface SubscriptionAccountUsage {
     credits: { hasCredits: boolean; unlimited: boolean; balance: string | null } | null;
   };
 }
-export interface SubscriptionAccountView extends SubscriptionAccountConfig {
+export interface SubscriptionAccountView extends Omit<SubscriptionAccountConfig, 'lastConfirmedIdentity' | 'reloginIdentity'> {
   legacy?: boolean;
   identity?: string;
   plan?: string;
+  /** Advisory ISO date reported by this account's official CLI; older hosts omit it. */
+  loginExpiresAt?: string;
+  /** Host-selected reset target. Imported accounts retain their original connection and settings. */
+  codexResetProviderId?: string;
   directory: string;
   status: 'ready' | 'signed-out' | 'unavailable' | 'limited';
   /** Advisory diagnosis only; absent on older hosts. Never includes CLI output. */
-  authIssue?: 'codex-provider-managed-auth';
+  authIssue?: 'codex-provider-managed-auth' | 'claude-account-mismatch';
   running: number;
   usage?: SubscriptionAccountUsage;
 }
@@ -102,6 +115,11 @@ export interface SubscriptionSessionAccountQuery {
   sessionId?: string;
   /** The task's native Claude / Codex session id. */
   nativeSessionId?: string;
+  /**
+   * Optional (2026-11-12): the task model. Newer hosts then report whether the bound account can
+   * take it right now (`blocked`); older hosts ignore it.
+   */
+  model?: string;
 }
 export interface SubscriptionSessionAccount {
   isDefault: boolean;
@@ -112,6 +130,14 @@ export interface SubscriptionSessionAccount {
   paused: boolean;
   status: SubscriptionAccountView['status'];
   usage?: SubscriptionAccountUsage;
+  /**
+   * Only for a `model` query on a newer host: the bound account cannot take that model now
+   * (remembered failure, exhausted trusted quota or signed out). Replacement admission is reported
+   * separately by `switchAvailable`. Absent means usable or unknown; never set for paused accounts.
+   */
+  blocked?: true;
+  /** For a blocked account, whether the executor can actually select another account, including concurrency and route grants. */
+  switchAvailable?: boolean;
 }
 export type SubscriptionSessionAccountView =
   /** No pool, only the CLI default, or a pre-pool task: the provider's original readers apply. */
@@ -159,6 +185,9 @@ export function parseSubscriptionSessionAccountView(
       ...(usage && typeof usage === 'object' && !Array.isArray(usage)
         ? { usage: usage as SubscriptionAccountUsage }
         : {}),
+      ...(account.blocked === true && account.paused !== true ? { blocked: true as const } : {}),
+      ...(account.blocked === true && account.paused !== true && typeof account.switchAvailable === 'boolean'
+        ? { switchAvailable: account.switchAvailable } : {}),
     },
   };
 }

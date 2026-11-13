@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 57,
+  "fileName": "0057_quiet_namora.sql",
+  "sqlPath": "0057_quiet_namora.sql",
+  "sqlHash": "e2fa3db6c78242bac013ae2e53b614b81c3f0789e2aa2f6b42a931fbbc722486",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 56
+    }
+  ],
+  "legacySeq": 57
+}

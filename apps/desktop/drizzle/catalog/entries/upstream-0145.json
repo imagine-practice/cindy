@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 145,
+  "fileName": "0145_bizarre_tinkerer.sql",
+  "sqlPath": "0145_bizarre_tinkerer.sql",
+  "sqlHash": "b4e0497804e46e0a0b0b8c31975b062152d551bac49c3c2e80932567b4085dcd",
+  "scriptPath": "scripts/0145_bizarre_tinkerer.ts",
+  "scriptHash": "bfe45f8286ce7a92d6300c005a1230dc7c5b7744af3e25e20d849fb2c0d743a8",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 144
+    }
+  ],
+  "legacySeq": 145
+}

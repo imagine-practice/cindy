@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 137,
+  "fileName": "0137_supreme_mother_askani.sql",
+  "sqlPath": "0137_supreme_mother_askani.sql",
+  "sqlHash": "1740783384b98399d58c6399f27a4c8e602574b5292f88cc36a689f4c0a37fbe",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 136
+    }
+  ],
+  "legacySeq": 137
+}

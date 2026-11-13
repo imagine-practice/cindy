@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 139,
+  "fileName": "0139_clammy_moira_mactaggert.sql",
+  "sqlPath": "0139_clammy_moira_mactaggert.sql",
+  "sqlHash": "3abb329894bceb352150fb5701758928b38eacc0037f133817901cfb318292ed",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 138
+    }
+  ],
+  "legacySeq": 139
+}

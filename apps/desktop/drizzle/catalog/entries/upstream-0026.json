@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 26,
+  "fileName": "0026_migration_history.sql",
+  "sqlPath": "0026_migration_history.sql",
+  "sqlHash": "207dc9a0c78703a5c8907ea39f4a34d34cf5c683142ba5b053e3bdf154ecb9e9",
+  "scriptPath": "scripts/0026_migration_history.ts",
+  "scriptHash": "62b7636ec3fb35dadc38304b0ceb22fe44113a288c16840504ffbeae141642fd",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 25
+    }
+  ],
+  "legacySeq": 26
+}

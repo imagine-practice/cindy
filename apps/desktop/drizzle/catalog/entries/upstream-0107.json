@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 107,
+  "fileName": "0107_sudden_ultron.sql",
+  "sqlPath": "0107_sudden_ultron.sql",
+  "sqlHash": "e8f1b27ab6a28c4766c59a660ca6a8a12689aa1d60742d9a309fea366261afe5",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 106
+    }
+  ],
+  "legacySeq": 107
+}

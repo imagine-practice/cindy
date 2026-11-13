@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 38,
+  "fileName": "0038_add_session_remote_host_id.sql",
+  "sqlPath": "0038_add_session_remote_host_id.sql",
+  "sqlHash": "614ac61ee36e598124cab5b437ea209fe454b5b94c83ff02670999abbd890f6e",
+  "scriptPath": "scripts/0038_add_session_remote_host_id.ts",
+  "scriptHash": "7581e0e83ad13496fe5e8bec90198ae502418b4f9ab3c30a3a8e0439724e04f9",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 37
+    }
+  ],
+  "legacySeq": 38
+}

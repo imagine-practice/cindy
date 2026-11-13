@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 74,
+  "fileName": "0074_bridge_legacy_migration_lineage.sql",
+  "sqlPath": "0074_bridge_legacy_migration_lineage.sql",
+  "sqlHash": "51742f4eb58ad542be550d2a698a0e61cfca1a9fbb0074be98e7f31a6749c75e",
+  "scriptPath": "scripts/0074_bridge_legacy_migration_lineage.ts",
+  "scriptHash": "947866cc745680b19b19fe277952473b850da1e1dc684c5a90246b15e80ac00b",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 73
+    }
+  ],
+  "legacySeq": 74
+}

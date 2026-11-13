@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 24,
+  "fileName": "0024_ensure_session_workspace_kind.sql",
+  "sqlPath": "0024_ensure_session_workspace_kind.sql",
+  "sqlHash": "9558e289b0007ef7931a471586b931c8d1cf5a6482aafbcc4b5eb575140ce171",
+  "scriptPath": "scripts/0024_ensure_session_workspace_kind.ts",
+  "scriptHash": "613c57cc71c694fc2ee44949715c1ca347c3269416c730d051642ed6bc216992",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 23
+    }
+  ],
+  "legacySeq": 24
+}

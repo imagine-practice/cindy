@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 59,
+  "fileName": "0059_ancient_hex.sql",
+  "sqlPath": "0059_ancient_hex.sql",
+  "sqlHash": "d2fb9eb3b6e28e29f99dba139e1a07cb7a7792aeba3701f800aeabfbe3de7709",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 58
+    }
+  ],
+  "legacySeq": 59
+}

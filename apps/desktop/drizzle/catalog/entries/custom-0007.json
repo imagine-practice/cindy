@@ -1,0 +1,16 @@
+{
+  "namespace": "custom",
+  "id": 7,
+  "fileName": "0155_project_followup.sql",
+  "sqlPath": "0155_project_followup.sql",
+  "sqlHash": "bdfd865a249958f2af7ff29f69480536a2e0e9024e6635f093b20c7d2886ac60",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "custom",
+      "id": 6
+    }
+  ],
+  "legacySeq": 155
+}

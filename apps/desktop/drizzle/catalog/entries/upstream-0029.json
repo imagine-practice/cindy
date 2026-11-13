@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 29,
+  "fileName": "0029_restore_schedule_job_type_compat.sql",
+  "sqlPath": "0029_restore_schedule_job_type_compat.sql",
+  "sqlHash": "c144e0999491eaa8fbdb2667b66e734bf42a945243088474946f846a7e063517",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 28
+    }
+  ],
+  "legacySeq": 29
+}

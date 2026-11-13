@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 106,
+  "fileName": "0106_retain_all_recent_workdirs.sql",
+  "sqlPath": "0106_retain_all_recent_workdirs.sql",
+  "sqlHash": "b4e0497804e46e0a0b0b8c31975b062152d551bac49c3c2e80932567b4085dcd",
+  "scriptPath": "scripts/0106_retain_all_recent_workdirs.ts",
+  "scriptHash": "874ba3c4867c9e4ce7448341f0513ae2aaa1b9c951f7d8869a226a5b9f6db677",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 105
+    }
+  ],
+  "legacySeq": 106
+}

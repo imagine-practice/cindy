@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 39,
+  "fileName": "0039_fearless_victor_mancha.sql",
+  "sqlPath": "0039_fearless_victor_mancha.sql",
+  "sqlHash": "4ce120b1ff9b9cbbfea6d00aa378ab075f403a5b261fe9f00f544a9865c0a59b",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 38
+    }
+  ],
+  "legacySeq": 39
+}

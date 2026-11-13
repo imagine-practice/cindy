@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 35,
+  "fileName": "0035_clean_scheduler_recent_workdirs.sql",
+  "sqlPath": "0035_clean_scheduler_recent_workdirs.sql",
+  "sqlHash": "9c13ac9c575ee93bb93a79ddde47c98e514e28ba9ced633f2e378265326b2718",
+  "scriptPath": "scripts/0035_clean_scheduler_recent_workdirs.ts",
+  "scriptHash": "120354d9ed5e97bd88127ee416e2fd05a4db526cd120acf1193b186a9085399a",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 34
+    }
+  ],
+  "legacySeq": 35
+}

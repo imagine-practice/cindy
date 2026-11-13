@@ -84,7 +84,7 @@ const stop = async () => {
 try {
   const opened = await openOwnerDatabase({ userDataDir: profile, ownerId, isPackaged: false,
     drizzleDir: hostRuntimeLayout().drizzleDir, sqliteVecExtPath: hostRuntimeLayout().sqliteVecPath });
-  database = createDbClientForHandle({ db: opened.db, drizzle: opened.drizzle, dispose: async () => opened.db.close() });
+  database = createDbClientForHandle({ db: opened.db, drizzle: opened.drizzle, dispose: async () => opened.close() });
   setCurrentDbClient(database, ownerId);
   await database.drizzle.insert(sessions).values({ id: taskId, title: 'Fixture', workingDir: profile,
     source: 'desktop', status: 'active', createdAt: Date.now(), updatedAt: Date.now() });

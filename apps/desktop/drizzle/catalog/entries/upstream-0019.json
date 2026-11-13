@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 19,
+  "fileName": "0019_session_extra_dirs.sql",
+  "sqlPath": "0019_session_extra_dirs.sql",
+  "sqlHash": "cfcdc635024aae0683179c82afe4e085d3f32bf0be8b452553c17880fc96bbbb",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 18
+    }
+  ],
+  "legacySeq": 19
+}

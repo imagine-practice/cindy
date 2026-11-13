@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 78,
+  "fileName": "0078_same_juggernaut.sql",
+  "sqlPath": "0078_same_juggernaut.sql",
+  "sqlHash": "ac078c551e24c0f422898f14e12ecc4ea29d09ab43f43e8b1272c79eee65f24b",
+  "scriptPath": "scripts/0078_same_juggernaut.ts",
+  "scriptHash": "fbb6171d45755277e2c242afd0da3b7ed96cca002fadc68043cb06f8bc95b8e2",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 77
+    }
+  ],
+  "legacySeq": 78
+}

@@ -127,14 +127,16 @@ export function databaseTestRuns(root, allFiles, reportDir, changedFiles) {
 }
 
 export function assertMigrationReplayRan(report) {
+  for (const required of [REPLAY, 'src/main/localDb/__tests__/dualMigrationReplay.test.ts']) {
   const suites = report?.testResults?.filter(suite =>
-    typeof suite.name === 'string' && suite.name.replaceAll('\\', '/').endsWith(`/${REPLAY}`));
+    typeof suite.name === 'string' && suite.name.replaceAll('\\', '/').endsWith(`/${required}`));
   if (report?.success !== true || !suites?.length) throw new Error('Migration replay report is missing or unsuccessful');
   for (const suite of suites) {
     if (suite.status !== 'passed' || !suite.assertionResults?.length
       || suite.assertionResults.some(result => result.status !== 'passed')) {
       throw new Error('Migration replay must execute and pass every case; skipped/pending/todo cases do not satisfy the gate');
     }
+  }
   }
 }
 

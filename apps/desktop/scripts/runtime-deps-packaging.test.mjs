@@ -6,6 +6,25 @@ import { it, expect } from 'vitest';
 import { copyRuntimeDependencyTrees } from '../forge-runtime-deps';
 import { prunePackagedMigrationSnapshots } from '../forge-prune-runtime';
 import { createMigrationRuntimeManifest } from '../src/main/localDb/migrationRunner';
+import { loadMigrationCatalog } from '../src/main/localDb/migrationCatalog';
+import { validateGenerationBaseline } from './lib/migration-generation.mjs';
+
+it('rejects stale catalog bindings and altered generated schema before custom generation', () => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'cindy-generation-baseline-'));
+  const source=path.resolve(__dirname,'../migration-development/custom');
+  const catalog=loadMigrationCatalog(path.resolve(__dirname,'../drizzle'));
+  try {
+    fs.cpSync(path.join(source,'meta'),path.join(root,'meta'),{recursive:true});
+    fs.copyFileSync(path.join(source,'catalog-binding.json'),path.join(root,'catalog-binding.json'));
+    expect(()=>validateGenerationBaseline(root,catalog.digest)).not.toThrow();
+    expect(()=>validateGenerationBaseline(root,'f'.repeat(64))).toThrow('baseline/catalog identity changed');
+    const snapshot=path.join(root,'meta/0000_snapshot.json');
+    const generated=JSON.parse(fs.readFileSync(snapshot,'utf8'));
+    delete generated.tables.sessions;
+    fs.writeFileSync(snapshot,JSON.stringify(generated));
+    expect(()=>validateGenerationBaseline(root,catalog.digest)).toThrow('baseline/catalog identity changed');
+  } finally {fs.rmSync(root,{recursive:true,force:true});}
+});
 
 it('reuses exact visible packages, preserves shadowed versions and terminates cycles', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cindy-dependency-layout-'));
@@ -90,6 +109,7 @@ it('removes only generated snapshots from the packaged migration metadata', () =
     }
     expect(removed).toBeGreaterThan(0);
     expect(createMigrationRuntimeManifest(target)).toEqual(createMigrationRuntimeManifest(source));
+    expect(loadMigrationCatalog(target).digest).toEqual(loadMigrationCatalog(source).digest);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

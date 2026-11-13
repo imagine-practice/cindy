@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 23,
+  "fileName": "0023_session_workspace_kind.sql",
+  "sqlPath": "0023_session_workspace_kind.sql",
+  "sqlHash": "3c4482a2d994b3cae4393cb7d9b28a70872903bc8511c3ebe32faae1dd2e8068",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 22
+    }
+  ],
+  "legacySeq": 23
+}

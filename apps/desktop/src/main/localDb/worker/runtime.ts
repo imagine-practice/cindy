@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import { hasDualMigrationCatalog, loadMigrationCatalog } from '../migrationCatalog';
+import { assertDualMigrationSnapshot } from '../migrationAdmission';
 import type Database from 'better-sqlite3';
 import type {
   LogEvent,
@@ -131,7 +133,12 @@ function assertNoPendingMigrations(
     });
   }
 
+  if (hasDualMigrationCatalog(drizzleDir)) {
+    assertDualMigrationSnapshot(db, dbPath, loadMigrationCatalog(drizzleDir));
+    return;
+  }
   const currentVersion = readSchemaVersion(db);
+  if (!Number.isSafeInteger(currentVersion)) throw new Error('Unsupported database migration format');
   const pending = listPendingMigrations(drizzleDir, currentVersion);
   events.postLog({
     level: 'info',

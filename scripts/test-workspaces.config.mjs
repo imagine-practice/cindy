@@ -80,6 +80,7 @@ const desktopDbInclude = [
 ];
 const desktopDbExclude = [
   'src/main/localDb/__tests__/migrationReplay.test.ts',
+    'src/main/localDb/__tests__/dualMigrationReplay.test.ts',
   'src/main/localDb/__tests__/drizzle-proxy-perf.test.ts',
 ];
 const desktopGitIntegrationInclude = [
@@ -458,6 +459,7 @@ export default {
           command: vitestBin('run'),
           include: [
             'src/main/localDb/__tests__/migrationReplay.test.ts',
+              'src/main/localDb/__tests__/dualMigrationReplay.test.ts',
             'src/main/__tests__/*Migration.test.ts',
           ],
         },

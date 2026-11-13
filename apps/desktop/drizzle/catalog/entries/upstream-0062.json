@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 62,
+  "fileName": "0062_flaky_mimic.sql",
+  "sqlPath": "0062_flaky_mimic.sql",
+  "sqlHash": "77b8741ac31c159eb422746c0165d102ad65693236c80d0ff055fd70cd43fe68",
+  "scriptPath": "scripts/0062_flaky_mimic.ts",
+  "scriptHash": "0a72ba2d89237b4b7322ffbbeb644c94e01be7d159851e220f51c03edfa80b78",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 61
+    }
+  ],
+  "legacySeq": 62
+}

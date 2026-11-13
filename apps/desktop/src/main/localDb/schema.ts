@@ -7,6 +7,7 @@
  */
 
 import { sql } from 'drizzle-orm';
+export { migrationHistoryV2, migrationStateV2 } from './migrationLedgerSchema';
 import { fastModeFromStorage, fastModeToStorage, type FastMode } from '@cindy/maker-shared';
 import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 import {
@@ -982,6 +983,16 @@ export const messages = sqliteTable(
   }),
 );
 
+export const mcpAppViewStates = sqliteTable('mcp_app_view_states', {
+  messageId: text('message_id').primaryKey().references(() => messages.id, { onDelete: 'cascade' }),
+  sessionId: text('session_id').notNull().references(() => sessions.id, { onDelete: 'cascade' }),
+  serverId: text('server_id').notNull(),
+  serverRevision: text('server_revision').notNull(),
+  pluginInstance: text('plugin_instance'),
+  stateJson: text('state_json').notNull(),
+  byteLength: integer('byte_length').notNull(),
+}, t => ({ bySession: index('idx_mcp_app_view_states_session').on(t.sessionId) }));
+
 /**
  * messages_fts 的稳定整数行号映射。
  *
@@ -1194,7 +1205,7 @@ export const sessionImports = sqliteTable(
  * Key/value 都是字符串；调用方按需解析。
  *
  * 已知 keys：
- *   - schema_version                       (string，"0" / "1" / ...)
+ *   - schema_version                       (旧单链整数文本；双链为显式 cindy:dual-chain:2 格式标记)
  *   - codex_history_has_product_prompt_initialized_v1 ('done')
  *   - codex_history_cindy_memory_prompt_reset_v2 ('done')
  *   - codex_history_product_prompt_revision (current explicit revision)

@@ -31,6 +31,10 @@ const KNOWN_EQUIVALENT_MIGRATION_HASHES: readonly KnownEquivalentMigrationHash[]
   },
 ];
 
+export function isKnownEquivalentMigrationHash(seq: number, fileName: string, from: string, to: string): boolean {
+  return KNOWN_EQUIVALENT_MIGRATION_HASHES.some(entry => entry.seq === seq && entry.fileName === fileName && entry.from === from && entry.to === to);
+}
+
 /** 一条已经从历史 hash 收敛到当前 canonical hash 的记录。 */
 export interface ReconciledMigrationHash {
   seq: number;

@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 90,
+  "fileName": "0090_distinguish_xai_provider_provenance.sql",
+  "sqlPath": "0090_distinguish_xai_provider_provenance.sql",
+  "sqlHash": "b4e0497804e46e0a0b0b8c31975b062152d551bac49c3c2e80932567b4085dcd",
+  "scriptPath": "scripts/0090_distinguish_xai_provider_provenance.ts",
+  "scriptHash": "98d6a8b979f46bea790cdfa9605be468f0e863b01a1513312d6d556fff880e0f",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 89
+    }
+  ],
+  "legacySeq": 90
+}

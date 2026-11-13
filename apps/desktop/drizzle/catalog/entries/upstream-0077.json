@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 77,
+  "fileName": "0077_nebulous_veda.sql",
+  "sqlPath": "0077_nebulous_veda.sql",
+  "sqlHash": "6d54ca60ebe0a0d2d23a88cc266b726bddf10f3a9b80dce07a3fa71d13418804",
+  "scriptPath": "scripts/0077_nebulous_veda.ts",
+  "scriptHash": "e60548298f1a1448c398bc5e2dd669acf3fb5e5675f08f908a196d72e44403d9",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 76
+    }
+  ],
+  "legacySeq": 77
+}

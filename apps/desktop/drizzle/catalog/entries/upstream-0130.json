@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 130,
+  "fileName": "0130_parallel_devos.sql",
+  "sqlPath": "0130_parallel_devos.sql",
+  "sqlHash": "17db4fd369edb9244b9f91d9aeed145c3d04ad8ba6e95d06247f07a63527d11a",
+  "scriptPath": "scripts/0130_parallel_devos.ts",
+  "scriptHash": "d156da094028880af40e33b0281d22d9df33a2134101ba2b9d173a50d9dca8cc",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 129
+    }
+  ],
+  "legacySeq": 130
+}

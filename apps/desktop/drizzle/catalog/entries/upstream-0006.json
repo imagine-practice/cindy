@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 6,
+  "fileName": "0006_add_daily_spend.sql",
+  "sqlPath": "0006_add_daily_spend.sql",
+  "sqlHash": "14e8c96bc43a4ae6b149f89a1b61cbef9a5340244a4065fedf4e4cb5f0b4b870",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 5
+    }
+  ],
+  "legacySeq": 6
+}

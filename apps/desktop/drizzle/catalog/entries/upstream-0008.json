@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 8,
+  "fileName": "0008_lyrical_tinkerer.sql",
+  "sqlPath": "0008_lyrical_tinkerer.sql",
+  "sqlHash": "ff8d4f0537d30489f3dae2d496c0da0997a12c3bcb500c45c6f6a790634dcdf5",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 7
+    }
+  ],
+  "legacySeq": 8
+}

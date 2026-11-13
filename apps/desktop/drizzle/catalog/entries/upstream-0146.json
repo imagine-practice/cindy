@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 146,
+  "fileName": "0146_modern_quicksilver.sql",
+  "sqlPath": "0146_modern_quicksilver.sql",
+  "sqlHash": "22e4664f61da361b4335ff4592e52921a06a895e4751a16a4c7a176447590ec0",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 145
+    }
+  ],
+  "legacySeq": 146
+}

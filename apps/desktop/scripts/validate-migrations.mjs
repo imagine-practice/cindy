@@ -30,8 +30,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 
-import { validateMigrationFreeze } from './lib/migration-freeze.mjs';
+import { validateMigrationFreeze, findFrozenMigrationChanges } from './lib/migration-freeze.mjs';
+import { loadMigrationCatalog } from './lib/migration-catalog-loader.mjs';
+import { validateGenerationBaseline } from './lib/migration-generation.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -40,6 +43,9 @@ const REPO_ROOT = path.resolve(DESKTOP_ROOT, '..', '..');
 const DRIZZLE_DIR = path.join(DESKTOP_ROOT, 'drizzle');
 const META_DIR = path.join(DRIZZLE_DIR, 'meta');
 const JOURNAL_PATH = path.join(META_DIR, '_journal.json');
+const catalog = loadMigrationCatalog(DRIZZLE_DIR);
+const upstreamFiles = new Set(catalog.entries.filter(e => e.namespace === 'upstream').map(e => e.fileName));
+validateGenerationBaseline(path.join(DESKTOP_ROOT,'migration-development/custom'),catalog.digest);
 
 /**
  * 失败时统一打印格式 + exit 1。
@@ -66,6 +72,7 @@ for (const entry of fs.readdirSync(DRIZZLE_DIR, { withFileTypes: true })) {
   // 忽略 meta/ 和 scripts/ 子目录 —— 它们不是 migration sql
   if (entry.isDirectory()) continue;
   if (!entry.isFile()) continue;
+  if (!upstreamFiles.has(entry.name)) continue;
   const match = entry.name.match(/^(\d{4})_(.+)\.sql$/);
   if (!match) continue; // 不符合命名的忽略（比如 .DS_Store 之类）
   const seq = parseInt(match[1], 10);
@@ -98,7 +105,7 @@ for (let i = 0; i < sqlFiles.length; i++) {
   }
 }
 const maxSeq = sqlFiles[sqlFiles.length - 1].seq;
-info(`step 1/6 ok — ${sqlFiles.length} sql file(s), seq 0000..${String(maxSeq).padStart(4, '0')}`);
+info(`step 1/6 ok — upstream ${sqlFiles.length}, custom ${catalog.entries.filter(e=>e.namespace==='custom').length}; identities, resources and dependency DAG verified`);
 
 // ── 2. _journal.json ↔ sql 文件对齐 ────────────────────────────────────────
 
@@ -212,6 +219,11 @@ if (checkResult.status !== 0) {
   );
 }
 info(`step 3/6 ok — drizzle-kit check 通过（无 schema drift）`);
+for (const out of ['drizzle', 'drizzle/catalog/bootstrap']) {
+  const cli = path.join(path.dirname(createRequire(import.meta.url).resolve('drizzle-kit')),'bin.cjs');
+  const checked = spawnSync(process.execPath,[cli,'check','--dialect=sqlite',`--out=${out}`],{cwd:DESKTOP_ROOT,encoding:'utf8'});
+  if (checked.status !== 0) fail(`Drizzle metadata check failed for ${out}: ${checked.stderr || checked.stdout}`);
+}
 
 // ── 4. 冗余的 sql↔snapshot 对齐检查（step 2 已覆盖主要逻辑，这里简单复核）─
 
@@ -238,12 +250,9 @@ const SCRIPTS_DIR = path.join(DRIZZLE_DIR, 'scripts');
 const ESM_EXPORT_RE = /^[ \t]*export\b/m; // 顶层 export（含 export function/const/default/{）
 const ESM_VALUE_IMPORT_RE = /^[ \t]*import\b(?![ \t]+type\b)/m; // 顶层 import 但非 import type
 if (fs.existsSync(SCRIPTS_DIR)) {
-  const scriptFiles = fs
-    .readdirSync(SCRIPTS_DIR)
-    .filter((f) => /^\d{4}_.+\.ts$/.test(f))
-    .sort();
+  const scriptFiles = catalog.entries.flatMap(e => e.scriptPath ? [e.scriptPath] : []).sort();
   for (const file of scriptFiles) {
-    const src = fs.readFileSync(path.join(SCRIPTS_DIR, file), 'utf-8');
+    const src = fs.readFileSync(file, 'utf-8');
     if (ESM_EXPORT_RE.test(src)) {
       fail(
         `drizzle/scripts/${file} 含顶层 ESM \`export\`，但该脚本以 CommonJS require() 加载，` +
@@ -278,6 +287,7 @@ const freezeChecks = [
     result: freezeResult.fixedCheck,
   },
 ];
+freezeChecks.push({label:'fork adopted legacy baseline',result:findFrozenMigrationChanges(REPO_ROOT,'9c7b400a0098722d10390fdda871acc8f77efc22')});
 if (freezeResult.baseline && freezeResult.mainCheck) {
   freezeChecks.push({
     label: `main baseline ${freezeResult.baseline.ref} (${freezeResult.baseline.commit.slice(0, 10)})`,

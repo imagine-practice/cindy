@@ -1,0 +1,16 @@
+{
+  "namespace": "custom",
+  "id": 6,
+  "fileName": "0154_project_dispatch.sql",
+  "sqlPath": "0154_project_dispatch.sql",
+  "sqlHash": "c8261147fb3c3b4c3095aee730d9e43c47014fc007300ecaa1928fad8a427633",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "custom",
+      "id": 5
+    }
+  ],
+  "legacySeq": 154
+}

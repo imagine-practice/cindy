@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 136,
+  "fileName": "0136_bizarre_pet_avengers.sql",
+  "sqlPath": "0136_bizarre_pet_avengers.sql",
+  "sqlHash": "b610a7efd1d4d972d7f994e6704befad3bfdc0e496b16b19215dc8d26270b694",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 135
+    }
+  ],
+  "legacySeq": 136
+}

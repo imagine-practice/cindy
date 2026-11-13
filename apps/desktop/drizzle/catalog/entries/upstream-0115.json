@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 115,
+  "fileName": "0115_silky_power_man.sql",
+  "sqlPath": "0115_silky_power_man.sql",
+  "sqlHash": "bcf1323bd44d90393c6706f98fafab71667ea9d76d3a7d559be8f611d6ea49b5",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 114
+    }
+  ],
+  "legacySeq": 115
+}

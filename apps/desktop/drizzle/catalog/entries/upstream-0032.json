@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 32,
+  "fileName": "0032_light_stone_men.sql",
+  "sqlPath": "0032_light_stone_men.sql",
+  "sqlHash": "395f3909bf31c0a859fa97e511a009d77573b092eeb9e92dd1355d2331f181a3",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 31
+    }
+  ],
+  "legacySeq": 32
+}

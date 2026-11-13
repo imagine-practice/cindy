@@ -76,7 +76,7 @@ export function assertSharedDevMigrationPolicy(repoRoot, argv) {
   throw new Error(
     `Shared Cindy userData cannot run migration artifacts that are not canonical on ${artifacts.baseRef}.\n` +
       `  ${detail}\n` +
-      'Rebase and renumber the migration before shared testing, or explicitly use a named sandbox: ' +
+      'Integrate the migration into its namespace before shared testing, or explicitly use a named sandbox: ' +
       'pnpm restart:desktop:remote -- --isolated=<name>',
   );
 }

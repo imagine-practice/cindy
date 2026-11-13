@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 1,
+  "fileName": "0001_add_agent_meta.sql",
+  "sqlPath": "0001_add_agent_meta.sql",
+  "sqlHash": "9419a15f94d3806cee4fbb04d811fd6dcbd4329e2d475db7ccf5e7545ae6e030",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 0
+    }
+  ],
+  "legacySeq": 1
+}

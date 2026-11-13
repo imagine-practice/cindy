@@ -28,6 +28,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { migrationBuildInfo } from './lib/migration-build-info.mjs';
+import { assertMigrationSmoke } from './ci/package-lib.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -240,8 +242,9 @@ child.on('exit', (code, signal) => {
     cleanupUserData();
     process.exit(1);
   }
-  if (typeof parsed.schema_version !== 'number' || parsed.schema_version < 0) {
-    console.error(`[smoke] FAIL: schema_version invalid: ${parsed.schema_version}`);
+  try { assertMigrationSmoke(parsed,migrationBuildInfo(path.join(DESKTOP_ROOT,'drizzle'))); }
+  catch (error) {
+    console.error(`[smoke] FAIL: ${error.message}`);
     cleanupUserData();
     process.exit(1);
   }
@@ -279,7 +282,7 @@ child.on('exit', (code, signal) => {
   }
 
   console.log(
-    `✅ smoke test passed: schema_version=${parsed.schema_version}, ` +
+    `✅ smoke test passed: migration=${JSON.stringify(parsed.migration ?? parsed.schema_version)}, ` +
       `sessions=${t.sessions}, messages=${t.messages}, migration_meta=${t.migration_meta}` +
       (pluginStorage ? ', plugin_storage=passed' : ''),
   );

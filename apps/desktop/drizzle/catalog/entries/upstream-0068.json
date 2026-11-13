@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 68,
+  "fileName": "0068_gifted_ser_duncan.sql",
+  "sqlPath": "0068_gifted_ser_duncan.sql",
+  "sqlHash": "7fec7d4bdc196755b8dab5c2e182ab4bc301d6e42e906cf4c3b4bc9076ed3272",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 67
+    }
+  ],
+  "legacySeq": 68
+}

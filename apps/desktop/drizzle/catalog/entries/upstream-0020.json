@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 20,
+  "fileName": "0020_drop_issue_triage_blacklist.sql",
+  "sqlPath": "0020_drop_issue_triage_blacklist.sql",
+  "sqlHash": "e16e60cefb7bcf1277260f1558fd9486277155d51b771afb38e03f098935e7d0",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 19
+    }
+  ],
+  "legacySeq": 20
+}

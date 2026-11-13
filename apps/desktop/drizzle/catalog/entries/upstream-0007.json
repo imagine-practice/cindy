@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 7,
+  "fileName": "0007_great_anita_blake.sql",
+  "sqlPath": "0007_great_anita_blake.sql",
+  "sqlHash": "a567bb4a7a0bbf79e003a4ab68502d24a1a25e9e512c9737e640f639a4331baf",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 6
+    }
+  ],
+  "legacySeq": 7
+}

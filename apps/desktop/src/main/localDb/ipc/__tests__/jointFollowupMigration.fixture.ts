@@ -1,10 +1,11 @@
 // Joint DB tier: canonical 0000..0154 migration template, then real 0155..0161 per
-// isolated case. No hand-created ledger or fixture SQL is executed here.
-import { copyFileSync, mkdirSync } from 'node:fs';
+// isolated case, followed by real dual-chain adoption. No hand-created ledger.
+import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import type Database from 'better-sqlite3';
 import { createBetterSqliteDatabase } from '../../betterSqliteFactory';
-import { listMigrations, runMigrationReplay } from '../../migrationRunner';
+import { createMigrationRuntimeManifest, listMigrations, runMigrationReplay } from '../../migrationRunner';
+import { runDualMigrationReplay } from '../../migrationLedger';
 
 const desktop = resolve(__dirname, '../../../../..');
 const drizzleDir = join(desktop, 'drizzle');
@@ -55,6 +56,11 @@ export function createJointFollowupDb(tempRoot: string, filename = ':memory:'): 
     if (result.currentVersion !== 154 || result.applied.length !== 7 || result.applied[0].seq !== 155
       || result.finalVersion !== 161 || !db.prepare('SELECT seq FROM migration_history WHERE seq=155').get()) {
       throw new Error('Each joint fixture must upgrade through production 0155..0161');
+    }
+    writeFileSync(`${file}.migration-runtime.json`,JSON.stringify(createMigrationRuntimeManifest(drizzleDir)));
+    const adopted=runDualMigrationReplay(db,{drizzleDir,dbPath:file});
+    if (adopted.applied.length !== 1 || adopted.applied[0].namespace !== 'upstream' || adopted.applied[0].id !== 149) {
+      throw new Error('Joint fixture must adopt its original history and apply only upstream:149');
     }
     return db;
   } catch (error) { db.close(); throw error; }

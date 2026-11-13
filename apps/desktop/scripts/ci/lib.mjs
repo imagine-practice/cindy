@@ -14,6 +14,8 @@ import path from 'node:path';
 import { createGunzip } from 'node:zlib';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
+import { migrationBuildInfo } from '../lib/migration-build-info.mjs';
+import { loadMigrationCatalog } from '../lib/migration-catalog-loader.mjs';
 import { resolveReleaseCdnBaseUrl } from '../../../../scripts/shared/release-env.mjs';
 // OSS/CDN 原语(sha256 / gzip / ali-oss client / upload)已抽到仓库根 scripts/shared/oss.mjs,
 // 供 desktop 与 mobile 共用;这里 re-export 保持既有 import 面(CDN_BASE / createOSSClient 等)不变。
@@ -428,8 +430,8 @@ export function writeReleaseManifest(destPath, ctx) {
     build_time: new Date().toISOString(),
     platform: ctx.platformKey.split('-')[0],
     arch: ctx.arch,
-    schema_version_max: schemaVersionMax,
-    migration_files: migrationFiles,
+    schema_version: 3,
+    migration: migrationBuildInfo(path.join(DESKTOP_ROOT,'drizzle')),
     node_version: process.version,
     electron_version: electronVersion,
   };
@@ -474,6 +476,9 @@ export function verifyPackagedDrizzle(drizzleOut) {
     process.exit(1);
   }
   const srcDrizzle = path.join(DESKTOP_ROOT, 'drizzle');
+  if (loadMigrationCatalog(srcDrizzle).digest !== loadMigrationCatalog(drizzleOut).digest) {
+    throw new Error('Packaged dual migration catalog differs from source');
+  }
   const expectedSql = fs
     .readdirSync(srcDrizzle)
     .filter((f) => /^\d{4}_.*\.sql$/.test(f));

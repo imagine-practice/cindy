@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 134,
+  "fileName": "0134_schedule_model_location.sql",
+  "sqlPath": "0134_schedule_model_location.sql",
+  "sqlHash": "b4e0497804e46e0a0b0b8c31975b062152d551bac49c3c2e80932567b4085dcd",
+  "scriptPath": "scripts/0134_schedule_model_location.ts",
+  "scriptHash": "40500299f349da0aafe207a2fb46f3b06b1fda11b9eb55d5815ddec51da02802",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 133
+    }
+  ],
+  "legacySeq": 134
+}

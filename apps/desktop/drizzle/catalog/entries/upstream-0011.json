@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 11,
+  "fileName": "0011_eminent_dragon_lord.sql",
+  "sqlPath": "0011_eminent_dragon_lord.sql",
+  "sqlHash": "7d20b008b4adf82aacdb33088ab1dba47d7d9b5d3714d767b77fc8e8a7a85e87",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 10
+    }
+  ],
+  "legacySeq": 11
+}

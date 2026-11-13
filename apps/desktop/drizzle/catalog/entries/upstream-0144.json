@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 144,
+  "fileName": "0144_preserve_existing_pr_associations.sql",
+  "sqlPath": "0144_preserve_existing_pr_associations.sql",
+  "sqlHash": "5914458267ce92b6807ef08add1339df58fc8219839432ed5faaf8744bc41f50",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 143
+    }
+  ],
+  "legacySeq": 144
+}

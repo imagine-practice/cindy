@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 33,
+  "fileName": "0033_omniscient_whistler.sql",
+  "sqlPath": "0033_omniscient_whistler.sql",
+  "sqlHash": "23a8e896576584f73180750d0760caee5b4a2ec372789e2ffe6446fbad04b505",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 32
+    }
+  ],
+  "legacySeq": 33
+}

@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 75,
+  "fileName": "0075_complex_strong_guy.sql",
+  "sqlPath": "0075_complex_strong_guy.sql",
+  "sqlHash": "1880cc34e5af4a684828a9eeb95737f03bd3f3f4c98265af8be0b694d8dd204d",
+  "scriptPath": "scripts/0075_complex_strong_guy.ts",
+  "scriptHash": "7a093a684b90a54088beeafae666cbd115371efa98afdc788e7b9391443e2eaf",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 74
+    }
+  ],
+  "legacySeq": 75
+}

@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 16,
+  "fileName": "0016_magenta_corsair.sql",
+  "sqlPath": "0016_magenta_corsair.sql",
+  "sqlHash": "9a04c8dc7d9d461111a22beb49312f25621a1f32b2c585241cd4d636fd7d1d61",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 15
+    }
+  ],
+  "legacySeq": 16
+}

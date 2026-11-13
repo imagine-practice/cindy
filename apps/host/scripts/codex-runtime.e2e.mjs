@@ -79,7 +79,7 @@ try {
   const layout = hostRuntimeLayout();
   const opened = await openOwnerDatabase({ userDataDir: profile, ownerId, isPackaged: false,
     drizzleDir: layout.drizzleDir, sqliteVecExtPath: layout.sqliteVecPath });
-  database = createDbClientForHandle({ db: opened.db, drizzle: opened.drizzle, dispose: async () => opened.db.close() });
+  database = createDbClientForHandle({ db: opened.db, drizzle: opened.drizzle, dispose: async () => opened.close() });
   setCurrentDbClient(database, ownerId);
   const credentials = await createCredentialStore({ userDataDir: profile, platform: 'linux', keyPromise: Promise.resolve(Buffer.alloc(16, 9)) });
   config = createHostProviderConfig({ profileDir: profile, ownerId, credentials, getCodexBinary: () => binary,

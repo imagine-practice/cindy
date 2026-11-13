@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 64,
+  "fileName": "0064_icy_bruce_banner.sql",
+  "sqlPath": "0064_icy_bruce_banner.sql",
+  "sqlHash": "94b35ed3f35d5908bd6810007e3017c761b5e68ac6b3b43e80b22aed0b89feae",
+  "scriptPath": "scripts/0064_icy_bruce_banner.ts",
+  "scriptHash": "ca64c489a6c8fa0789cd93a5f0acbd4aa0297d67eaa6121e45026026e771bd7f",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 63
+    }
+  ],
+  "legacySeq": 64
+}

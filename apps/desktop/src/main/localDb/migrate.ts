@@ -1,7 +1,8 @@
 /**
  * chat-data-localization F3：本地 db schema 迁移协调（drizzle-kit 自动生成 SQL）。
  *
- * 流程：
+ * 当前 catalog 格式：严格预检、成对备份、v2 intent、单 SQLite 事务及 committed 发布。
+ * 提交后文件发布失败由 intent 恢复，不恢复旧 DB。下面的数值流程仅用于保留的旧单链路径：
  *   1. 读 `migration_meta.schema_version` 当前版本
  *   2. 扫描 drizzle 目录中的 `NNNN_xxx.sql`，过滤出待 apply 的（seq > current）
  *   3. apply 前先做磁盘准备（腾旧备份预算 + 剩余空间预检，见 `prepareBackupDiskSpace`），
@@ -25,6 +26,7 @@ import {
   getFreeDiskBytes,
   isoBackupTotalBudgetBytes,
   pruneIsoBackupsToBudget,
+  migrationBackupWitnessPath,
 } from './backup';
 import {
   hashMigrationFile,
@@ -37,6 +39,8 @@ import {
   shouldRefuseOfficialProfileWriterMigration,
 } from './officialProfileMigrationPolicy';
 import { getMigrationRuntimeConfig } from './migrationRuntime';
+import { hasDualMigrationCatalog } from './migrationCatalog';
+import { planDualMigrations, runDualMigrationReplay } from './migrationLedger';
 
 const log = createLogger('migrate');
 
@@ -76,6 +80,32 @@ export async function runMigrations(db: Database.Database, dbFilePath: string): 
   );
   if (!fs.existsSync(drizzleDir)) {
     throw new Error(`drizzle 目录不存在：${drizzleDir}`);
+  }
+
+  if (hasDualMigrationCatalog(drizzleDir)) {
+    const plan = planDualMigrations(db, dbFilePath, drizzleDir);
+    if (!plan.state || plan.pending.length) {
+      if (shouldRefuseOfficialProfileWriterMigration({isPackaged,
+        officialSharedProfile: process.env.XDT_OFFICIAL_SHARED_PROFILE === '1',
+        pendingCount: Math.max(1, plan.pending.length)})) {
+        throw new Error(officialProfileWriterMigrationMessage(['dual-chain format', ...plan.pending.map(e => `${e.namespace}:${e.id}`)]));
+      }
+      const hint = prepareBackupDiskSpace(dbFilePath);
+      const backup = await backupDb(db, dbFilePath);
+      if (backup === null) throw new Error(`schema migration backup failed${hint}`);
+      // Preserve the actual legacy witness beside the unchanged SQLite backup.
+      if (typeof backup === 'string') {
+        const witnessPath = `${dbFilePath}.migration-runtime.json`;
+        fs.writeFileSync(migrationBackupWitnessPath(backup), JSON.stringify({version:1,anchor:plan.anchor,
+          runtimeManifest:fs.existsSync(witnessPath) ? JSON.parse(fs.readFileSync(witnessPath,'utf8')) : null}), {mode:0o600,flush:true});
+      }
+    }
+    runDualMigrationReplay(db, {drizzleDir, dbPath:dbFilePath,
+      initialize: !plan.state && Number(plan.anchor.value ?? -1) < 110 ? () => initializeTaskTagPresets(db) : undefined});
+    // The full plan is one SQLite transaction. Never restore an old DB after a
+    // committed transaction whose sidecar publication failed; resume its intent.
+    pruneMigrationBackupsToBudget(dbFilePath);
+    return;
   }
 
   const currentVersion = readSchemaVersion(db);

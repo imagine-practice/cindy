@@ -1,0 +1,16 @@
+{
+  "namespace": "custom",
+  "id": 3,
+  "fileName": "0151_project_progress.sql",
+  "sqlPath": "0151_project_progress.sql",
+  "sqlHash": "763aac38aa67cb48acc221af2f6c38262ff2941866729019fa3c216114769ab2",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "custom",
+      "id": 2
+    }
+  ],
+  "legacySeq": 151
+}

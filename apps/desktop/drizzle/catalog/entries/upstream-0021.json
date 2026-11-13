@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 21,
+  "fileName": "0021_add_schedule_persistent_session.sql",
+  "sqlPath": "0021_add_schedule_persistent_session.sql",
+  "sqlHash": "82f0ed4827638405b95024051006cf7940a02cdf11f02cc229f9ba388bf29bdc",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 20
+    }
+  ],
+  "legacySeq": 21
+}

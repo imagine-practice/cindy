@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 55,
+  "fileName": "0055_quick_tony_stark.sql",
+  "sqlPath": "0055_quick_tony_stark.sql",
+  "sqlHash": "d935d2132ef00d923a79c4ebb4719157337fa63e62307b7592b620ba2fede6ee",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 54
+    }
+  ],
+  "legacySeq": 55
+}

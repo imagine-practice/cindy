@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 121,
+  "fileName": "0121_plugin_task_requests.sql",
+  "sqlPath": "0121_plugin_task_requests.sql",
+  "sqlHash": "9b2d2887bf707cd4601d9fe6210030bc1d2184feca183277f4071d071071ad20",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 120
+    }
+  ],
+  "legacySeq": 121
+}

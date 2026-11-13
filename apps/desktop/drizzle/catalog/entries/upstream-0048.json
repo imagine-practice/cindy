@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 48,
+  "fileName": "0048_add_session_summary.sql",
+  "sqlPath": "0048_add_session_summary.sql",
+  "sqlHash": "6fe0d6c7f09c015b4d53b61ded409dc03ea16ce4e9ffcd49957c34efafe09475",
+  "scriptPath": "scripts/0048_add_session_summary.ts",
+  "scriptHash": "bdad93339aa3f11360ffb9a8b62fae9965075fe3d5d866e67fa1eb0c74b064c1",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 47
+    }
+  ],
+  "legacySeq": 48
+}

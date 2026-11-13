@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 91,
+  "fileName": "0091_amazing_blur.sql",
+  "sqlPath": "0091_amazing_blur.sql",
+  "sqlHash": "b4e0497804e46e0a0b0b8c31975b062152d551bac49c3c2e80932567b4085dcd",
+  "scriptPath": "scripts/0091_amazing_blur.ts",
+  "scriptHash": "392ad0661febf5775498c83d5c94766e38ccb1b34cf356b1e222b6247a8656b8",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 90
+    }
+  ],
+  "legacySeq": 91
+}

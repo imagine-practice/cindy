@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 109,
+  "fileName": "0109_deep_wolfpack.sql",
+  "sqlPath": "0109_deep_wolfpack.sql",
+  "sqlHash": "5f0f8f0a938ea2b460689656e2ee06f5ddf9b963b64e8f717a82cdb7e7c65998",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 108
+    }
+  ],
+  "legacySeq": 109
+}

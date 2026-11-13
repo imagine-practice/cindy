@@ -1,0 +1,11 @@
+{
+  "namespace": "upstream",
+  "id": 0,
+  "fileName": "0000_init.sql",
+  "sqlPath": "0000_init.sql",
+  "sqlHash": "1e9cde03038e90171698488b57b25ef3097964c595e8889f7316f0363482584b",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [],
+  "legacySeq": 0
+}

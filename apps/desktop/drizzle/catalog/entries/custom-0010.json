@@ -1,0 +1,16 @@
+{
+  "namespace": "custom",
+  "id": 10,
+  "fileName": "0158_charming_captain_midlands.sql",
+  "sqlPath": "0158_charming_captain_midlands.sql",
+  "sqlHash": "661edded2506c87e627180517baed32642ff3f13679fb779de401387bf2113cc",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "custom",
+      "id": 9
+    }
+  ],
+  "legacySeq": 158
+}

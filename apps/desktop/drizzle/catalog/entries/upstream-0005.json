@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 5,
+  "fileName": "0005_add_session_worktree_path.sql",
+  "sqlPath": "0005_add_session_worktree_path.sql",
+  "sqlHash": "14cc1228b0bbd2bdc921e4e686ca529127e2de4ae3f9577c672a6f2a4b15d617",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 4
+    }
+  ],
+  "legacySeq": 5
+}

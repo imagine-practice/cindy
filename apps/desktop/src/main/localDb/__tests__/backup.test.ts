@@ -19,6 +19,7 @@ import {
   getFreeDiskBytes,
   isoBackupTotalBudgetBytes,
   listIsoBackups,
+  migrationBackupWitnessPath,
   pruneIsoBackupsToBudget,
   tryRestoreWithFallback,
 } from '../backup';
@@ -61,6 +62,7 @@ describe('pruneIsoBackupsToBudget', () => {
 
   it('份数超上限 → 删最旧的', () => {
     const oldest = makeBackup('2026-07-01T00-00-00-000Z', 100);
+    fs.writeFileSync(migrationBackupWitnessPath(oldest),JSON.stringify({version:1}));
     makeBackup('2026-07-02T00-00-00-000Z', 100);
     makeBackup('2026-07-03T00-00-00-000Z', 100);
     makeBackup('2026-07-04T00-00-00-000Z', 100);
@@ -70,6 +72,7 @@ describe('pruneIsoBackupsToBudget', () => {
     });
     expect(removed).toEqual([oldest]);
     expect(listIsoBackups(dbFilePath)).toHaveLength(3);
+    expect(fs.existsSync(migrationBackupWitnessPath(oldest))).toBe(false);
   });
 
   it('大库场景（事故回归）：总体积超预算 → 只留最新一份', () => {

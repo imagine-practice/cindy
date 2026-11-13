@@ -227,6 +227,7 @@ export function artifactBaseName({ version, versionless }) {
  *   version: string, versionless: boolean, region: string,
  *   platform: string, arch: string, commitSha: string, electronVersion: string,
  *   schemaVersionMax: number, migrationFiles: string[],
+ *   migration?: object,
  *   files: Array<{ role: string, name: string, sha256: string, size: number }>,
  *   signing: Record<string, unknown>,
  *   mcpAppsManual?: { sha256: string, size: number } | null,
@@ -235,7 +236,7 @@ export function artifactBaseName({ version, versionless }) {
 export function buildBuildInfo(ctx) {
   return {
     // v2 移除无运行语义的 package channel；发布通道只属于 publish 阶段。
-    schemaVersion: 2,
+    schemaVersion: ctx.migration ? 3 : 2,
     product: 'cindy-desktop',
     // 版本无关包 version 记 null,占位符不冒充真实版本。
     version: ctx.versionless ? null : ctx.version,
@@ -248,14 +249,40 @@ export function buildBuildInfo(ctx) {
     buildTime: new Date().toISOString(),
     nodeVersion: process.version,
     electronVersion: ctx.electronVersion,
-    schemaVersionMax: ctx.schemaVersionMax,
-    migrationFiles: ctx.migrationFiles,
+    ...(ctx.migration ? { migration: ctx.migration } : {
+      schemaVersionMax: ctx.schemaVersionMax,
+      migrationFiles: ctx.migrationFiles,
+    }),
     files: ctx.files,
     signing: ctx.signing,
     // 打进安装包的《Cindy MCP Apps 页面生成手册》;发布脚本据此核对上传的字节。
     // 版本无关包与没有内置手册的构建记 null。
     mcpAppsManual: ctx.versionless ? null : (ctx.mcpAppsManual ?? null),
   };
+}
+
+export function assertSupportedBuildInfo(info) {
+  if (info.schemaVersion === 2) return;
+  if (info.schemaVersion !== 3 || info.migration?.format !== 2 ||
+      info.migration.minimumRunner !== 'dual-chain-v2' ||
+      !/^[a-f0-9]{64}$/.test(info.migration.catalogSha256 ?? '') ||
+      !/^[a-f0-9]{64}$/.test(info.migration.bootstrapSha256 ?? '') ||
+      !Array.isArray(info.migration.namespaces) || info.migration.namespaces.length !== 2 ||
+      info.migration.namespaces.some((entry,index) => entry.namespace !== ['upstream','custom'][index] ||
+        !Number.isSafeInteger(entry.head) || entry.head < 0 || entry.count !== entry.head + (index === 0 ? 1 : 0)) ||
+      info.schemaVersionMax !== undefined || info.migrationFiles !== undefined) {
+    throw new Error('Unsupported build-info migration format');
+  }
+}
+
+export function assertMigrationSmoke(parsed, expectedMigration) {
+  if (expectedMigration) {
+    if (JSON.stringify(parsed.migration) !== JSON.stringify(expectedMigration) || parsed.schema_version !== undefined) {
+      throw new Error('Packaged migration catalog/namespace vector mismatch');
+    }
+  } else if (!Number.isSafeInteger(parsed.schema_version) || parsed.schema_version < 0) {
+    throw new Error('Invalid legacy schema_version');
+  }
 }
 
 /** 安装包内手册字节 → build-info 的 mcpAppsManual 字段;包里没有手册时为 null。 */

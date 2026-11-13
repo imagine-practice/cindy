@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 89,
+  "fileName": "0089_rich_power_pack.sql",
+  "sqlPath": "0089_rich_power_pack.sql",
+  "sqlHash": "d0a45a87a603457d200e19fda6b474dea482cf728226824c67303bf0dc0756c3",
+  "scriptPath": "scripts/0089_rich_power_pack.ts",
+  "scriptHash": "259b6089b2d2d902d1d2f699fcfe64654c169793eed54aedafd246ecd75a3026",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 88
+    }
+  ],
+  "legacySeq": 89
+}

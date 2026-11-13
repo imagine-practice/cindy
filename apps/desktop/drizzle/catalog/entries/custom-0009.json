@@ -1,0 +1,16 @@
+{
+  "namespace": "custom",
+  "id": 9,
+  "fileName": "0157_project_project_dirs.sql",
+  "sqlPath": "0157_project_project_dirs.sql",
+  "sqlHash": "1b20e6167c578e1d5bf568aef281b17bc1c0e6022b86af82b8b0a9f9b702dee2",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "custom",
+      "id": 8
+    }
+  ],
+  "legacySeq": 157
+}

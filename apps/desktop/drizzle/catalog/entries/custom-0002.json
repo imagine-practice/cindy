@@ -1,0 +1,16 @@
+{
+  "namespace": "custom",
+  "id": 2,
+  "fileName": "0150_project_materials.sql",
+  "sqlPath": "0150_project_materials.sql",
+  "sqlHash": "4b6a014b1f249ff429226b16ec4b56a5cec7d534bec1b8775b8c166cf21a73e2",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "custom",
+      "id": 1
+    }
+  ],
+  "legacySeq": 150
+}

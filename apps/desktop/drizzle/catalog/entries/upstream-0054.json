@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 54,
+  "fileName": "0054_fair_mentor.sql",
+  "sqlPath": "0054_fair_mentor.sql",
+  "sqlHash": "6b7c0fa4c22f651635f8dd2a5193263e1ee16fbd5d355257855c8afe0252f49a",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 53
+    }
+  ],
+  "legacySeq": 54
+}

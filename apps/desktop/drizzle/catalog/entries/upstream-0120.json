@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 120,
+  "fileName": "0120_neat_war_machine.sql",
+  "sqlPath": "0120_neat_war_machine.sql",
+  "sqlHash": "82a6079a97da66cb827efa7aeffea7a1818734a2d3c13a30325ec88ed15f400b",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 119
+    }
+  ],
+  "legacySeq": 120
+}

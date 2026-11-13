@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 149,
+  "fileName": "0149_damp_wind_dancer.sql",
+  "sqlPath": "0149_damp_wind_dancer.sql",
+  "sqlHash": "5b02bd35d70f1d4f1cc9e1c9346a23dc3d69ea5fbe1565406f039fd62fb9e596",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 148
+    }
+  ],
+  "legacySeq": 149
+}

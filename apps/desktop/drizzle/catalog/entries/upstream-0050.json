@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 50,
+  "fileName": "0050_fantastic_korvac.sql",
+  "sqlPath": "0050_fantastic_korvac.sql",
+  "sqlHash": "7105a7a2b2460285c4573164980d2949dd48e79ec491c079ecbd167d306543d0",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 49
+    }
+  ],
+  "legacySeq": 50
+}

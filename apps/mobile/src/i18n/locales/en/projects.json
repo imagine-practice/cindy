@@ -67,7 +67,7 @@
     "unassigned": "Unassigned",
     "doneOwnerOnly": "Only the project owner can confirm completion.",
     "required": "Fill in the required fields.",
-    "submit": "Submit",
+    "submit": "Save task changes",
     "saving": "Submitting…",
     "cancel": "Cancel",
     "offline": "The computer is disconnected. Reconnect before submitting.",
@@ -78,7 +78,7 @@
     "archiveBody": "Archived projects cannot get new tasks and stop running automatically. Members and progress stay readable.",
     "unarchiveTitle": "Restore project?",
     "unarchiveBody": "Restored projects can take new tasks and run automatically again.",
-    "confirm": "Confirm",
+    "confirm": "Update project",
     "cancel": "Cancel"
   },
   "errors": {

@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 4,
+  "fileName": "0004_add_message_rewind_at.sql",
+  "sqlPath": "0004_add_message_rewind_at.sql",
+  "sqlHash": "e1b38aaac6d732ec302271046e96d345ffbff136984e181015d25c70ecbbb967",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 3
+    }
+  ],
+  "legacySeq": 4
+}

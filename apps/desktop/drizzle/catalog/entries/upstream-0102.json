@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 102,
+  "fileName": "0102_optimal_ender_wiggin.sql",
+  "sqlPath": "0102_optimal_ender_wiggin.sql",
+  "sqlHash": "b4e0497804e46e0a0b0b8c31975b062152d551bac49c3c2e80932567b4085dcd",
+  "scriptPath": "scripts/0102_optimal_ender_wiggin.ts",
+  "scriptHash": "e5206a470f2bfbbb937c18d776e372986207be5cc0ca481f7faab473815f69f9",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 101
+    }
+  ],
+  "legacySeq": 102
+}

@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 118,
+  "fileName": "0118_cynical_thunderball.sql",
+  "sqlPath": "0118_cynical_thunderball.sql",
+  "sqlHash": "b23e121f19eff1cd3b79cb084e7c9463724c98b6c767978ded390a3b0c332d7c",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 117
+    }
+  ],
+  "legacySeq": 118
+}

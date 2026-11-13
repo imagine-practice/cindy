@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 45,
+  "fileName": "0045_living_namor.sql",
+  "sqlPath": "0045_living_namor.sql",
+  "sqlHash": "94a9726abcb7b4dbac9fb5e50f301943e3b6a54cc9bc1ffe83bef46550e37e4e",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 44
+    }
+  ],
+  "legacySeq": 45
+}

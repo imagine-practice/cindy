@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 69,
+  "fileName": "0069_unusual_loki.sql",
+  "sqlPath": "0069_unusual_loki.sql",
+  "sqlHash": "9e27a92c5ef5f66642e4ed7179736157f196e8a5154386085e5a44b7be90f402",
+  "scriptPath": "scripts/0069_unusual_loki.ts",
+  "scriptHash": "e7e807430b4e7e401fba1192b9c2ea7589bc9841c4398496d3bf48f9f31e1ade",
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 68
+    }
+  ],
+  "legacySeq": 69
+}

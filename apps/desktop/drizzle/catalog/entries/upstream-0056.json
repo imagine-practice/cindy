@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 56,
+  "fileName": "0056_chunky_squirrel_girl.sql",
+  "sqlPath": "0056_chunky_squirrel_girl.sql",
+  "sqlHash": "ae47ae2c5e1fd1363639f20e530213142a4ed33ac6bf7b320230b456e6370d06",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 55
+    }
+  ],
+  "legacySeq": 56
+}

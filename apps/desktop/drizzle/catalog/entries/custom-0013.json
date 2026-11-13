@@ -1,0 +1,16 @@
+{
+  "namespace": "custom",
+  "id": 13,
+  "fileName": "0161_work_item_execution_body.sql",
+  "sqlPath": "0161_work_item_execution_body.sql",
+  "sqlHash": "f9a05b660f8dc5daff4945141df6d10b810ec91f7b3da49822bbae2301225bc9",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "custom",
+      "id": 12
+    }
+  ],
+  "legacySeq": 161
+}

@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 70,
+  "fileName": "0070_woozy_harpoon.sql",
+  "sqlPath": "0070_woozy_harpoon.sql",
+  "sqlHash": "6ca932b0c31ecc10e242cb5d6310886f736d2c61ad16a8778dbc328fa98a820f",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 69
+    }
+  ],
+  "legacySeq": 70
+}

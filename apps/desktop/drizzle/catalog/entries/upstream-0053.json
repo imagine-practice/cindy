@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 53,
+  "fileName": "0053_jazzy_wraith.sql",
+  "sqlPath": "0053_jazzy_wraith.sql",
+  "sqlHash": "1d3115c1dc80aaf61cfb5ec153291115c11e62bde5bb266685653e58431933da",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 52
+    }
+  ],
+  "legacySeq": 53
+}

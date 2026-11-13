@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 63,
+  "fileName": "0063_handy_tenebrous.sql",
+  "sqlPath": "0063_handy_tenebrous.sql",
+  "sqlHash": "25951e494866345cbbd0cf9031b486d086598f94ed95bbca137905381aed814a",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 62
+    }
+  ],
+  "legacySeq": 63
+}

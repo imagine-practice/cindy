@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 15,
+  "fileName": "0015_add_schedule_interval_ms.sql",
+  "sqlPath": "0015_add_schedule_interval_ms.sql",
+  "sqlHash": "a3c2b89ba72de17f7c9453859526e2b4021588d6a7263418bbaa4c7bcb377300",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 14
+    }
+  ],
+  "legacySeq": 15
+}

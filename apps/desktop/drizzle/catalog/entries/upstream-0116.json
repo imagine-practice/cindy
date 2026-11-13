@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 116,
+  "fileName": "0116_last_the_watchers.sql",
+  "sqlPath": "0116_last_the_watchers.sql",
+  "sqlHash": "8eba4f3612780cd8433dc0a0f66b58d9ebf5ef38bcb5f82f9e64367d8d139940",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 115
+    }
+  ],
+  "legacySeq": 116
+}

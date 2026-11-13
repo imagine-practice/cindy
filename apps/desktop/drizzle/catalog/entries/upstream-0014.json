@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 14,
+  "fileName": "0014_calm_miracleman.sql",
+  "sqlPath": "0014_calm_miracleman.sql",
+  "sqlHash": "446f25590b7fef59f29e8f53bc0770ede2fad8e85464ce759a79c95dc1352cb1",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 13
+    }
+  ],
+  "legacySeq": 14
+}

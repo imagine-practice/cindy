@@ -1,0 +1,16 @@
+{
+  "namespace": "upstream",
+  "id": 133,
+  "fileName": "0133_chat_history_cache.sql",
+  "sqlPath": "0133_chat_history_cache.sql",
+  "sqlHash": "907d848c09c2da97e687f9cf1f76b27ca28c006632ff8c5194759cce85fbdf46",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 132
+    }
+  ],
+  "legacySeq": 133
+}
