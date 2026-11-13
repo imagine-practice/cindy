@@ -25,8 +25,15 @@ export function migrationDigest(value: unknown): string {
   return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
+function readMigrationResource(file: string): {sha256: string; readBytes: number; normalizedBytes: number} {
+  const bytes = fs.readFileSync(file);
+  const normalized = bytes.toString('utf8').replace(/\r\n/g, '\n');
+  return {sha256: crypto.createHash('sha256').update(normalized).digest('hex'),
+    readBytes: bytes.length, normalizedBytes: Buffer.byteLength(normalized)};
+}
+
 export function migrationFileHash(file: string): string {
-  return crypto.createHash('sha256').update(fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n')).digest('hex');
+  return readMigrationResource(file).sha256;
 }
 
 export function migrationKey(key: MigrationKey): string { return `${key.namespace}:${key.id}`; }
@@ -83,9 +90,20 @@ export function loadMigrationCatalog(drizzleDir: string): MigrationCatalog {
     if (path.extname(sqlPath) !== '.sql' || (scriptPath && path.basename(scriptPath) !== path.basename(sqlPath).replace(/\.sql$/,'.ts'))) {
       throw new Error(`Invalid migration SQL/companion pair: ${file}`);
     }
-    if (migrationFileHash(sqlPath) !== raw.sqlHash ||
-        (scriptPath ? migrationFileHash(scriptPath) : null) !== raw.scriptHash) {
-      throw new Error(`Migration resource identity changed: ${file}`);
+    const sqlRead = readMigrationResource(sqlPath);
+    const companionRead = scriptPath ? readMigrationResource(scriptPath) : null;
+    if (sqlRead.sha256 !== raw.sqlHash || (companionRead?.sha256 ?? null) !== raw.scriptHash) {
+      // Retain evidence from the rejected reads; rereading after an error could hide a transient change.
+      // Paths, digests and byte lengths are diagnostic metadata. Never include SQL/script contents.
+      const details = {namespace: raw.namespace, id: raw.id,
+        descriptorPath: path.posix.join('catalog', 'entries', file),
+        sql: {relativePath: raw.sqlPath, actualPath: sqlPath, expectedNormalizedSha256: raw.sqlHash,
+          actualNormalizedSha256: sqlRead.sha256, readBytes: sqlRead.readBytes, normalizedBytes: sqlRead.normalizedBytes},
+        companion: companionRead ? {relativePath: raw.scriptPath, actualPath: scriptPath,
+          expectedNormalizedSha256: raw.scriptHash, actualNormalizedSha256: companionRead.sha256,
+          readBytes: companionRead.readBytes, normalizedBytes: companionRead.normalizedBytes} : null};
+      throw Object.assign(new Error(`Migration resource identity changed: ${file}; ${JSON.stringify(details)}`),
+        {code: 'MIGRATION_RESOURCE_IDENTITY_CHANGED', details});
     }
     if (path.basename(sqlPath) !== raw.fileName) throw new Error(`Invalid migration file name: ${file}`);
     if (raw.dependsOn.some((d: MigrationKey) => !d || !['upstream','custom'].includes(d.namespace) || !Number.isSafeInteger(d.id) || d.id < 0)) {

@@ -1,5 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -226,6 +227,50 @@ describe('dual-chain production replay', () => {
       expect(db.prepare("SELECT namespace FROM migration_history_v2 WHERE id=1 ORDER BY namespace").all()).toEqual([{namespace:'custom'},{namespace:'upstream'}]);
       expect(runDualMigrationReplay(db,{drizzleDir:out,dbPath:filename}).applied).toEqual([]);
     } finally {db.close();}
+  });
+
+  // Diagnostic contract: the unexplained 770fff resource rejection only named a descriptor.
+  // Existing mismatch cases cannot identify SQL versus companion or retain that read's evidence.
+  // Minimal input is one changed resource in a temporary catalog; migration tier exercises the
+  // real replay entry, exact error evidence and unchanged SQLite/sidecar before any DDL.
+  it.each(['sql','companion'] as const)('diagnoses the single %s resource read that rejects replay before DDL', kind => {
+    const {db,filename}=fixture('fork'),out=isolatedCatalog();
+    let restoreReadSpy = (): void => {};
+    try {
+      runDualMigrationReplay(db,{drizzleDir:out,dbPath:filename});
+      appendMigration(out,'custom',14,'CREATE TABLE forbidden_delta (id INTEGER PRIMARY KEY);\r\n');
+      const descriptorPath=path.join(out,'catalog/entries/custom-0014.json');
+      const descriptor=JSON.parse(fs.readFileSync(descriptorPath,'utf8'));
+      descriptor.scriptPath=descriptor.sqlPath.replace(/\.sql$/,'.ts');
+      const sqlPath=path.join(out,descriptor.sqlPath),scriptPath=path.join(out,descriptor.scriptPath);
+      fs.writeFileSync(scriptPath,"exports.run = db => db.exec('CREATE TABLE forbidden_companion (id INTEGER)');\r\n");
+      descriptor.scriptHash=migrationFileHash(scriptPath);
+      fs.writeFileSync(descriptorPath,JSON.stringify(descriptor));
+      const marker=kind==='sql'?'PRIVATE_SQL_MARKER':'PRIVATE_COMPANION_MARKER';
+      fs.appendFileSync(kind==='sql'?sqlPath:scriptPath,`${kind==='sql'?'--':'//'} ${marker} 中\r\n`);
+      const resourceEvidence=(relativePath:string,actualPath:string,expectedNormalizedSha256:string) => {
+        const bytes=fs.readFileSync(actualPath),normalized=bytes.toString('utf8').replace(/\r\n/g,'\n');
+        return {relativePath,actualPath,expectedNormalizedSha256,
+          actualNormalizedSha256:crypto.createHash('sha256').update(normalized).digest('hex'),
+          readBytes:bytes.length,normalizedBytes:Buffer.byteLength(normalized)};
+      };
+      const details={namespace:'custom',id:14,descriptorPath:'catalog/entries/custom-0014.json',
+        sql:resourceEvidence(descriptor.sqlPath,sqlPath,descriptor.sqlHash),
+        companion:resourceEvidence(descriptor.scriptPath,scriptPath,descriptor.scriptHash)};
+      const beforeDb=db.serialize(),beforeManifest=fs.readFileSync(`${filename}.migration-runtime.json`,'utf8');
+      const readSpy=vi.spyOn(fs,'readFileSync');
+      restoreReadSpy=()=>{readSpy.mockRestore();};
+      let failure:unknown;
+      try { runDualMigrationReplay(db,{drizzleDir:out,dbPath:filename}); } catch (error) { failure=error; }
+      expect(failure).toMatchObject({code:'MIGRATION_RESOURCE_IDENTITY_CHANGED',details});
+      expect((failure as Error).message).toContain(JSON.stringify(details));
+      expect((failure as Error).message).not.toContain(marker);
+      expect(readSpy.mock.calls.filter(([file])=>file===sqlPath)).toHaveLength(1);
+      expect(readSpy.mock.calls.filter(([file])=>file===scriptPath)).toHaveLength(1);
+      expect(db.serialize().equals(beforeDb)).toBe(true);
+      expect(db.prepare("SELECT name FROM sqlite_master WHERE name IN ('forbidden_delta','forbidden_companion')").all()).toEqual([]);
+      expect(fs.readFileSync(`${filename}.migration-runtime.json`,'utf8')).toBe(beforeManifest);
+    } finally {restoreReadSpy();db.close();}
   });
 
   it.each(['hash','dependency','cycle','ledger'])('rejects %s mismatch before any new DDL', kind => {
