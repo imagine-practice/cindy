@@ -21,6 +21,7 @@ import {
   resolveCindyRegion,
 } from '@cindy/maker-shared/brand-identity';
 import { preparePackagedNodePty } from './forge-node-pty';
+import { stageUpdaterExecutable } from './forge-updater';
 import { prunePackagedRuntime, prunePackagedMigrationSnapshots } from './forge-prune-runtime';
 import { copyRuntimeDependencyTrees as copyRuntimeTrees } from './forge-runtime-deps';
 import { packagedResourcesPath, stagePackagedThirdPartyNotices } from './forge-third-party-notices';
@@ -508,60 +509,11 @@ function buildCindyUpdater(): void {
   // 走 mt.exe 后处理而不是 build.rs 嵌资源, 是因为 tauri-build 自己已经
   // 在 ID 1 嵌了一个 manifest, 第二个 manifest 会触发 CVT1100。mt.exe
   // -outputresource:xxx;#1 直接覆盖 ID 1 那个, 不冲突。
-  patchUpdaterManifest(builtExe);
-
-  fs.copyFileSync(builtExe, destExe);
+  stageUpdaterExecutable(builtExe, destExe, path.join(updaterRoot, 'cindy-updater.manifest'));
   const sizeMb = (fs.statSync(destExe).size / (1024 * 1024)).toFixed(2);
   console.log(
     `[forge:prePackage] ${UPDATER_EXE} → ${destExe} (${sizeMb} MB, ${Date.now() - t0}ms)`,
   );
-}
-
-/**
- * 在 Windows SDK 安装目录里找 mt.exe (manifest tool)。优先用最新版 SDK 的
- * x64 版本; 找不到时给清晰的错(让构建机至少装一次 Win10 SDK)。
- */
-function findMtExe(): string {
-  const candidates = [
-    'C:\\Program Files (x86)\\Windows Kits\\10\\bin',
-    'C:\\Program Files\\Windows Kits\\10\\bin',
-  ];
-  for (const base of candidates) {
-    if (!fs.existsSync(base)) continue;
-    // 子目录形如 10.0.22621.0, 取版本号最大的
-    const versions = fs
-      .readdirSync(base)
-      .filter((d) => /^10\.\d+\.\d+\.\d+$/.test(d))
-      .sort()
-      .reverse();
-    for (const v of versions) {
-      const mt = path.join(base, v, 'x64', 'mt.exe');
-      if (fs.existsSync(mt)) return mt;
-    }
-    // 老 SDK 直接放 bin\x64 下没版本号子目录
-    const flat = path.join(base, 'x64', 'mt.exe');
-    if (fs.existsSync(flat)) return flat;
-  }
-  throw new Error(
-    '[forge] mt.exe not found. Install Windows 10/11 SDK and ensure ' +
-      '"C:\\Program Files (x86)\\Windows Kits\\10\\bin\\<ver>\\x64\\mt.exe" exists.',
-  );
-}
-
-function patchUpdaterManifest(exePath: string): void {
-  const manifestPath = path.join(__dirname, 'cindy-updater', 'src-tauri', 'cindy-updater.manifest');
-  if (!fs.existsSync(manifestPath)) {
-    throw new Error(`[forge] manifest missing at ${manifestPath}`);
-  }
-  const mt = findMtExe();
-  // -outputresource:<exe>;#1 — 替换 exe 里资源 ID 1 (RT_MANIFEST), 不新增。
-  // tauri-build 已经塞过一个默认 manifest 在 ID 1, 这步把它换成我们的版本。
-  const r = spawnSync(mt, ['-nologo', '-manifest', manifestPath, `-outputresource:${exePath};#1`], {
-    stdio: 'inherit',
-  });
-  if (r.error) throw new Error(`[forge] mt.exe spawn failed: ${r.error.message}`);
-  if (r.status !== 0) throw new Error(`[forge] mt.exe exited ${r.status} when patching manifest`);
-  console.log(`[forge:prePackage] manifest patched into ${UPDATER_EXE} (PCA bypass)`);
 }
 
 /**

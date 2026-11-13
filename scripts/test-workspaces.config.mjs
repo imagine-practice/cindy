@@ -378,6 +378,7 @@ export default {
           exclude: [
             '**/*.git-integration.test.ts',
             '**/*.integration.test.ts',
+            'scripts/updater-staging.integration.test.mjs',
             'src/renderer/features/projects/__tests__/ProjectProgressWrite.integration.test.tsx',
             'src/renderer/features/materials/__tests__/materialReferencePage.integration.test.tsx',
             'src/main/mcp-integrations/__tests__/entityProjectManagement.test.ts',
@@ -407,6 +408,7 @@ export default {
           command: vitestBin('run', '--maxWorkers=2'),
           include: [
             'src/main/local-agent/__tests__/*.integration.test.ts',
+            'scripts/updater-staging.integration.test.mjs',
             'src/renderer/features/projects/__tests__/ProjectProgressWrite.integration.test.tsx',
             'src/renderer/features/materials/__tests__/materialReferencePage.integration.test.tsx',
             'src/main/mcp-integrations/__tests__/entityProjectManagement.test.ts',
