@@ -22311,7 +22311,17 @@
       "ownerScopeChanged": "账号已切换，请重新打开这一页。",
       "failed": "关联没有成功，请稍后重试。"
     },
-    "projectFailed": "暂时读不到这个项目关联的群。"
+    "projectFailed": "暂时读不到这个项目关联的群。",
+    "ownerInGroupHint": "群主或管理员可关联负责人已在本群的项目。关联不会切换工作目录，也不会授予项目访问权限。",
+    "ownerUnavailable": "项目负责人已变更或在本群不可用，请重新关联后再作为工作项目。",
+    "currentWork": "当前工作项目",
+    "workDirectory": "工作目录",
+    "setWork": "设为工作项目",
+    "clearWork": "取消工作项目",
+    "relink": "重新关联",
+    "noEligible": "当前没有可关联的项目。",
+    "legacyFolderHint": "当前工作项目优先。取消工作项目后，才会使用保留的仓库或手选文件夹。",
+    "ownerIdentityScope": "仅列出你可访问且负责人身份已核验的项目。当前支持本账号本人及本账号伙伴负责人，暂不能核验其他账号身份。"
   },
   "projectProgressToGroup": {
     "title": "同步到群",

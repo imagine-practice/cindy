@@ -22392,7 +22392,17 @@
       "ownerScopeChanged": "Das Konto hat gewechselt. Öffne diese Seite erneut.",
       "failed": "Die Verknüpfung kam nicht durch. Versuche es gleich noch einmal."
     },
-    "projectFailed": "Die verknüpften Gruppen dieses Projekts konnten nicht gelesen werden."
+    "projectFailed": "Die verknüpften Gruppen dieses Projekts konnten nicht gelesen werden.",
+    "ownerInGroupHint": "Gruppeninhaber und Administratoren können Projekte verknüpfen, deren Verantwortliche in der Gruppe sind. Arbeitsordner und Zugriffsrechte bleiben unverändert.",
+    "ownerUnavailable": "Der Verantwortliche hat gewechselt oder ist in dieser Gruppe nicht verfügbar. Verknüpfen Sie das Projekt erneut.",
+    "currentWork": "Aktuelles Arbeitsprojekt",
+    "workDirectory": "Arbeitsordner",
+    "setWork": "Als Arbeitsprojekt nutzen",
+    "clearWork": "Nicht mehr als Arbeitsprojekt nutzen",
+    "relink": "Erneut verknüpfen",
+    "noEligible": "Keine Projekte zum Verknüpfen verfügbar.",
+    "legacyFolderHint": "Das Arbeitsprojekt hat Vorrang. Beenden Sie dessen Nutzung, um das gespeicherte Repository oder den gewählten Ordner zu verwenden.",
+    "ownerIdentityScope": "Angezeigt werden zugängliche Projekte mit bestätigter Zuständigkeit. Unterstützt werden Ihr Konto und Ihre Partner; andere Konten können noch nicht bestätigt werden."
   },
   "projectProgressToGroup": {
     "title": "In Gruppe synchronisieren",

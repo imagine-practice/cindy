@@ -22311,7 +22311,17 @@
       "ownerScopeChanged": "帳號已切換，請重新開啟這一頁。",
       "failed": "關聯沒有成功，請稍後重試。"
     },
-    "projectFailed": "暫時讀不到這個專案關聯的群組。"
+    "projectFailed": "暫時讀不到這個專案關聯的群組。",
+    "ownerInGroupHint": "群主或管理員可關聯負責人已在本群的專案。關聯不會切換工作目錄，也不會授予專案存取權限。",
+    "ownerUnavailable": "專案負責人已變更或在本群無法使用，請重新關聯後再作為工作專案。",
+    "currentWork": "目前工作專案",
+    "workDirectory": "工作目錄",
+    "setWork": "設為工作專案",
+    "clearWork": "取消工作專案",
+    "relink": "重新關聯",
+    "noEligible": "目前沒有可關聯的專案。",
+    "legacyFolderHint": "目前工作專案優先。取消工作專案後，才會使用保留的儲存庫或手選資料夾。",
+    "ownerIdentityScope": "僅列出你可存取且負責人身分已核驗的專案。目前支援本帳號本人及本帳號夥伴負責人，暫不能核驗其他帳號身分。"
   },
   "projectProgressToGroup": {
     "title": "同步到群組",

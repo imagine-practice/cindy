@@ -298,7 +298,7 @@ it('offers ownership transfer only to human members', async () => {
 });
 it('offers the 关联项目 entry in group settings and opens it as its own page', async () => {
   const view = renderAt(group());
-  fireEvent.click(row('projectGroupLinks.title'));
+  fireEvent.click(row(key('project')));
   await waitFor(() => expect(screen.getByTestId('location').textContent)
     .toBe('/bots/groups/room?groupSettings=1&groupSettingsPage=projects'));
   // 这个群在本用例里没有聊天服务器房间定位，页面要说明原因而不是假装没有关联。
@@ -320,7 +320,7 @@ it('keeps reply mode and 分工 settings for single-speaker groups and saves men
   renderAt({ ...group(true), singleSpeaker: true, replyMode: 'all', speakingMode: 'auto', topic: 'Topic' }, 'manage');
   expect(screen.queryByRole('combobox', { name: 'bots.groupChat.settings.speakingMode' })).toBeNull();
   expect(screen.getByRole('combobox', { name: 'bots.groupChat.organizer' })).toBeTruthy();
-  expect(screen.getByText(key('projectFolder'))).toBeTruthy();
+  expect(screen.queryByText(key('projectFolder'))).toBeNull();
   fireEvent.click(screen.getByRole('combobox', { name: 'bots.groupChat.settings.replyMode' }));
   fireEvent.click(screen.getByRole('option', { name: 'bots.groupChat.settings.replyModeMentioned' }));
   await waitFor(() => expect(mocks.manage).toHaveBeenCalledWith({ groupId: 'room', action: {
@@ -332,7 +332,7 @@ it('keeps reply mode and 分工 settings for single-speaker groups and saves men
 
 // bot-group-chat.md §7.5: the group's repository is saved with the group; a pasted URL is reduced to owner/name.
 it('saves the group repository from the project section', async () => {
-  renderAt({ ...group(true), supportsGroupProject: true, project: null }, 'manage');
+  renderAt({ ...group(true), supportsGroupProject: true, project: null }, 'projects');
   const input = screen.getByRole('textbox', { name: key('githubRepo') });
   fireEvent.focus(input);
   fireEvent.change(input, { target: { value: 'https://github.com/makecindy/cindy.git' } });

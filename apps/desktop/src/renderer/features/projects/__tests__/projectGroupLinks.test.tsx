@@ -16,7 +16,7 @@ import { linkProjectToGroup, resetProjectGroupLinkRequestIds } from '../projectG
 
 const env = vi.hoisted(() => ({
   list: vi.fn(), listProject: vi.fn(), link: vi.fn(), unlink: vi.fn(), deviceId: vi.fn(), projects: vi.fn(),
-  confirm: vi.fn(), navigate: vi.fn(),
+  confirm: vi.fn(), navigate: vi.fn(), setWork: vi.fn(),
   groups: [] as Array<{ id: string; name: string; serverBacked?: boolean; conversationKind?: string }>,
   loaded: true,
 }));
@@ -126,6 +126,34 @@ beforeEach(() => {
   installBridge();
 });
 afterEach(cleanup);
+
+// Unified page contract: visible membership, not account ownership, controls
+// discovery; Main eligibility is required. Linking never changes the work dir.
+it('links an eligible bot-owned project as a member and changes work only after an explicit directory choice', async () => {
+  const value=project('p1','Bot project');
+  value.members[0].role='member';
+  value.members.push({subject:{kind:'bot',id:'bot-owner',displayName:'Owner',avatar:null,avatarColor:null},role:'owner',addedAt:''});
+  value.dirs=[{dirKey:'local:/work A',dirPath:'/work A'},{dirKey:'local:/work B',dirPath:'/work B'}];
+  let linked=false,work=false;
+  env.projects.mockResolvedValue([value]);
+  const row=linkRow({available:true,workDirKey:null});
+  env.list.mockImplementation(async()=>({...listOf(linked?[{...row,workDirKey:work?'local:/work B':null}]:[]),eligibleProjects:[value]}));
+  env.link.mockImplementation(async()=>{linked=true;return mutationOf(row,'linked');});
+  env.setWork.mockImplementation(async()=>{work=true;return mutationOf({...row,workDirKey:'local:/work B'},'unchanged');});
+  const api=window.electronAPI.localDb.projectGroupLinks;
+  Object.assign(api,{ownerInGroup:true,setWork:env.setWork});
+  render(<GroupLinkedProjects group={group()} canManage />);
+  await screen.findByRole('option',{name:'Bot project'});
+  chooseProject('p1');fireEvent.click(addButton());
+  const set=await screen.findByRole('button',{name:'projectGroupLinks.setWork'});
+  expect(env.link.mock.calls[0][0]).toMatchObject({policy:'owner-in-group',target:{projectId:'p1'}});
+  expect(env.setWork).not.toHaveBeenCalled();expect(set.hasAttribute('disabled')).toBe(true);
+  fireEvent.change(screen.getByRole('combobox',{name:'projectGroupLinks.workDirectory'}),{target:{value:'local:/work B'}});
+  fireEvent.click(set);
+  await waitFor(()=>expect(env.setWork).toHaveBeenCalledOnce());
+  expect(env.setWork.mock.calls[0][0]).toMatchObject({action:'set-work',policy:'owner-in-group',dirKey:'local:/work B'});
+  expect(await screen.findByText('projectGroupLinks.currentWork')).toBeTruthy();
+});
 
 it('shows the empty explanation and no fake row when nothing is linked', async () => {
   env.list.mockResolvedValue(listOf([]));

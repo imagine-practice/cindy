@@ -22311,7 +22311,17 @@
       "ownerScopeChanged": "账号已易，请重开此页。",
       "failed": "联未成，请稍后再试。"
     },
-    "projectFailed": "此项目所系之群，暂不能读。"
+    "projectFailed": "此项目所系之群，暂不能读。",
+    "ownerInGroupHint": "群主、管理员可联负责人在群之项目。关联不易工作目录，亦不增阅览之权。",
+    "ownerUnavailable": "负责人已易，或于此群不可用。须重联，方可用于工作。",
+    "currentWork": "当前工作项目",
+    "workDirectory": "工作目录",
+    "setWork": "用于工作",
+    "clearWork": "停用于工作",
+    "relink": "重新关联",
+    "noEligible": "暂无可联之项目。",
+    "legacyFolderHint": "工作项目为先。停用于工作，方用所存仓库或手选文件夹。",
+    "ownerIdentityScope": "仅列可阅且负责人已核之项目。今支持本账号本人及所属伙伴，余账号身份尚不可核。"
   },
   "projectProgressToGroup": {
     "title": "同步于群",

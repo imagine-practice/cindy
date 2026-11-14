@@ -20,6 +20,7 @@ import { Switch } from '@/components/ui/switch';
 import { useConfirmDialog } from '@/components/ui/confirm-dialog-provider';
 import { ProfileEditDialog } from '@/components/settings/ProfileEditDialog';
 import { GroupLinkedProjects } from '@/features/projects/GroupLinkedProjects';
+import { projectGroupLinkOwnerPolicy } from '@/features/projects/projectGroupLinkClient';
 import { getDataOwnerGeneration, isDataOwnerGenerationCurrent } from '@/contexts/dataOwnerGeneration';
 import { cn } from '@/lib/utils';
 import type { BotGroupMemberView, BotGroupSummary, ChatGroupAction } from '../../../shared/botGroupChat';
@@ -69,7 +70,7 @@ export function resolveChatGroupSettingsPage(group: BotGroupSummary, value: stri
 
 export function chatGroupSettingsPageTitle(page: ChatGroupSettingsPage, t: TFunction): string {
   if (page.kind === 'companion') return t(key('companionTitle'), { name: page.member.name });
-  if (page.kind === 'projects') return t('projectGroupLinks.title');
+  if (page.kind === 'projects') return t(key('project'));
   return t(key(page.kind === 'manage' ? 'manage' : page.kind === 'edit' ? 'editTitle' : 'myProfile'));
 }
 
@@ -95,6 +96,8 @@ export function ChatGroupSettings({ group }: { group: BotGroupSummary }) {
   const page = resolveChatGroupSettingsPage(group, rawPage);
   const pageKey = page ? (page.kind === 'companion' ? `companion:${page.member.actorId}` : page.kind) : 'home';
   const [tab, setTab] = useState<'settings' | 'members'>('settings');
+  const [linkedWorkSelected, setLinkedWorkSelected] = useState<boolean|null>(null);
+  useEffect(() => { setLinkedWorkSelected(null); }, [group.id]);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const soleOwner = me?.role === 'owner' && group.members.length === 1;
@@ -277,15 +280,6 @@ export function ChatGroupSettings({ group }: { group: BotGroupSummary }) {
               onValueChange={value => void saveRules({ speakingMode: value as typeof speakingMode })} />} />}
         </SettingsCard>
       </SettingsSection>
-      {/* The group's project: a shared repository and this computer's folder. Replies and 分工 work in it (§7.5). */}
-      <SettingsSection title={t(key('project'))} caption={t(key('projectCaption'))}>
-        <SettingsCard>
-          {group.supportsGroupProject && <SettingsRow wrap title={t(key('githubRepo'))} hint={t(key('githubRepoHint'))}
-            trailing={<GithubRepoField repo={group.project?.repo ?? ''} busy={busy} onSave={githubRepo => void updateWorkSettings({ githubRepo })} />} />}
-          <SettingsRow wrap title={t(key('projectFolder'))} hint={t(key(group.projectDirAuto ? 'projectDirAutoHint' : 'projectDirHint'))}
-            trailing={<ProjectFolder dir={group.projectDir} auto={group.projectDirAuto === true} busy={busy} onChoose={() => void chooseProjectDir()} onClear={() => void updateWorkSettings({ projectDir: null })} />} />
-        </SettingsCard>
-      </SettingsSection>
       {/* The organizer arranges a 分工 whose steps are not written out (§7.1). */}
       <SettingsSection title={t(key('work'))} caption={t(key('workCaption'))}>
         <SettingsCard>
@@ -346,7 +340,18 @@ export function ChatGroupSettings({ group }: { group: BotGroupSummary }) {
     </>;
     footer = <Button variant="cta" size="md" type="submit" form="chat-group-profile" disabled={busy}>{t(key('save'))}</Button>;
   } else if (page?.kind === 'projects') {
-    body = <GroupLinkedProjects group={group} canManage={manager} />;
+    body = <div className="flex flex-col gap-5">
+      {/* The group's project: a shared repository and this computer's folder. Replies and 分工 work in it (§7.5). */}
+      <SettingsSection title={t(key('project'))} caption={t(key('projectCaption'))}>
+        <SettingsCard>
+          {group.supportsGroupProject && <SettingsRow wrap title={t(key('githubRepo'))} hint={t(key('githubRepoHint'))}
+            trailing={<GithubRepoField repo={group.project?.repo ?? ''} busy={busy || !manager} onSave={githubRepo => void updateWorkSettings({ githubRepo })} />} />}
+          <SettingsRow wrap title={t(key('projectFolder'))} hint={linkedWorkSelected ? t('projectGroupLinks.legacyFolderHint') : t(key(group.projectDirAuto ? 'projectDirAutoHint' : 'projectDirHint'))}
+            trailing={<ProjectFolder dir={group.projectDir} auto={group.projectDirAuto === true} busy={busy || !manager || (projectGroupLinkOwnerPolicy() && linkedWorkSelected !== false)} onChoose={() => void chooseProjectDir()} onClear={() => void updateWorkSettings({ projectDir: null })} />} />
+        </SettingsCard>
+      </SettingsSection>
+      <GroupLinkedProjects group={group} canManage={manager} onWorkSelectionChange={setLinkedWorkSelected} />
+    </div>;
   } else if (page?.kind === 'companion') {
     const member = page.member;
     body = <>
@@ -397,7 +402,7 @@ export function ChatGroupSettings({ group }: { group: BotGroupSummary }) {
             {!dissolved && <SettingsSection>
               <SettingsCard>
                 <SettingsRow media lead={<SettingsRowIcon><FolderKanban size={16} aria-hidden /></SettingsRowIcon>}
-                  title={t('projectGroupLinks.title')} hint={t('projectGroupLinks.hint')} chevron
+                  title={t(key('project'))} hint={t('projectGroupLinks.hint')} chevron
                   onClick={() => go('projects')} />
               </SettingsCard>
             </SettingsSection>}

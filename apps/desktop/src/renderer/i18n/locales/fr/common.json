@@ -22600,7 +22600,17 @@
       "ownerScopeChanged": "Le compte a changé. Rouvrez cette page.",
       "failed": "Le lien n’a pas abouti. Réessayez dans un instant."
     },
-    "projectFailed": "Les groupes liés à ce projet n’ont pas pu être lus."
+    "projectFailed": "Les groupes liés à ce projet n’ont pas pu être lus.",
+    "ownerInGroupHint": "Les propriétaires et administrateurs peuvent lier un projet dont le responsable est dans le groupe, sans changer le dossier de travail ni les droits d’accès.",
+    "ownerUnavailable": "Le responsable a changé ou est indisponible dans ce groupe. Reliez le projet avant de l’utiliser.",
+    "currentWork": "Projet de travail actuel",
+    "workDirectory": "Dossier de travail",
+    "setWork": "Utiliser pour travailler",
+    "clearWork": "Ne plus utiliser pour travailler",
+    "relink": "Relier à nouveau",
+    "noEligible": "Aucun projet disponible à lier.",
+    "legacyFolderHint": "Le projet de travail est prioritaire. Désactivez son utilisation pour retrouver le dépôt ou le dossier enregistré.",
+    "ownerIdentityScope": "Seuls les projets accessibles avec un responsable vérifié apparaissent. Cette version vérifie votre compte et vos partenaires, pas encore les autres comptes."
   },
   "projectProgressToGroup": {
     "title": "Synchroniser avec le groupe",

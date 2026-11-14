@@ -22392,7 +22392,17 @@
       "ownerScopeChanged": "The account changed. Reopen this page.",
       "failed": "The link did not go through. Try again shortly."
     },
-    "projectFailed": "This project's linked groups could not be read."
+    "projectFailed": "This project's linked groups could not be read.",
+    "ownerInGroupHint": "Group owners and admins can link projects whose current owner is in this group. Linking does not change the working folder or grant project access.",
+    "ownerUnavailable": "The project owner has changed or is unavailable in this group. Relink before using it for work.",
+    "currentWork": "Current work project",
+    "workDirectory": "Working folder",
+    "setWork": "Use for work",
+    "clearWork": "Stop using for work",
+    "relink": "Relink",
+    "noEligible": "No projects are available to link.",
+    "legacyFolderHint": "The work project takes priority. Stop using it for work to use the saved repository or manual folder.",
+    "ownerIdentityScope": "Only accessible projects with a verified owner identity appear. This version supports you and your teammates as owners; other accounts cannot yet be verified."
   },
   "projectProgressToGroup": {
     "title": "Sync to group",

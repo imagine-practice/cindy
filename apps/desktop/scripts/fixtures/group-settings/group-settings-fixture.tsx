@@ -5,6 +5,7 @@ import { ctx, forbid, mountPage, subscription } from '../../ui-page/harness';
 import { BotGroupSettingsDrawer } from '../../../src/renderer/features/bots/BotGroupSettingsDrawer';
 import { BOT_GROUP_SETTINGS_PARAM } from '../../../src/renderer/features/bots/botGroupPresentation';
 import { refreshBotGroups } from '../../../src/renderer/features/bots/botGroupStore';
+import { setDataOwnerGeneration } from '../../../src/renderer/contexts/dataOwnerGeneration';
 
 interface Data {
   role: 'owner' | 'admin' | 'member';
@@ -18,10 +19,15 @@ interface Data {
   spare?: number;
   /** A server with the group's own Cindy (bot-group-chat.md §9): on, or switched off. */
   assistant?: 'on' | 'off';
+  projects?: boolean;
 }
 
 const data = ctx.data as unknown as Data;
-const groupId = 'group-settings-fixture';
+const groupId = data.projects ? '10000000-0000-4000-8000-000000000001' : 'group-settings-fixture';
+setDataOwnerGeneration('fixture-account', 1);
+const project = {id:'fixture-project',name:'发布检查',goal:null,ownerId:'aster',status:'active',taskCount:0,
+  createdAt:'',updatedAt:'',members:[{subject:{kind:'account',id:'fixture-account'},role:'member'}],
+  dirs:[{dirKey:'local:/projects/release',dirPath:'/projects/release'}]};
 const T0 = new Date(2026, 9, 28, 14, 30).getTime();
 const person = (actorId: string, name: string, role: 'owner' | 'admin' | 'member', isSelf = false) => ({
   actorId, botId: actorId, actorKind: 'human', name, displayName: name, role, isSelf, isOwned: isSelf,
@@ -48,7 +54,7 @@ const group = {
   topic: data.noAbout ? '' : '周四发版前收口 Android 更新卡与伙伴群聊',
   description: data.noAbout ? '' : '这里讨论每周发版：确认要合并的 PR、跑完回归、整理更新说明。\n\n需要谁处理就直接 @ 他；不确定的事情先发在群里，别私下拍板。\n发版当天由负责人统一确认，其他人只补充事实。\n周五回顾这一周的问题。',
   replyMode: data.assistant ? 'all' : 'mentioned', speakingMode: 'auto', singleSpeaker: !!data.assistant, members,
-  ...(data.assistant ? { supportsGroupAssistant: true, assistantEnabled: data.assistant === 'on', supportsGroupProject: true,
+  ...(data.assistant || data.projects ? { supportsGroupAssistant: !!data.assistant, assistantEnabled: data.assistant === 'on', supportsGroupProject: true,
     project: { kind: 'github', repo: 'makecindy/cindy' } } : {}),
   organizerBotId: data.alone ? null : 'aster', projectDir: data.role === 'member' ? null : '/Users/nana/Projects/cindy', autoContinue: false,
   supportsMentionAudiences: true, allowMentionAllBots: true,
@@ -62,6 +68,19 @@ const spare = Array.from({ length: data.spare ?? 2 }, (_, index) => ({ actorId: 
 void mountPage({
   route: `/bots/groups/${groupId}`,
   host: {
+    getDeviceId: async () => 'fixture-device',
+    clientEndpoints: {chatApiBaseUrl:'https://chat.example'},
+    localDb: {
+      projects: {list:async()=>[project],onChanged:subscription('projectsChanged')},
+      projectGroupLinks: {ownerInGroup:true,
+        list:async()=>({ok:true,contractRevision:1,eligibleProjects:[project],nextCursor:null,links:[{
+          relationId:'fixture-relation',group:{endpoint:'https://chat.example',roomId:groupId},
+          target:{accountId:'fixture-account',deviceId:'fixture-device',projectId:project.id},
+          status:'active',revision:1,available:true,workDirKey:null,createdAt:'',updatedAt:'',
+        }]}),
+        link:forbid('projectGroupLinks.link'),unlink:forbid('projectGroupLinks.unlink'),setWork:forbid('projectGroupLinks.setWork'),
+      },
+    },
     maker: {
       listBotGroups: async () => ({ ok: true, groups: [group] }),
       getBotGroup: async () => ({ ok: true, group }),

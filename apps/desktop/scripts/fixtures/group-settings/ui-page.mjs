@@ -16,6 +16,7 @@ export default {
     'src/renderer/features/bots/BotRosterView': 'export const BotRosterView = () => null;',
   },
   cases: {
+    projects: {about:'Unified project page: repo/manual folder plus structural links and explicit work selection; no writes',data:{role:'owner',projects:true}},
     default: { about: 'Owner: 群管理 with 解散, member menus, invite menu with both items', data: { role: 'owner' } },
     dismissal: { about: 'Scrim and × close, nested layers stay isolated, Escape backs out of subpages, reopening clears route state', data: { role: 'owner' } },
     admin: { about: 'Admin: 群管理 without 解散, cannot manage the owner', data: { role: 'admin' } },
@@ -34,6 +35,17 @@ export default {
     const dialog = page.getByRole('dialog');
     const invite = page.getByTestId('chat-group-invite');
     const manage = await row(page, await t('manage'));
+    if (ui.case === 'projects') {
+      await manage.click();
+      assert.equal(await dialog.getByRole('heading',{name:await t('project'),exact:true}).count(),0,'no duplicate project section in management');
+      await dialog.getByRole('button',{name:await t('back'),exact:true}).click();
+      await (await row(page,await t('project'))).click();
+      await dialog.getByText('发布检查',{exact:true}).waitFor();
+      await dialog.getByRole('button',{name:await ui.t('projectGroupLinks.setWork'),exact:true}).waitFor();
+      assert.equal(await dialog.getByRole('textbox').first().inputValue(),'makecindy/cindy');
+      await ui.capture('unified-projects');
+      return;
+    }
     if (ui.case === 'dismissal') {
       const scrimPoint = { x: 80, y: 340 }; // Directly over the background action: detect click-through.
       const clickScrim = () => page.mouse.click(scrimPoint.x, scrimPoint.y);

@@ -19,6 +19,7 @@ import type {
   ProjectGroupLinkErrorCode,
   ProjectGroupLinksResponse,
 } from '../../../shared/projectGroupLinks';
+import type { ProjectRecord } from '../../../shared/projects';
 
 /** 只含公共协议字段的群定位，不含授权对象或群资料。 */
 export interface ProjectGroupLinkGroup { endpoint: string; roomId: string }
@@ -41,6 +42,7 @@ type Bridge = Window['electronAPI']['localDb']['projectGroupLinks'];
 function bridge(): Bridge | null {
   return window.electronAPI?.localDb?.projectGroupLinks ?? null;
 }
+export function projectGroupLinkOwnerPolicy(): boolean { return bridge()?.ownerInGroup === true; }
 
 const ROOM_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const ENDPOINT_MAX_LENGTH = 2048;
@@ -124,6 +126,7 @@ export interface ProjectGroupLinkRows {
   active: ProjectGroupLink[];
   /** 每个项目当前行的 revision（含已解除的行），作为 `link` 的 expectedRevision 基线。 */
   revisions: Map<string, number>;
+  eligibleProjects?: ProjectRecord[];
 }
 
 /**
@@ -138,10 +141,12 @@ export async function readProjectGroupLinks(
   if (!api) throw new ProjectGroupLinkError('UNSUPPORTED_CAPABILITY', 'not-committed');
   const rows: ProjectGroupLink[] = [];
   let cursor: string | undefined;
+  let eligibleProjects: ProjectRecord[] | undefined;
   try {
     for (let page = 0; page < MAX_PAGES; page += 1) {
       const response = await api.list({
         action: 'list', group, limit: PAGE_LIMIT,
+        ...(projectGroupLinkOwnerPolicy() ? {policy:'owner-in-group' as const}:{}),
         ...(options.includeRemoved ? { includeRemoved: true } : {}),
         ...(cursor === undefined ? {} : { cursor }),
       });
@@ -149,6 +154,7 @@ export async function readProjectGroupLinks(
       if (failure) throw failure;
       if (!('links' in response) || !('nextCursor' in response)) throw new ProjectGroupLinkError('INTERNAL', 'not-committed');
       rows.push(...response.links);
+      if ('eligibleProjects' in response) eligibleProjects = response.eligibleProjects;
       cursor = response.nextCursor ?? undefined;
       if (cursor === undefined) break;
     }
@@ -157,7 +163,7 @@ export async function readProjectGroupLinks(
   }
   const revisions = new Map<string, number>();
   for (const row of rows) revisions.set(row.target.projectId, row.revision);
-  return { active: rows.filter(row => row.status === 'active'), revisions };
+  return { active: rows.filter(row => row.status === 'active'), revisions, ...(eligibleProjects ? {eligibleProjects}: {}) };
 }
 
 /** 按项目读到的本机关联（只含 `status: 'active'` 的行）。 */
@@ -203,12 +209,13 @@ export async function linkProjectToGroup(input: LinkProjectToGroupInput): Promis
   const api = bridge();
   if (!api) throw new ProjectGroupLinkError('UNSUPPORTED_CAPABILITY', 'not-committed');
   const intent = [input.group.endpoint, input.group.roomId, input.accountId, input.deviceId,
-    input.projectId, String(input.expectedRevision)].join('|');
+    input.projectId, String(input.expectedRevision), ...(projectGroupLinkOwnerPolicy()?['owner-in-group']:[])].join('|');
   const requestId = projectGroupLinkRequestId('link', intent);
   let response: ProjectGroupLinksResponse;
   try {
     response = await api.link({
       action: 'link', requestId, group: input.group, expectedRevision: input.expectedRevision,
+      ...(projectGroupLinkOwnerPolicy()?{policy:'owner-in-group' as const}:{}),
       target: { accountId: input.accountId, deviceId: input.deviceId, projectId: input.projectId },
     });
   } catch {
@@ -231,12 +238,13 @@ export async function unlinkProjectFromGroup(input: UnlinkProjectFromGroupInput)
   const api = bridge();
   if (!api) throw new ProjectGroupLinkError('UNSUPPORTED_CAPABILITY', 'not-committed');
   const intent = [input.group.endpoint, input.group.roomId, input.accountId, input.deviceId,
-    input.projectId, input.relationId, String(input.expectedRevision)].join('|');
+    input.projectId, input.relationId, String(input.expectedRevision), ...(projectGroupLinkOwnerPolicy()?['owner-in-group']:[])].join('|');
   const requestId = projectGroupLinkRequestId('unlink', intent);
   let response: ProjectGroupLinksResponse;
   try {
     response = await api.unlink({
       action: 'unlink', requestId, relationId: input.relationId, group: input.group,
+      ...(projectGroupLinkOwnerPolicy()?{policy:'owner-in-group' as const}:{}),
       expectedRevision: input.expectedRevision,
       target: { accountId: input.accountId, deviceId: input.deviceId, projectId: input.projectId },
     });
@@ -248,6 +256,19 @@ export async function unlinkProjectFromGroup(input: UnlinkProjectFromGroupInput)
   if (!('current' in response)) throw new ProjectGroupLinkError('INTERNAL', 'unknown');
   releaseProjectGroupLinkRequestId('unlink', intent);
   return response.change;
+}
+
+export async function setGroupWorkProject(input: ProjectGroupLinkTarget & {group:ProjectGroupLinkGroup;expectedRevision:number;dirKey:string|null}): Promise<void> {
+  const api=bridge();
+  if(!projectGroupLinkOwnerPolicy()||typeof api?.setWork!=='function') throw new ProjectGroupLinkError('UNSUPPORTED_CAPABILITY','not-committed');
+  const intent=JSON.stringify(input);
+  const requestId=projectGroupLinkRequestId('set-work',intent);
+  let result:ProjectGroupLinksResponse;
+  try { result=await api.setWork({action:'set-work',policy:'owner-in-group',requestId,group:input.group,
+    target:{accountId:input.accountId,deviceId:input.deviceId,projectId:input.projectId},expectedRevision:input.expectedRevision,dirKey:input.dirKey}); }
+  catch { throw new ProjectGroupLinkError('INTERNAL','unknown'); }
+  const failure=asFailure(result);if(failure)throw failure;
+  releaseProjectGroupLinkRequestId('set-work',intent);
 }
 
 /** 固定错误码 → 用户能照做的说法；未登记的错误码统一走通用一句。 */

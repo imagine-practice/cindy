@@ -27,6 +27,8 @@ import {
   projectGroupLinkDeviceId,
   projectGroupLinkErrorKey,
   projectGroupLinkGroup,
+  projectGroupLinkOwnerPolicy,
+  setGroupWorkProject,
   readProjectGroupLinks,
   unlinkProjectFromGroup,
   type ProjectGroupLinkRows,
@@ -46,10 +48,11 @@ function needsReread(failure: ProjectGroupLinkError): boolean {
     || failure.code === 'RELATION_NOT_FOUND';
 }
 
-export function GroupLinkedProjects({ group, canManage }: {
+export function GroupLinkedProjects({ group, canManage, onWorkSelectionChange }: {
   group: BotGroupSummary;
   /** 群主或管理员：只有他们能提交关联；其他成员看列表并得到所需角色的说明。 */
   canManage: boolean;
+  onWorkSelectionChange?: (selected: boolean | null) => void;
 }) {
   const { t } = useTranslation();
   const { confirm } = useConfirmDialog();
@@ -64,6 +67,7 @@ export function GroupLinkedProjects({ group, canManage }: {
   const [projects, setProjects] = useState<ProjectRecord[] | null>(null);
   const [projectsFailed, setProjectsFailed] = useState(false);
   const [selected, setSelected] = useState('');
+  const [workDirs,setWorkDirs] = useState<Record<string,string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const mounted = useRef(true);
   const inFlight = useRef(false);
@@ -94,6 +98,16 @@ export function GroupLinkedProjects({ group, canManage }: {
         }
       }
       if (!valid()) return;
+      try {
+        const projects = await listProjects();
+        if (!valid()) return;
+        setProjects(projects);
+        setProjectsFailed(false);
+      } catch {
+        if (!valid()) return;
+        setProjects([]);
+        setProjectsFailed(true);
+      }
       setRows(next);
       setReadFailure(null);
     } catch (error) {
@@ -104,22 +118,16 @@ export function GroupLinkedProjects({ group, canManage }: {
   }, [canManage, locator]);
 
   useEffect(() => { void load(); }, [load]);
-
+  useEffect(() => { onWorkSelectionChange?.(rows ? rows.active.some(row => !!row.workDirKey) : null); }, [rows,onWorkSelectionChange]);
   useEffect(() => {
-    let cancelled = false;
-    const owner = getDataOwnerGeneration();
-    const valid = () => !cancelled && mounted.current && isDataOwnerGenerationCurrent(owner);
-    void listProjects().then(next => {
-      if (!valid()) return;
-      setProjects(next);
-      setProjectsFailed(false);
-    }).catch(() => {
-      if (!valid()) return;
-      setProjects([]);
-      setProjectsFailed(true);
+    const group = window.electronAPI?.maker?.onBotGroupChanged?.(payload => {
+      if (payload.groupId === roomId && !inFlight.current) void load();
     });
-    return () => { cancelled = true; };
-  }, []);
+    const projects = window.electronAPI?.localDb?.projects?.onChanged?.(() => {
+      if (!inFlight.current) void load();
+    });
+    return () => { group?.(); projects?.(); };
+  },[roomId,load]);
 
   const run = useCallback(async (key: string, action: () => Promise<void>): Promise<void> => {
     if (inFlight.current) return;
@@ -195,11 +203,22 @@ export function GroupLinkedProjects({ group, canManage }: {
   const projectNames = new Map((projects ?? []).map(project => [project.id, project.name]));
   const active = rows?.active ?? [];
   const linkedProjects = new Set(active.map(row => row.target.projectId));
-  const owned = (projects ?? []).filter(project => project.status === 'active'
+  const owned = projectGroupLinkOwnerPolicy()
+    ? (rows?.eligibleProjects ?? [])
+    : (projects ?? []).filter(project => project.status === 'active'
     && project.members.some(member => member.role === 'owner' && member.subject.kind === 'account'
       && member.subject.id === accountId));
   const available = owned.filter(project => !linkedProjects.has(project.id));
   const ready = rows !== null;
+  async function chooseWork(row:ProjectGroupLink,dirKey:string|null) {
+    if(!locator||!accountId)return;
+    const deviceId=await projectGroupLinkDeviceId();
+    if(!deviceId||!mounted.current)return;
+    await run(`work:${row.relationId}`,async()=>{
+      await setGroupWorkProject({group:locator,accountId,deviceId,projectId:row.target.projectId,expectedRevision:row.revision,dirKey});
+      await load();
+    });
+  }
 
   if (!locator || !accountId) {
     return <SettingsCard className="flex flex-col gap-1 px-4 py-3.5">
@@ -229,21 +248,37 @@ export function GroupLinkedProjects({ group, canManage }: {
         </div>}
         {active.map(row => {
           const name = projectNames.get(row.target.projectId);
-          return <SettingsRow key={row.relationId}
+          const dirs=(projects?.find(project=>project.id===row.target.projectId)?.dirs ?? []).filter(dir=>dir.dirKey.startsWith('local:'));
+          const chosen=workDirs[row.relationId] ?? (dirs.length===1?dirs[0].dirKey:'');
+          return <SettingsRow key={row.relationId} wrap
             lead={<Link2 size={16} aria-hidden className="shrink-0 text-[var(--text-secondary)]" />}
             title={name ?? t('projectGroupLinks.unknownProject')}
-            hint={name ? undefined : t('projectGroupLinks.unknownProjectHint')}
-            trailing={<Button variant="secondary" tone="quiet" size="xs" compact
+            hint={row.available===false?t('projectGroupLinks.ownerUnavailable'):row.workDirKey?t('projectGroupLinks.currentWork'):name ? undefined : t('projectGroupLinks.unknownProjectHint')}
+            trailing={<div className="flex flex-wrap items-center gap-2">
+              {canManage && projectGroupLinkOwnerPolicy() && <>
+                {row.available===false && owned.some(project=>project.id===row.target.projectId) && <Button variant="secondary" size="xs" disabled={busy!==null}
+                  onClick={()=>void link(row.target.projectId)}>{t('projectGroupLinks.relink')}</Button>}
+                {row.available!==false && !row.workDirKey && <>
+                  <Select label={t('projectGroupLinks.workDirectory')} value={chosen} disabled={busy!==null||!dirs.length}
+                    options={dirs.map(dir=>({value:dir.dirKey,label:dir.dirPath}))} onValueChange={value=>setWorkDirs(previous=>({...previous,[row.relationId]:value}))} />
+                  <Button variant="secondary" size="xs" disabled={busy!==null||!chosen} onClick={()=>void chooseWork(row,chosen)}>{t('projectGroupLinks.setWork')}</Button>
+                </>}
+                {row.workDirKey && <Button variant="secondary" size="xs" disabled={busy!==null} onClick={()=>void chooseWork(row,null)}>{t('projectGroupLinks.clearWork')}</Button>}
+              </>}
+              <Button variant="secondary" tone="quiet" size="xs" compact
               disabled={busy !== null || !canManage}
               aria-label={t('projectGroupLinks.unlinkTarget', { name: name ?? t('projectGroupLinks.unknownProject') })}
               onClick={() => void unlink(row, name ?? t('projectGroupLinks.unknownProject'))}>
               <Unlink size={14} aria-hidden />{t('projectGroupLinks.unlink')}
-            </Button>} />;
+            </Button></div>} />;
         })}
       </SettingsCard>
     </SettingsSection>
 
-    <SettingsSection caption={canManage ? t('projectGroupLinks.addHint') : t('projectGroupLinks.onlyManager')}>
+    <SettingsSection caption={<>
+      {canManage ? t(projectGroupLinkOwnerPolicy()?'projectGroupLinks.ownerInGroupHint':'projectGroupLinks.addHint') : t('projectGroupLinks.onlyManager')}
+      {projectGroupLinkOwnerPolicy() && <span className="mt-1 block">{t('projectGroupLinks.ownerIdentityScope')}</span>}
+    </>}>
       <SettingsCard className="flex flex-wrap items-center gap-2 px-4 py-3">
         <Select label={t('projectGroupLinks.add')} value={selected}
           disabled={!canManage || busy !== null || !available.length}
@@ -254,7 +289,7 @@ export function GroupLinkedProjects({ group, canManage }: {
           {t('projectGroupLinks.add')}
         </Button>
         {canManage && projects !== null && !available.length && <p className={cn('w-full', SETTINGS_HINT)}>
-          {t(projectsFailed ? 'projectGroupLinks.projectsFailed' : 'projectGroupLinks.noAvailable')}
+          {t(projectsFailed ? 'projectGroupLinks.projectsFailed' : projectGroupLinkOwnerPolicy() ? 'projectGroupLinks.noEligible' : 'projectGroupLinks.noAvailable')}
         </p>}
       </SettingsCard>
     </SettingsSection>

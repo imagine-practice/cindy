@@ -22600,7 +22600,17 @@
       "ownerScopeChanged": "A conta mudou. Abra esta página de novo.",
       "failed": "O vínculo não foi concluído. Tente de novo em instantes."
     },
-    "projectFailed": "Não foi possível ler os grupos vinculados a este projeto."
+    "projectFailed": "Não foi possível ler os grupos vinculados a este projeto.",
+    "ownerInGroupHint": "Os proprietários e administradores podem vincular projetos cujo responsável esteja no grupo, sem alterar a pasta de trabalho nem as permissões.",
+    "ownerUnavailable": "O responsável mudou ou está indisponível neste grupo. Vincule o projeto novamente.",
+    "currentWork": "Projeto de trabalho atual",
+    "workDirectory": "Pasta de trabalho",
+    "setWork": "Usar para trabalhar",
+    "clearWork": "Deixar de usar para trabalhar",
+    "relink": "Vincular novamente",
+    "noEligible": "Não há projetos disponíveis para vincular.",
+    "legacyFolderHint": "O projeto de trabalho tem prioridade. Deixe de usá-lo para voltar ao repositório ou à pasta salvos.",
+    "ownerIdentityScope": "Só aparecem projetos acessíveis com responsável verificado. Esta versão verifica sua conta e seus parceiros, mas ainda não outras contas."
   },
   "projectProgressToGroup": {
     "title": "Sincronizar com o grupo",

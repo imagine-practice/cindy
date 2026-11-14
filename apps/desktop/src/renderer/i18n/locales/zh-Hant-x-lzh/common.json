@@ -22311,7 +22311,17 @@
       "ownerScopeChanged": "帳號已易，請重開此頁。",
       "failed": "聯未成，請稍後再試。"
     },
-    "projectFailed": "此項目所繫之群，暫不能讀。"
+    "projectFailed": "此項目所繫之群，暫不能讀。",
+    "ownerInGroupHint": "群主、管理員可聯負責人在群之專案。關聯不易工作目錄，亦不增閱覽之權。",
+    "ownerUnavailable": "負責人已易，或於此群不可用。須重聯，方可用於工作。",
+    "currentWork": "當前工作專案",
+    "workDirectory": "工作目錄",
+    "setWork": "用於工作",
+    "clearWork": "停用於工作",
+    "relink": "重新關聯",
+    "noEligible": "暫無可聯之專案。",
+    "legacyFolderHint": "工作專案為先。停用於工作，方用所存儲存庫或手選資料夾。",
+    "ownerIdentityScope": "僅列可閱且負責人已核之專案。今支援本帳號本人及所屬夥伴，餘帳號身分尚不可核。"
   },
   "projectProgressToGroup": {
     "title": "同步於群",
