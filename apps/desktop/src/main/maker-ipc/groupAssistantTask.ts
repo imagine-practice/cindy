@@ -13,6 +13,7 @@ import type { GroupProjectFolders, GroupProjectRoom, GroupWorkFolder } from './g
  */
 export interface GroupAssistantTask {
   sessionId: string;
+  workFolder: GroupWorkFolder;
   /** The group's newest message already delivered into the task, per conversation (`main` or a Thread's root ID). */
   delivered: Record<string, string>;
   /** Why the group's repository is not on this computer yet; the task is under 「对话」 meanwhile. */
@@ -38,15 +39,16 @@ export function createGroupAssistantTasks(deps: {
     // The requester is at this computer: Cindy may open its GitHub sign-in to fetch the repository.
     const folder = await deps.folders.forWork(room, { signIn: true, isCurrent: () => deps.current() && isCurrent() });
     const saved = deps.store().read()[room.id];
-    const ensured = await deps.ensureSession({ ...(saved?.projectDir === folder.dir ? { sessionId: saved.sessionId } : {}),
+    const ensured = await deps.ensureSession({ ...(saved?.projectDir === folder.dir && folder.sourceKey && saved.sourceKey === folder.sourceKey ? { sessionId: saved.sessionId } : {}),
       title: room.name, projectDir: folder.dir });
     if (!ensured.ok) throw new Error(botGroupRuntimeFailureCode({ code: ensured.errorCode, message: ensured.message }));
+    await folder.refresh?.();
     if (!deps.current()) throw new Error('OWNER_CHANGED');
     const all = deps.store().read();
-    const record = all[room.id]?.sessionId === ensured.sessionId ? all[room.id]! : { sessionId: ensured.sessionId, projectDir: folder.dir };
+    const record = all[room.id]?.sessionId === ensured.sessionId ? all[room.id]! : { sessionId: ensured.sessionId, projectDir: folder.dir, sourceKey:folder.sourceKey };
     all[room.id] = record;
     deps.store().save(all);
-    return { sessionId: record.sessionId, delivered: record.deliveredSeq ?? {}, ...(folder.pending ? { pending: folder.pending } : {}) };
+    return { sessionId: record.sessionId, workFolder:folder, delivered: record.deliveredSeq ?? {}, ...(folder.pending ? { pending: folder.pending } : {}) };
   }
 
   return {

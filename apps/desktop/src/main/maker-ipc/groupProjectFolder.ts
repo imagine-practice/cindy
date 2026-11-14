@@ -19,7 +19,14 @@ export interface GroupProjectFolder {
   auto: boolean;
 }
 /** `pending`: why the group's repository is not on this computer yet; `dir` is null then. */
-export type GroupWorkFolder = GroupProjectFolder & { pending?: Exclude<GroupCheckoutResult, { status: 'ready' }>; linkedProject?: boolean };
+export interface GroupWorkProject { dir: string; identity: string; refresh(): Promise<void> }
+export type GroupWorkFolder = GroupProjectFolder & {
+  pending?: Exclude<GroupCheckoutResult, { status: 'ready' }>;
+  linkedProject?: boolean;
+  /** A workspace identity is a continuity witness, never an authorization. */
+  sourceKey?: string;
+  refresh?(): Promise<void>;
+};
 
 /** How long a found folder is trusted, and how soon a miss is looked up again. */
 const FOUND_MS = 5 * 60_000;
@@ -28,7 +35,7 @@ const MISSED_MS = 20_000;
 export function createGroupProjectFolders(deps: {
   /** The folder chosen for this group on this computer. */
   chosen: (roomId: string) => string | null;
-  workProject?: (roomId: string,displayOnly?:boolean) => Promise<{dir:string;refresh():Promise<void>} | null>;
+  workProject?: (roomId: string,displayOnly?:boolean) => Promise<GroupWorkProject | null>;
   /** Registered project folders whose git `origin` is this repository. */
   findRegistered?: (repo: string) => Promise<string[]>;
   checkouts?: Pick<GroupProjectCheckouts, 'ensure' | 'sync' | 'isManaged'>;
@@ -74,43 +81,65 @@ export function createGroupProjectFolders(deps: {
      * sign-in to clone the repository (the requester's own request, on their computer).
      */
     async forWork(room: GroupProjectRoom, options: { signIn: boolean; isCurrent: () => boolean; clone?: boolean }): Promise<GroupWorkFolder> {
+      const assertCurrent = () => { if (!options.isCurrent()) throw new Error('OWNER_CHANGED'); };
+      assertCurrent();
       const linked = await deps.workProject?.(room.id);
+      assertCurrent();
       if (linked) {
+        if (!linked.identity) throw new Error('WORKDIR_UNAVAILABLE');
         const dir = await usable(linked.dir);
         if (!dir) throw new Error('WORKDIR_UNAVAILABLE');
-        await linked.refresh();
-        if (!options.isCurrent()) throw new Error('OWNER_CHANGED');
-        return {dir,auto:false,linkedProject:true};
+        const refresh = async () => {
+          assertCurrent();
+          await linked.refresh();
+          assertCurrent();
+          if (await usable(dir) !== dir) throw new Error('WORKDIR_UNAVAILABLE');
+          assertCurrent();
+        };
+        await refresh();
+        return {dir,auto:false,linkedProject:true,sourceKey:JSON.stringify(['linked',linked.identity,dir]),refresh};
       }
-      // A host that cannot check folders has no project folders.
-      if (!deps.validate) return { dir: null, auto: false };
-      const chosen = deps.chosen(room.id);
-      if (chosen) {
-        const dir = await usable(chosen);
-        if (!dir) throw new Error('WORKDIR_UNAVAILABLE');
-        return { dir, auto: false };
-      }
-      const repo = repoOf(room);
-      if (!repo) return { dir: null, auto: true };
-      const found = await registeredFolder(repo);
-      if (found && !deps.checkouts?.isManaged(found)) {
-        const dir = await usable(found);
-        if (dir) return { dir, auto: true };
+      const chosen = deps.chosen(room.id), repo = repoOf(room);
+      const resolveLegacy = async (): Promise<GroupWorkFolder> => {
+        // A host that cannot check folders has no project folders.
+        if (!deps.validate) return { dir: null, auto: false };
+        if (chosen) {
+          const dir = await usable(chosen);
+          if (!dir) throw new Error('WORKDIR_UNAVAILABLE');
+          return { dir, auto: false };
+        }
+        if (!repo) return { dir: null, auto: true };
+        const found = await registeredFolder(repo);
+        if (found && !deps.checkouts?.isManaged(found)) {
+          const dir = await usable(found);
+          if (dir) return { dir, auto: true };
+          forget(repo);
+        }
+        // Division of work preserves the existing lookup-only behavior; it must
+        // not start a repository clone just by resolving its workspace.
+        if (options.clone === false) return {dir:null,auto:true};
+        // Cindy's own checkout is a convenience: a clone that cannot run leaves the work without the project.
+        const checkout = await deps.checkouts?.ensure(repo, options)
+          ?.catch(error => { if (!options.isCurrent()) throw error; return null; });
+        if (!checkout) return { dir: null, auto: true };
+        if (checkout.status !== 'ready') return { dir: null, auto: true, pending: checkout };
+        // Registered by the clone: group management shows it from now on.
         forget(repo);
-      }
-      // Division of work preserves the existing lookup-only behavior; it must
-      // not start a repository clone just by resolving its workspace.
-      if (options.clone === false) return {dir:null,auto:true};
-      // Cindy's own checkout is a convenience: a clone that cannot run leaves the work without the project.
-      const checkout = await deps.checkouts?.ensure(repo, options)
-        ?.catch(error => { if (!options.isCurrent()) throw error; return null; });
-      if (!checkout) return { dir: null, auto: true };
-      if (checkout.status !== 'ready') return { dir: null, auto: true, pending: checkout };
-      // Registered by the clone: group management shows it from now on.
-      forget(repo);
-      const dir = await usable(checkout.dir);
-      if (dir) await deps.checkouts!.sync(dir);
-      return { dir, auto: true };
+        const dir = await usable(checkout.dir);
+        if (dir) await deps.checkouts!.sync(dir);
+        return { dir, auto: true };
+      };
+      const folder = await resolveLegacy();
+      const refresh = async () => {
+        assertCurrent();
+        const selected = await deps.workProject?.(room.id);
+        assertCurrent();
+        if (selected || deps.chosen(room.id) !== chosen || repoOf(room) !== repo
+          || (folder.dir && await usable(folder.dir) !== folder.dir)) throw new Error('WORKDIR_UNAVAILABLE');
+        assertCurrent();
+      };
+      await refresh();
+      return {...folder,sourceKey:JSON.stringify(['legacy',chosen,repo,folder.dir]),refresh};
     },
   };
 }

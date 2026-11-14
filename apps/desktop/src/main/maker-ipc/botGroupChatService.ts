@@ -199,7 +199,7 @@ export interface BotGroupChatServiceDeps {
   workDir?: Pick<BotGroupWorkDir, 'prepare' | 'snapshot' | 'changedFiles' | 'trashGroupFolder'>;
   /** Existing local directory usable as a 项目文件夹 (same rules as new-task projects). */
   validateProjectDir?: (dir: string) => Promise<{ ok: true; dir: string } | { ok: false; message: string }>;
-  linkedWorkProject?: (roomId:string,displayOnly?:boolean) => Promise<{dir:string;refresh():Promise<void>} | null>;
+  linkedWorkProject?: (roomId:string,displayOnly?:boolean) => Promise<import('./groupProjectFolder.js').GroupWorkProject | null>;
   /**
    * A task this computer runs, for its group card: title, state and recorded pull request; null
    * when the task is gone (bot-group-chat.md §10).

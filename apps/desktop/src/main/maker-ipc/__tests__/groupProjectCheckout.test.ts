@@ -17,10 +17,11 @@ describe('explicit linked work project resolution', () => {
   it('refreshes the selected authority after validating its directory', async () => {
     const events:string[]=[];
     const folders=createGroupProjectFolders({chosen:()=>'/legacy',
-      workProject:async()=>({dir:'/linked',refresh:async()=>{events.push('refresh');}}),
+      workProject:async()=>({dir:'/linked',identity:'selection-a',refresh:async()=>{events.push('refresh');}}),
       validate:async value=>{events.push('validate');return {ok:true,dir:value};}});
-    expect(await folders.forWork({id:'room'},{signIn:false,isCurrent:()=>true})).toEqual({dir:'/linked',auto:false,linkedProject:true});
-    expect(events).toEqual(['validate','refresh']);
+    expect(await folders.forWork({id:'room'},{signIn:false,isCurrent:()=>true})).toEqual({dir:'/linked',auto:false,linkedProject:true,
+      sourceKey:JSON.stringify(['linked','selection-a','/linked']),refresh:expect.any(Function)});
+    expect(events).toEqual(['validate','refresh','validate']);
   });
   it('rejects revoked selection instead of falling back, while no selection preserves legacy mode', async () => {
     const validate=vi.fn(async(value:string)=>({ok:true as const,dir:value}));
@@ -29,14 +30,16 @@ describe('explicit linked work project resolution', () => {
     await expect(invalid.forWork({id:'room'},{signIn:false,isCurrent:()=>true})).rejects.toThrow('GROUP_ACCESS_DENIED');
     expect(validate).not.toHaveBeenCalled();
     const legacy=createGroupProjectFolders({chosen:()=>'/legacy',validate,workProject:async()=>null});
-    expect(await legacy.forWork({id:'room'},{signIn:false,isCurrent:()=>true})).toEqual({dir:'/legacy',auto:false});
+    expect(await legacy.forWork({id:'room'},{signIn:false,isCurrent:()=>true})).toEqual({dir:'/legacy',auto:false,
+      sourceKey:JSON.stringify(['legacy','/legacy',null,'/legacy']),refresh:expect.any(Function)});
   });
   it('keeps division lookup-only when the repository has not been cloned', async () => {
     const ensure=vi.fn();
     const folders=createGroupProjectFolders({chosen:()=>null,findRegistered:async()=>[],
       validate:async dir=>({ok:true,dir}),checkouts:{ensure,sync:vi.fn(),isManaged:()=>false}});
     expect(await folders.forWork({id:'room',project:{kind:'github',repo:'makecindy/cindy'}},
-      {signIn:false,clone:false,isCurrent:()=>true})).toEqual({dir:null,auto:true});
+      {signIn:false,clone:false,isCurrent:()=>true})).toEqual({dir:null,auto:true,
+        sourceKey:JSON.stringify(['legacy',null,'makecindy/cindy',null]),refresh:expect.any(Function)});
     expect(ensure).not.toHaveBeenCalled();
   });
 });

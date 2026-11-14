@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { activeOwnerScopeKey, getActiveAppSession, isAppSessionBoundaryPending } from '../appSessionState';
 import { getCurrentDbClientSnapshot } from '../localDb/client/current';
 import { DB_TRANSPORT_NOT_SENT, DB_TRANSPORT_OUTCOME_UNKNOWN } from '../localDb/client/DbTransport';
@@ -52,7 +52,7 @@ export async function readLinkedGroupWorkDir(roomId: string, runtime: ProjectGro
     if (selected.status !== 'active' || !selected.member || !selected.dir || selected.kind !== selected.linkedKind || selected.ownerId !== selected.linkedId) deny('GROUP_ACCESS_DENIED');
     // Group list rendering reads only local facts. Actual use below always
     // reauthorizes remotely; a directory label is never an execution grant.
-    return {dir:selected.dir!,refresh:async()=>{throw new Error('Display projection is not execution authority');}};
+    return {dir:selected.dir!,identity:'display-only',refresh:async()=>{throw new Error('Display projection is not execution authority');}};
   }
   const service = runtime.groupService();
   if (!service?.groupAuthority) deny('UNSUPPORTED_CAPABILITY');
@@ -65,13 +65,18 @@ export async function readLinkedGroupWorkDir(roomId: string, runtime: ProjectGro
       || !grant.projectOwnerJoined?.({kind:selected.kind,id:selected.ownerId})) deny('GROUP_ACCESS_DENIED');
   };
   validate();
-  const refresh = async () => {
+  // A single captured grant is refreshed in order. Parallel tool boundaries
+  // must not invalidate each other's in-flight snapshot or recreate a failed grant.
+  let refreshes = Promise.resolve();
+  const refresh = () => refreshes = refreshes.then(async () => {
     validate(); grant = await grant.refresh(); validate();
     const latest = await query(); validate();
     if (JSON.stringify(latest) !== JSON.stringify(rows)) deny('GROUP_ACCESS_DENIED');
-  };
+  });
   await refresh();
-  return {dir:selected.dir!,refresh};
+  const identity = createHash('sha256').update(JSON.stringify([captured.userId,deviceId,selected,
+    grant.projectOwnerIdentity?.({kind:selected.kind,id:selected.ownerId}) ?? null])).digest('hex');
+  return {dir:selected.dir!,identity,refresh};
 }
 export interface ProjectGroupLinksUiRuntime extends ProjectGroupLinksMainRuntime {
   /** Revalidate the real trusted app-renderer event/lifetime; never a renderer boolean. */

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 const fixture = vi.hoisted(() => ({ root: '' }));
 vi.mock('../../appSessionState.js', () => ({ ownerScopedUserDataPath: (...parts: string[]) => path.join(fixture.root, ...parts) }));
-import { chatServerWorkspaces } from '../chatServerWorkspaces.js';
+import { chatServerWorkspaces, chatServerAssistantSessions } from '../chatServerWorkspaces.js';
 import { chatMigrationReceipts } from '../chatMigrationReceipts.js';
 afterEach(() => { if (fixture.root) rmSync(fixture.root, { recursive: true, force: true }); });
 
@@ -35,10 +35,13 @@ it('restores device workspace choices in the same account without sharing them w
   // Existing nonempty preferences survive adding progress, and a fresh store reads
   // exact sequence strings. This supplies restart/old-format coverage for the group latency fix.
   const upgraded = { ...store.read(room)!,
-    plans: {plan:{...value.plans.plan,sourceProjectDir:'/private/project'}},
+    plans: {plan:{...value.plans.plan,sourceProjectDir:'/private/project',sourceKey:'verified-selection'}},
     attachmentAfter: { 'lane-owner': '9007199254740993', 'lane-chat': '12' } };
   store.save(room, upgraded);
   expect(chatServerWorkspaces('https://chat.example.test', 'alice', () => true).read(room)).toEqual(upgraded);
+  const assistant={sessionId:'group-task',projectDir:'/private/project',sourceKey:'verified-selection'};
+  chatServerAssistantSessions('https://chat.example.test','alice',()=>true).save({[room]:assistant});
+  expect(chatServerAssistantSessions('https://chat.example.test','alice',()=>true).read()).toEqual({[room]:assistant});
   expect(chatServerWorkspaces('https://other.example.test', 'alice', () => true).read(room)).toBeNull();
   expect(chatServerWorkspaces('https://chat.example.test', 'bob', () => true).read(room)).toBeNull();
   current = false;

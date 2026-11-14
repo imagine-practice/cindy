@@ -28,7 +28,7 @@ import { createChatMedia } from './chatServerMedia.js';
 import { mergeChatReplyAttachments } from './chatServerReplyAttachments.js';
 import { prepareChatReplyImages } from './chatServerReplyImages.js';
 import { chatServerAssistantSessions, chatServerTaskCards, chatServerWorkspaces } from './chatServerWorkspaces.js';
-import { createGroupProjectFolders } from './groupProjectFolder.js';
+import { createGroupProjectFolders, type GroupWorkFolder } from './groupProjectFolder.js';
 import { createGroupTaskCards } from './groupTaskCards.js';
 import { createGroupAssistantTasks, formatGroupRequest, type GroupAssistantTask } from './groupAssistantTask.js';
 import { buildPlanStepBrief, draftPlanSteps, type PlanStepDraft } from './botGroupDivision.js';
@@ -146,7 +146,8 @@ interface Running {
   settlement?: { terminal: BotGroupLaneTerminal; cancelled?: boolean; payload?: Record<string, unknown>; reply?: { sourceText: string; text: string; attachments: ChatUploadAttachment[] }; fileReply?: Awaited<ReturnType<typeof prepareChatReplyFiles>>; retryAt: number; keepLease?: boolean; refused?: boolean };
   delivery?: Promise<void>;
   plan?: ServerPlan;
-  workspace?: { workDir: string; branch: string | null; ownerSessionId: string | null; sourceProjectDir?: string | null };
+  workspace?: { workDir: string; branch: string | null; ownerSessionId: string | null; sourceProjectDir?: string | null; sourceKey?: string };
+  workFolder?: GroupWorkFolder;
   beforeFiles?: Map<string, string>;
   pauseStarted?: number;
   /**
@@ -2253,6 +2254,11 @@ function createChatServer(local: BotGroupChatService, deps: BotGroupChatServiceD
       botName: name(execution.bot_id) || actors.find(actor => actor.id === execution.bot_id)?.name || '',
       requesterId: requester?.kind === 'human' && requester.state === 'joined' ? requester.id : null, quote });
   }
+  async function refreshWorkAuthority(run: Running): Promise<void> {
+    if (!current() || running.get(run.execution.id) !== run) throw new GroupToolAuthorizationError();
+    await run.workFolder?.refresh?.();
+    if (!current() || running.get(run.execution.id) !== run) throw new GroupToolAuthorizationError();
+  }
   async function validateExecutionAuthority(run: Running): Promise<void> {
     const execution = run.execution;
     const assertCurrent = () => {
@@ -2269,6 +2275,7 @@ function createChatServer(local: BotGroupChatService, deps: BotGroupChatServiceD
         if (execution.requester_id !== selfId || !members.some(m => m.id === execution.bot_id && m.state === 'joined' && isAssistant(m))
           || !members.some(m => m.id === selfId && m.state === 'joined')) throw new GroupToolAuthorizationError();
         await updateExecution(run, 'heartbeat');
+        await refreshWorkAuthority(run);
         assertCurrent();
         return;
       }
@@ -2282,6 +2289,7 @@ function createChatServer(local: BotGroupChatService, deps: BotGroupChatServiceD
           || state.settings.companionId !== execution.bot_id || state.revision !== execution.access_revision)
           throw new GroupToolAuthorizationError();
         await updateExecution(run, 'heartbeat');
+        await refreshWorkAuthority(run);
         assertCurrent();
         return;
       }
@@ -2294,8 +2302,12 @@ function createChatServer(local: BotGroupChatService, deps: BotGroupChatServiceD
         || (execution.access_mode === 'owner' ? requester.ownerActorId !== selfId : companion.guestAccess !== 'tools'))
         throw new GroupToolAuthorizationError();
       await updateExecution(run, 'heartbeat');
+      await refreshWorkAuthority(run);
     } catch (error) {
       if (error instanceof ChatResponseError && !recoverableAuth(error) && [401, 403, 404, 409, 410].includes(error.status))
+        throw new GroupToolAuthorizationError();
+      const code = error && typeof error === 'object' && 'code' in error ? error.code : error instanceof Error ? error.message : null;
+      if (['GROUP_ACCESS_DENIED','OWNER_SCOPE_CHANGED','WORKDIR_UNAVAILABLE','GROUP_AUTHORITY_EXPIRED','GROUP_AUTHORITY_CHANGED'].includes(String(code)))
         throw new GroupToolAuthorizationError();
       throw error;
     }
@@ -2772,6 +2784,7 @@ function createChatServer(local: BotGroupChatService, deps: BotGroupChatServiceD
       // Words in the Thread of a task card it posted go into that task.
       if (source.threadRootId && await runInCardTask(run, s, Promise.resolve(source))) return;
       const task = await assistantTasks.forRequest(s.room, () => running.get(execution.id) === run && !run.settlement);
+      run.workFolder = task.workFolder;
       if (!live()) throw new Error('STALE_EXECUTOR');
       const sessionId = task.sessionId;
       const threadRootId = source.threadRootId ?? undefined;
@@ -2796,6 +2809,7 @@ function createChatServer(local: BotGroupChatService, deps: BotGroupChatServiceD
       // Only the owner's own message speaks for the owner; a teammate that named Cindy in its reply is labeled as itself.
       const ownWords = source.origin === 'user' && source.author?.kind === 'human' && source.authorId === selfId && !source.maskAttribution;
       const speaker = s.members.find(m => m.id === source.authorId);
+      await validateExecutionAuthority(run);
       const dispatched = await deps.dispatch({ targetSessionId: sessionId, clientId: run.clientId, message, persistedContent: message,
         // The requester's own words are the request this turn speaks for; the group's messages are background.
         ...(ownWords ? { autoReviewUserText: { kind: 'agent-request' as const, request: { sessionId, clientId: run.clientId, plainBody: true, delegatedText: words } } } : {}),
@@ -2806,6 +2820,7 @@ function createChatServer(local: BotGroupChatService, deps: BotGroupChatServiceD
         resumeWithStoredPermissionMode: true,
         onAccepted: async () => {
           if (!live()) throw new Error('STALE_EXECUTOR');
+          await refreshWorkAuthority(run);
           run.accepted = true;
         } });
       if (!dispatched.ok) throw new Error(botGroupRuntimeFailureCode({ code: dispatched.errorCode, message: dispatched.message }));
@@ -2916,20 +2931,21 @@ function createChatServer(local: BotGroupChatService, deps: BotGroupChatServiceD
           if (execution.access_mode !== 'chat' && run.plan.kind !== 'talk') {
             // A display projection is not a directory grant. Recheck the selected
             // project's current owner even when this plan already has a workspace.
-            const folder = linkedProjectForOtherMember ? { dir: null } : await projectFolders.forWork(s.room, {
+            const folder: GroupWorkFolder = linkedProjectForOtherMember ? { dir: null, auto: false } : await projectFolders.forWork(s.room, {
               signIn: false, clone: false, isCurrent: () => current() && running.get(execution.id) === run,
             });
+            run.workFolder = folder;
             const settings = workspaces().read(s.room.id) ?? { projectDir: null, plans: {} };
             // Each grant has its own workspace. Revoked grants cannot reuse private context.
             const key = `${run.plan.id}:${execution.access_mode}:${execution.access_revision}`;
             run.workspace = settings.plans[key] ?? (execution.access_mode === 'owner' ? settings.plans[run.plan.id] : undefined);
             if (linkedProjectForOtherMember && run.workspace) throw new Error('WORKDIR_UNAVAILABLE');
-            if ('linkedProject' in folder && folder.linkedProject && run.workspace
-              && run.workspace.sourceProjectDir !== folder.dir) throw new Error('WORKDIR_UNAVAILABLE');
+            if (run.workspace && (!('sourceKey' in folder) || !folder.sourceKey
+              || run.workspace.sourceKey !== folder.sourceKey || run.workspace.sourceProjectDir !== folder.dir)) throw new Error('WORKDIR_UNAVAILABLE');
             if (!run.workspace) {
               const prepared = await deps.workDir?.prepare({ groupId: s.room.id, projectDir: folder.dir });
               if (!prepared?.ok) throw new Error('WORKDIR_UNAVAILABLE');
-              run.workspace = {...prepared, ...('linkedProject' in folder && folder.linkedProject ? {sourceProjectDir:folder.dir} : {})};
+              run.workspace = {...prepared, sourceProjectDir:folder.dir, ...('sourceKey' in folder ? {sourceKey:folder.sourceKey} : {})};
               if (!current()) throw new Error('OWNER_CHANGED');
               // Preparation yields: another lane may settle or save settings in
               // the meantime. Add this workspace to the latest persisted record.
@@ -2937,7 +2953,15 @@ function createChatServer(local: BotGroupChatService, deps: BotGroupChatServiceD
               latestSettings.plans[key] = run.workspace; latestSettings.plans[run.plan.id] = run.workspace;
               workspaces().save(s.room.id, latestSettings);
             }
+            run.workFolder = {...folder,refresh:async()=>{
+              const workspace = run.workspace;
+              const checked = workspace && await deps.validateProjectDir?.(workspace.workDir);
+              if (!checked?.ok || checked.dir !== workspace!.workDir) throw new Error('WORKDIR_UNAVAILABLE');
+              await folder.refresh?.();
+            }};
+            await refreshWorkAuthority(run);
             run.beforeFiles = await deps.workDir?.snapshot(run.workspace.workDir);
+            await refreshWorkAuthority(run);
           }
         }
         const source = await sourceRead;
@@ -2947,8 +2971,13 @@ function createChatServer(local: BotGroupChatService, deps: BotGroupChatServiceD
         // A reply to the owner's own request works in the group's project folder when this computer
         // has one, like an ordinary task there. Other members' requests never enter it: work in the
         // folder runs with the owner's logins (bot-group-chat.md §7.5).
-        const projectDir = !run.plan && !digest && !execution.mask_owner_id && execution.access_mode === 'owner'
-          ? (await projectFolders.forWork(s.room, { signIn: false, isCurrent: () => current() && running.get(execution.id) === run })).dir : null;
+        if (!run.plan && !digest && !execution.mask_owner_id && execution.access_mode === 'owner') {
+          run.workFolder = await projectFolders.forWork(s.room, { signIn: false, isCurrent: () => current() && running.get(execution.id) === run });
+        }
+        const projectDir = run.plan ? null : run.workFolder?.dir ?? null;
+        // A plan awaited its source after the workspace snapshot. Ordinary
+        // work has just returned from forWork's current authorization check.
+        if (run.plan) await refreshWorkAuthority(run);
         const lane = await deps.ensureLane({ botId: bot.id, groupId: s.room.id, title: s.room.name,
           ...(projectDir ? { projectDir } : {}),
           chatAccess: { mode: execution.access_mode, revision: execution.access_revision, maskOwnerId: execution.mask_owner_id },
@@ -2960,6 +2989,7 @@ function createChatServer(local: BotGroupChatService, deps: BotGroupChatServiceD
         if (!lane.ok) throw new Error(botGroupRuntimeFailureCode({ code: lane.errorCode, message: lane.message }));
         if (lane.replacedSessionId) void deps.closeLanes?.([lane.replacedSessionId]);
         run.sessionId = lane.sessionId;
+        await refreshWorkAuthority(run);
         run.releaseToolAuthority = registerGroupToolAuthority(lane.sessionId, {
           botId: bot.id, mode: execution.access_mode,
           sourceGroup: { groupId: s.room.id, name: s.room.name },
@@ -2976,6 +3006,7 @@ function createChatServer(local: BotGroupChatService, deps: BotGroupChatServiceD
           workspaces().save(s.room.id, settings);
         }
         await deps.syncLanePermission?.(lane.sessionId, bot.id);
+        await refreshWorkAuthority(run);
         return lane;
       })();
       const contextRead = (async () => {
@@ -3232,6 +3263,7 @@ function createChatServer(local: BotGroupChatService, deps: BotGroupChatServiceD
           .map(block => block.text ?? '').join('\n');
       } else {
         await updateExecution(run, 'heartbeat');
+        await refreshWorkAuthority(run);
       }
       if (!current() || running.get(execution.id) !== run) throw new Error('STALE_EXECUTOR');
       const stillContinuous = previous && laneContext(lane.sessionId)?.key === runtime?.key;
@@ -3240,6 +3272,7 @@ function createChatServer(local: BotGroupChatService, deps: BotGroupChatServiceD
         attachments, toolsDisabled: toolsOff,
         onQueued: async clientId => { run.clientId = clientId; }, onAccepted: async () => {
           if (!current() || running.get(execution.id) !== run) { await deps.abortLane(lane.sessionId); throw new Error('STALE_EXECUTOR'); }
+          await refreshWorkAuthority(run);
           run.accepted = true;
         } });
       if (!dispatched.ok) throw new Error(botGroupRuntimeFailureCode({ code: dispatched.errorCode, message: dispatched.message }));

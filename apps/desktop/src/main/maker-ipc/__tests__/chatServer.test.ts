@@ -1472,7 +1472,7 @@ describe('Chat Server result delivery and refresh', () => {
   // helpers alone cannot prove that a stale grant stops a native execution.
   it.each(['owner','tools','revoked'] as const)('uses a selected project only for current owner work (%s)', async mode => {
     const refresh = vi.fn(async () => { if (mode === 'revoked') throw Error('GROUP_ACCESS_DENIED'); });
-    deps.linkedWorkProject = vi.fn(async () => ({dir:'/projects/selected',refresh}));
+    deps.linkedWorkProject = vi.fn(async () => ({dir:'/projects/selected',identity:'selection-a',refresh}));
     deps.validateProjectDir = vi.fn(async dir => ({ok:true as const,dir}));
     fixture.profiles = [{id:'local-bot',displayName:'Bot',avatar:null,status:'active'}];
     fixture.handle.mockImplementation(route => {
@@ -1492,7 +1492,7 @@ describe('Chat Server result delivery and refresh', () => {
     } else {
       expect(deps.dispatch).toHaveBeenCalledOnce();
       const lane = vi.mocked(deps.ensureLane).mock.calls[0][0];
-      if (mode === 'owner') { expect(lane).toMatchObject({projectDir:'/projects/selected'});expect(refresh).toHaveBeenCalledOnce(); }
+      if (mode === 'owner') { expect(lane).toMatchObject({projectDir:'/projects/selected'});expect(refresh).toHaveBeenCalled(); }
       else { expect(lane).not.toHaveProperty('projectDir');expect(vi.mocked(deps.dispatch).mock.calls[0][0].toolsDisabled).toBe(true); }
     }
   });
@@ -1504,13 +1504,14 @@ describe('Chat Server result delivery and refresh', () => {
     const plan = {id:planId,revision:1,source_message_id:execution.source_message_id,request_text:'Fix',organizer_id:botId,
       creator_id:selfId,status:'running',current_step:0,kind:'work',steps:[{position:0,botId,botName:'Bot',task:'Fix',status:'running'}]};
     const refresh = vi.fn(async()=>{});
-    deps.linkedWorkProject = async()=>({dir:'/selected',refresh});
+    deps.linkedWorkProject = async()=>({dir:'/selected',identity:'selection-a',refresh});
     deps.validateProjectDir = async dir=>({ok:true,dir});
     deps.workDir = {prepare:vi.fn(async()=>({ok:true as const,workDir:'/prepared',branch:null,ownerSessionId:null})),
       snapshot:vi.fn(async()=>new Map()),changedFiles:vi.fn(async()=>[]),trashGroupFolder:vi.fn()};
     if(cached!=='new') workspaceSettings.set(roomId,{projectDir:'/legacy',plans:{[`${planId}:owner:1`]:{
       workDir:'/prepared',branch:null,ownerSessionId:null,
       ...(cached==='legacy'?{}:{sourceProjectDir:cached==='same'?'/selected':'/previous'}),
+      ...(cached==='same'?{sourceKey:JSON.stringify(['linked','selection-a','/selected'])}:{}),
     }}});
     fixture.profiles = [{id:'local-bot',displayName:'Bot',avatar:null,status:'active'}];
     fixture.handle.mockImplementation(route=>{
@@ -1523,7 +1524,7 @@ describe('Chat Server result delivery and refresh', () => {
     service.dispose();
     service = withChatServer({listGroups:vi.fn(async()=>({ok:true,groups:[]})),settleLaneTurn:vi.fn(async()=>false),dispose:vi.fn()} as unknown as BotGroupChatService,deps);
     await vi.advanceTimersByTimeAsync(2000);
-    expect(refresh).toHaveBeenCalledOnce();
+    expect(refresh).toHaveBeenCalled();
     if(cached==='different'||cached==='legacy') {
       expect(deps.workDir!.prepare).not.toHaveBeenCalled();expect(deps.ensureLane).not.toHaveBeenCalled();expect(deps.dispatch).not.toHaveBeenCalled();
     } else {
@@ -1531,6 +1532,105 @@ describe('Chat Server result delivery and refresh', () => {
       expect(deps.dispatch).toHaveBeenCalledOnce();
       if(cached==='new') expect(workspaceSettings.get(roomId)).toMatchObject({plans:{[`${planId}:owner:1`]:{sourceProjectDir:'/selected'}}});
     }
+  });
+
+  // Independent 7d review: a cancelled linked selection still reused its cached
+  // private worktree. The real native claim must stop before opening that lane.
+  it.each(['cancelled','manual-changed','missing-source','missing-workdir','same-legacy'] as const)('checks cached workspace source after selection changes (%s)', async state => {
+    const planId='80000000-0000-4000-8000-000000000001';
+    const plan={id:planId,revision:1,source_message_id:execution.source_message_id,request_text:'Fix',organizer_id:botId,
+      creator_id:selfId,status:'running',current_step:0,kind:'work',steps:[{position:0,botId,botName:'Bot',task:'Fix',status:'running'}]};
+    deps.linkedWorkProject=async()=>null;
+    deps.validateProjectDir=async dir=>state==='missing-workdir'&&dir==='/prepared'?{ok:false,message:'gone'}:{ok:true,dir};
+    deps.workDir={prepare:vi.fn(),snapshot:vi.fn(async()=>new Map()),changedFiles:vi.fn(async()=>[]),trashGroupFolder:vi.fn()};
+    workspaceSettings.set(roomId,{projectDir:'/legacy',plans:{[`${planId}:owner:1`]:{
+      workDir:'/prepared',branch:null,ownerSessionId:null,sourceProjectDir:state==='same-legacy'||state==='missing-workdir'?'/legacy':'/previous',
+      ...(state==='missing-source'?{}:{sourceKey:state==='cancelled'?JSON.stringify(['linked','old','/previous']):
+        JSON.stringify(['legacy',state==='manual-changed'?'/previous':'/legacy',null,state==='manual-changed'?'/previous':'/legacy'])}),
+    }}});
+    fixture.profiles=[{id:'local-bot',displayName:'Bot',avatar:null,status:'active'}];
+    fixture.handle.mockImplementation(route=>{
+      if(route==='/executions/claim'){const next=claimed?null:{...execution,access_mode:'owner',plan_id:planId,plan_step:0};claimed=true;return {body:{execution:next}};}
+      if(route.includes('/plans?ids='))return {body:[plan]};
+      if(route.endsWith(`/messages/${execution.source_message_id}`))return {body:{id:execution.source_message_id,seq:'1',authorId:selfId,
+        author:{kind:'human',name:'Owner'},origin:'user',deleted:false,threadRootId:null,createdAt:new Date().toISOString(),content:[{type:'text',text:'Fix'}]}};
+      return response(route);
+    });
+    service.dispose();
+    service=withChatServer({listGroups:vi.fn(async()=>({ok:true,groups:[]})),settleLaneTurn:vi.fn(async()=>false),dispose:vi.fn()} as unknown as BotGroupChatService,deps);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(deps.workDir.prepare).not.toHaveBeenCalled();
+    if (state==='same-legacy') {
+      expect(deps.ensureLane).toHaveBeenCalledWith(expect.objectContaining({plan:expect.objectContaining({workDir:'/prepared'})}));
+      expect(deps.dispatch).toHaveBeenCalledOnce();
+    } else {
+      expect(deps.ensureLane).not.toHaveBeenCalled();
+      expect(deps.dispatch).not.toHaveBeenCalled();
+    }
+    expect(workspaceSettings.get(roomId)).toMatchObject({plans:{[`${planId}:owner:1`]:{workDir:'/prepared',
+      sourceProjectDir:state==='same-legacy'||state==='missing-workdir'?'/legacy':'/previous'}}});
+  });
+  // Independent 7d review: ensureLane can yield after the directory was checked.
+  // Revocation in that await must prevent model delivery, not merely refresh twice.
+  it.each(['revoked','directory-missing','owner-epoch'] as const)('revalidates the linked project after asynchronous lane creation (%s)', async state => {
+    let revoked=false;
+    let epoch=1;
+    deps.captureOwnerScope=()=>({ownerScopeKey:String(epoch),ownerStamp:{dataOwnerId:'fixture-owner',ownerGeneration:epoch}});
+    deps.isOwnerScopeCurrent=scope=>scope.ownerScopeKey===String(epoch);
+    deps.linkedWorkProject=async()=>({dir:'/projects/selected',identity:'selection-a',refresh:async()=>{if(revoked&&state==='revoked')throw Error('GROUP_ACCESS_DENIED');}});
+    deps.validateProjectDir=async dir=>revoked&&state==='directory-missing'?{ok:false,message:'gone'}:{ok:true,dir};
+    const originalEnsure=deps.ensureLane;
+    deps.ensureLane=vi.fn(async args=>{const result=await originalEnsure(args);revoked=true;if(state==='owner-epoch')epoch++;return result;});
+    fixture.profiles=[{id:'local-bot',displayName:'Bot',avatar:null,status:'active'}];
+    fixture.handle.mockImplementation(route=>{
+      if(route==='/executions/claim'){const next=claimed?null:{...execution,access_mode:'owner'};claimed=true;return {body:{execution:next}};}
+      return response(route);
+    });
+    service.dispose();
+    service=withChatServer({listGroups:vi.fn(async()=>({ok:true,groups:[]})),settleLaneTurn:vi.fn(async()=>false),dispose:vi.fn()} as unknown as BotGroupChatService,deps);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(revoked).toBe(true);
+    expect(deps.dispatch).not.toHaveBeenCalled();
+  });
+  it('keeps the selected-project grant at the later group tool boundary', async () => {
+    let revoked=false;
+    deps.linkedWorkProject=async()=>({dir:'/projects/selected',identity:'selection-a',refresh:async()=>{if(revoked)throw Error('GROUP_ACCESS_DENIED');}});
+    deps.validateProjectDir=async dir=>({ok:true,dir});
+    fixture.profiles=[{id:'local-bot',displayName:'Bot',avatar:null,status:'active'}];
+    fixture.handle.mockImplementation(route=>{
+      if(route==='/executions/claim'){const next=claimed?null:{...execution,access_mode:'owner',requester_id:selfId};claimed=true;return {body:{execution:next}};}
+      if(route.endsWith('/members'))return {body:[{id:botId,kind:'bot',ownerActorId:selfId,state:'joined',accessRevision:1},
+        {id:selfId,kind:'human',ownerActorId:selfId,state:'joined'}]};
+      return response(route);
+    });
+    service.dispose();
+    service=withChatServer({listGroups:vi.fn(async()=>({ok:true,groups:[]})),settleLaneTurn:vi.fn(async()=>false),dispose:vi.fn()} as unknown as BotGroupChatService,deps);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(deps.dispatch).toHaveBeenCalledOnce();
+    await expect(authorizeGroupTool('lane','local-bot','owner-action')).resolves.toBeDefined();
+    revoked=true;
+    await expect(authorizeGroupTool('lane','local-bot','owner-action')).rejects.toMatchObject({code:'GROUP_AUTHORIZATION_REQUIRED'});
+    expect(deps.dispatch).toHaveBeenCalledOnce();
+  });
+  it('refuses dispatch acceptance after work authority changes without reaching the provider seam', async () => {
+    let revoked=false;
+    const providerSend=vi.fn();
+    deps.linkedWorkProject=async()=>({dir:'/selected',identity:'selection-a',refresh:async()=>{if(revoked)throw Error('GROUP_ACCESS_DENIED');}});
+    deps.validateProjectDir=async dir=>({ok:true,dir});
+    deps.dispatch=vi.fn<BotGroupChatServiceDeps['dispatch']>(async input=>{
+      revoked=true;await input.onAccepted();providerSend();
+      return {ok:true,targetSessionId:input.targetSessionId,wakeKind:'queued'};
+    });
+    fixture.profiles=[{id:'local-bot',displayName:'Bot',avatar:null,status:'active'}];
+    fixture.handle.mockImplementation(route=>{
+      if(route==='/executions/claim'){const next=claimed?null:{...execution,access_mode:'owner'};claimed=true;return {body:{execution:next}};}
+      return response(route);
+    });
+    service.dispose();
+    service=withChatServer({listGroups:vi.fn(async()=>({ok:true,groups:[]})),settleLaneTurn:vi.fn(async()=>false),dispose:vi.fn()} as unknown as BotGroupChatService,deps);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(deps.dispatch).toHaveBeenCalledOnce();
+    expect(providerSend).not.toHaveBeenCalled();
   });
 
   // #9909: a group turn can end with nothing published. Each such ending now leaves a trace,
@@ -2077,6 +2177,32 @@ describe('Chat Server result delivery and refresh', () => {
       await vi.advanceTimersByTimeAsync(3000);
     }
 
+    it.each(['session','background','later-tool'] as const)('retains work authority across the group Cindy boundaries (%s)', async boundary => {
+      let revoked=false;
+      deps.linkedWorkProject=async()=>({dir:'/selected',identity:'selection-a',refresh:async()=>{if(revoked)throw Error('GROUP_ACCESS_DENIED');}});
+      deps.validateProjectDir=async dir=>({ok:true,dir});
+      const ensure=deps.ensureGroupAssistantSession!;
+      deps.ensureGroupAssistantSession=vi.fn(async input=>{const result=await ensure(input);if(boundary==='session')revoked=true;return result;});
+      const original=fixture.handle.getMockImplementation()!;
+      fixture.handle.mockImplementation((...args)=>{
+        if(boundary==='background'&&args[0].startsWith(`/conversations/${roomId}/messages?limit=`))revoked=true;
+        return original(...args);
+      });
+      service.dispose();
+      service=withChatServer({listGroups:vi.fn(async()=>({ok:true,groups:[]})),settleLaneTurn:vi.fn(async()=>false),dispose:vi.fn()} as unknown as BotGroupChatService,deps);
+      await ask(5,'Read the project');
+      expect(deps.ensureGroupAssistantSession).toHaveBeenCalledOnce();
+      if(boundary==='later-tool') {
+        expect(dispatched()).toHaveLength(1);
+        await expect(authorizeGroupTool('group-task-1',cindyId,'owner-action')).resolves.toBeDefined();
+        revoked=true;
+        await expect(authorizeGroupTool('group-task-1',cindyId,'owner-action')).rejects.toMatchObject({code:'GROUP_AUTHORIZATION_REQUIRED'});
+        expect(dispatched()).toHaveLength(1);
+      } else {
+        expect(revoked).toBe(true);expect(dispatched()).toHaveLength(0);
+      }
+    });
+
     // Claimed as the group's Cindy, never through AI reply mode; the requester's own words become one
     // ordinary visible message in the group's task with its label and the group's recent messages; only
     // that input's turn end answers the group, and the group never stops the task.
@@ -2128,6 +2254,23 @@ describe('Chat Server result delivery and refresh', () => {
       expect(deps.ensureGroupAssistantSession).not.toHaveBeenCalled();
       expect(deps.dispatch).not.toHaveBeenCalled();
       expect(fixture.handle.mock.calls.filter(([, , body]) => body?.action === 'fail')).toHaveLength(1);
+    });
+
+    // Matching paths do not prove matching project/relationship authorization.
+    it('does not reuse the group Cindy task when a different selection resolves to the same directory', async () => {
+      let identity='selection-a';
+      deps.linkedWorkProject=async()=>({dir:'/selected',identity,refresh:async()=>{}});
+      deps.validateProjectDir=async dir=>({ok:true,dir});
+      service.dispose();
+      service=withChatServer({listGroups:vi.fn(async()=>({ok:true,groups:[]})),settleLaneTurn:vi.fn(async()=>false),dispose:vi.fn()} as unknown as BotGroupChatService,deps);
+      await ask(3,'first');
+      const first=dispatched()[0]!;
+      expect(first.targetSessionId).toBe('group-task-1');
+      await service.settleLaneTurn({...terminal,sessionId:'group-task-1',activeInputClientId:first.clientId,resultText:'Done'});
+      identity='selection-b';
+      await ask(7,'second');
+      expect(deps.ensureGroupAssistantSession).toHaveBeenLastCalledWith({title:'Room',projectDir:'/selected'});
+      expect(dispatched()[1]).toMatchObject({targetSessionId:'group-task-2'});
     });
 
     // One task per group: under the project folder found from the group's repository, reused while

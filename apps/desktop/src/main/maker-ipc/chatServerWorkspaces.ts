@@ -10,7 +10,7 @@ import { ownerScopedUserDataPath } from '../appSessionState.js';
 import { atomicWriteFileSync, readAtomicFileSync } from '../utils/atomicWriteFile.js';
 const workspace = z.object({ workDir: z.string(), branch: z.string().nullable(), ownerSessionId: z.string().nullable(),
   /** A prepared plan belongs to this selection; old unproven workspaces are not rebound. */
-  sourceProjectDir: z.string().nullable().optional() });
+  sourceProjectDir: z.string().nullable().optional(), sourceKey: z.string().optional() });
 // autoContinue: 分工 started here (startedHere, the latest 50) go on to the next step by themselves (bot-group-chat.md §7.4).
 const record = z.object({ projectDir: z.string().nullable(), plans: z.record(z.string(), workspace), autoContinue: z.boolean().optional(),
   startedHere: z.array(z.string()).max(50).optional(),
@@ -94,7 +94,7 @@ export function chatServerTaskCards(endpoint: string, actorId: string, current: 
 
 const assistantSession = z.object({
   /** The group's ordinary task on this computer, and the project folder it was opened in (null: under 「对话」). */
-  sessionId: z.string().min(1), projectDir: z.string().nullable(),
+  sessionId: z.string().min(1), projectDir: z.string().nullable(), sourceKey: z.string().optional(),
   /**
    * The group's newest message already delivered into the task, per conversation (`main` or a
    * Thread's root ID): the next request carries only what came after it. Sequences stay strings.

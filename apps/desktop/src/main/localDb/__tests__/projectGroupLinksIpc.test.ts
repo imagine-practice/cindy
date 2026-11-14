@@ -195,6 +195,7 @@ it('selects a working project explicitly, preserves private reads, and permits c
   expect(await request(work,event,'set-work')).toMatchObject({ok:true,current:{workDirKey:`local:${dir}`,revision:2}});
   const selection=await readLinkedGroupWorkDir(group.roomId,groupRuntime);
   expect(selection?.dir).toBe(dir);
+  await expect(Promise.all([selection!.refresh(),selection!.refresh()])).resolves.toEqual([undefined,undefined]);
   joined=false;
   await expect(selection!.refresh()).rejects.toThrow();
   await expect(readLinkedGroupWorkDir(group.roomId,groupRuntime)).rejects.toThrow();
@@ -236,9 +237,11 @@ it('keeps one explicit work project and reconciles a lost ACK without restoring 
   expect(await request(work,event,'set-work')).toMatchObject({ok:false,commitState:'unknown'});
   loseAck = false;
   expect(await request(work,event,'set-work')).toMatchObject({ok:true,replayed:true,commit:{revision:2}});
+  const firstSelection=await readLinkedGroupWorkDir(group.roomId,groupRuntime);
   expect(await request({...work,requestId:'work-q',target:{...target,projectId:'q'},dirKey:`local:${second}`},event,'set-work'))
     .toMatchObject({ok:true,current:{workDirKey:`local:${second}`}});
   expect(db.prepare('SELECT project_id FROM project_group_links WHERE work_dir_key IS NOT NULL').all()).toEqual([{project_id:'q'}]);
+  await expect(firstSelection!.refresh()).rejects.toThrow();
   expect(await request(work,event,'set-work')).toMatchObject({ok:true,replayed:true,commit:{revision:2},current:{revision:3,workDirKey:null}});
   expect((await readLinkedGroupWorkDir(group.roomId,groupRuntime))?.dir).toBe(second);
   expect(counts()).toEqual({links:2,receipts:4});
