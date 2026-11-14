@@ -1,4 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {botTaskDispatchHarness,wireNativeQueuedHost} from './sendToSessionHarness.js';
+import {runAcceptedCallback,AcceptedCallbackDispatchCancelled} from '../acceptedCallbackRunner.js';
+import {createQueuedAcceptedCallbacks} from '../queuedAcceptedCallbacks.js';
+import type {AgentInputQueuedMessage} from '../../../shared/agentInputQueue.js';
+import path from 'node:path';
 const avatarUpload = vi.hoisted(() => vi.fn());
 vi.mock('../../ossPublicUpload.js', () => ({ uploadPublicAsset: avatarUpload }));
 const fixture = vi.hoisted(() => ({ upload: vi.fn<(...args: Parameters<ReturnType<typeof import('../chatServerMedia.js').createChatMedia>['upload']>) => Promise<unknown[]>>(async () => []), download: vi.fn(), packaged: true, urls: [] as string[], wsUrls: [] as string[], exists: vi.fn(), config: '', handle: vi.fn(), profiles: [] as unknown[], sockets: [] as import('ws').WebSocket[], token: 'isolated-test-token', refresh: vi.fn(async () => true), requests: [] as Array<{ url: string; token: string; actor?: string }> }));
@@ -60,7 +65,12 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   }) as typeof actual.lstat;
   return { ...actual, default: { ...actual, lstat }, lstat };
 });
-vi.mock('node:fs', () => ({ existsSync: fixture.exists, readFileSync: () => fixture.config || '{"baseUrl":"https://example.com","token":"test"}' }));
+vi.mock('node:fs', async (importOriginal) => {
+  const actual=await importOriginal<typeof import('node:fs')>();
+  return {...actual,existsSync:fixture.exists,readFileSync:(file:unknown,...args:unknown[])=>String(file).endsWith('.ts')
+    ? (actual.readFileSync as (...args:unknown[])=>unknown)(file,...args)
+    : fixture.config || '{"baseUrl":"https://example.com","token":"test"}'};
+});
 vi.mock('../botGroupChatService.js', () => ({ readPersistedReplyText: vi.fn() }));
 vi.mock('../../localDb/client/current.js', () => ({ getDbClient: () => ({ drizzle: {
   select: () => ({ from: () => ({ where: () => Object.assign(Promise.resolve(fixture.profiles), { limit: async () => [{ id: 'existing-local-group' }] }) }) }),
@@ -118,6 +128,27 @@ import { buildMessageSourceNote, messageSourceSenderFromMeta } from '@cindy/make
 import { buildBotGroupCapabilityNotice, botGroupQuoteFromMessage, buildBotGroupQuoteCard, buildBotGroupTaskCard, buildBotGroupThreadShareCard } from '../../../shared/botGroupChat.js';
 import type { BotGroupChatService, BotGroupChatServiceDeps } from '../botGroupChatService.js';
 import type { ChatHistoryState } from '@cindy/maker-shared/chat-history';
+
+function nativeGroupQueue(sessionId='lane') {
+  const log={warn:vi.fn()};
+  const callbacks=createQueuedAcceptedCallbacks(log);
+  const items:AgentInputQueuedMessage[]=[];
+  const harness=botTaskDispatchHarness({[sessionId]:{permissionMode:'ask',planModeEnabled:false}},
+    {[sessionId]:{id:sessionId,agentKind:'claude-code',workDir:'/selected'}},{runAcceptedCallback,path,
+      welcomeDispatchReceipts:{dispatch:async(_session:string,_client:string,enqueue:()=>void)=>{enqueue();return true;}},
+    });
+  const native=wireNativeQueuedHost(harness,{
+    buildSessionControlInputItem:async(input:{clientId:string;message:string;persistedContent:string;toolsDisabled?:boolean})=>({
+      clientId:input.clientId,text:input.message,persistedContent:input.persistedContent,
+      toolsDisabled:input.toolsDisabled,createOpts:{permissionMode:'ask',planMode:false},
+    }),
+    inputCoordinator:{ensureQueueRestored:async()=>{},isQueueRestored:()=>true,hasPendingQueueItem:()=>false,
+      enqueue:(_session:string,item:AgentInputQueuedMessage)=>{items.push(item);}},
+    orcaInterAgentDispatcher:{registerQueuedOrcaInterAgentAcceptedCallback:callbacks.register,runQueuedOrcaInterAgentAcceptedCallback:callbacks.run},
+    log:{info:()=>{}},
+  });
+  return {harness,native,callbacks,items};
+}
 
 describe('splitChatMessageText', () => {
   it('breaks at the last line before the limit, else at the limit, never inside a surrogate pair', () => {
@@ -1633,6 +1664,53 @@ describe('Chat Server result delivery and refresh', () => {
     expect(providerSend).not.toHaveBeenCalled();
   });
 
+  // Independent 46be P1: direct-await dispatch mocks bypassed the actual callback runner,
+  // which deliberately swallows ordinary side-effect failures. Unit, actual registered
+  // group send -> native enqueue -> queued acceptance; provider/HTTP/DB ports controlled.
+  it.each(['owner','chat','attachments','missing-callback','valid'] as const)('cancels revoked work authority through registered group enqueue and queued acceptance (%s)', async mode => {
+    let revoked=false;
+    const {harness,native,callbacks,items}=nativeGroupQueue();
+    let outcome:unknown;
+    deps.linkedWorkProject=async()=>({dir:'/selected',identity:'selection-a',refresh:async()=>{if(revoked)throw Error('GROUP_ACCESS_DENIED');}});
+    deps.validateProjectDir=async dir=>({ok:true,dir});
+    deps.dispatch=vi.fn<BotGroupChatServiceDeps['dispatch']>(async input=>{
+      try {const result=await harness.groupDispatch({...input,...(mode==='attachments'?{attachments:[{id:'file',name:'note.txt',path:'/selected/note.txt',size:1,category:'file',mimeType:'text/plain'}]}:{})});outcome=result;return result as Awaited<ReturnType<BotGroupChatServiceDeps['dispatch']>>;}
+      catch(error){outcome=String(error);throw error;}
+    });
+    fixture.profiles=[{id:'local-bot',displayName:'Bot',avatar:null,status:'active'}];
+    fixture.handle.mockImplementation(route=>{
+      if(route==='/executions/claim'){const next=claimed?null:{...execution,access_mode:mode==='chat'?'chat':'owner'};claimed=true;return {body:{execution:next}};}
+      return response(route);
+    });
+    service.dispose();
+    service=withChatServer({listGroups:vi.fn(async()=>({ok:true,groups:[]})),settleLaneTurn:vi.fn(async()=>false),dispose:vi.fn()} as unknown as BotGroupChatService,deps);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(outcome).toMatchObject({ok:true});
+    expect(items).toHaveLength(1);
+    const queued=items[0]!;
+    expect(callbacks.has(queued.clientId)).toBe(true);
+    if(mode==='missing-callback')callbacks.discard(queued.clientId);
+    revoked=mode!=='valid';
+    // Chat-only inputs never received a private work grant; revoke their actual
+    // execution lease instead. Their allocated queue ID must retain this gate.
+    if(mode==='chat')service.dispose();
+    const providerSend=vi.fn();
+    let rejection:unknown;
+    try {await native.onAcceptedQueuedMessage('lane',queued);providerSend();} catch(error) {rejection=error;}
+    if(mode==='valid') {
+      expect(rejection).toBeUndefined();expect(providerSend).toHaveBeenCalledOnce();
+      await callbacks.settle('lane',{persistUserMessage:{clientId:queued.clientId}} as never,
+        {kind:'session-dispatch',source:'test',dispatched:true});
+      expect(callbacks.has(queued.clientId)).toBe(false);return;
+    }
+    expect(providerSend).not.toHaveBeenCalled();
+    expect(rejection).toBeInstanceOf(AcceptedCallbackDispatchCancelled);
+    await callbacks.settle('lane',{persistUserMessage:{clientId:queued.clientId}} as never,
+      {kind:'session-dispatch',source:'test',dispatched:false,reason:'cancelled-before-dispatch',message:'revoked',context:'group'});
+    expect(callbacks.has(queued.clientId)).toBe(false);
+    if(mode!=='chat')await expect(settleUndispatchedBotGroupTurn(service,'lane',queued.clientId,'failed',rejection)).resolves.toBe(true);
+  });
+
   // #9909: a group turn can end with nothing published. Each such ending now leaves a trace,
   // so the next report can tell "the companion skipped" from "this computer never ran it".
   describe('silent group turns keep a local trace', () => {
@@ -2176,6 +2254,30 @@ describe('Chat Server result delivery and refresh', () => {
       queue.push(request(n, requester));
       await vi.advanceTimersByTimeAsync(3000);
     }
+
+    it.each(['revoked','missing-callback'] as const)('guards the group Cindy through native queued acceptance (%s)', async mode=>{
+      let revoked=false;
+      const {harness,native,callbacks,items}=nativeGroupQueue('group-task-1');
+      deps.linkedWorkProject=async()=>({dir:'/selected',identity:'selection-a',refresh:async()=>{if(revoked)throw Error('GROUP_ACCESS_DENIED');}});
+      deps.validateProjectDir=async dir=>({ok:true,dir});
+      deps.dispatch=vi.fn<BotGroupChatServiceDeps['dispatch']>(input=>harness.groupDispatch(input) as ReturnType<BotGroupChatServiceDeps['dispatch']>);
+      service.dispose();
+      service=withChatServer({listGroups:vi.fn(async()=>({ok:true,groups:[]})),settleLaneTurn:vi.fn(async()=>false),dispose:vi.fn()} as unknown as BotGroupChatService,deps);
+      await ask(5,'Read the project');
+      expect(items).toHaveLength(1);
+      const item=items[0]!;
+      expect(callbacks.has(item.clientId)).toBe(true);
+      if(mode==='missing-callback')callbacks.discard(item.clientId);else revoked=true;
+      const providerSend=vi.fn();
+      let refusal:unknown;
+      try {await native.onAcceptedQueuedMessage('group-task-1',item);providerSend();}catch(error){refusal=error;}
+      expect(providerSend).not.toHaveBeenCalled();
+      expect(refusal).toBeInstanceOf(AcceptedCallbackDispatchCancelled);
+      await callbacks.settle('group-task-1',{persistUserMessage:{clientId:item.clientId}} as never,
+        {kind:'session-dispatch',source:'test',dispatched:false,reason:'cancelled-before-dispatch',message:'revoked',context:'group'});
+      expect(callbacks.has(item.clientId)).toBe(false);
+      await expect(settleUndispatchedBotGroupTurn(service,'group-task-1',item.clientId,'failed',refusal)).resolves.toBe(true);
+    });
 
     it.each(['session','background','later-tool'] as const)('retains work authority across the group Cindy boundaries (%s)', async boundary => {
       let revoked=false;

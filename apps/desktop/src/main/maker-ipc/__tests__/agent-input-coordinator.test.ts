@@ -2,7 +2,7 @@ import { getMainClassicalStyle, getResolvedMainLocale } from '../../i18n.desktop
 import { mcpAppModelContext } from '../../mcp-apps/runtime.js';
 import { createInputEnqueueHarness } from './inputEnqueueHarness.js';
 import { FORWARDED_REQUEST_RECEIPT } from '../../../shared/forwardedRequest.js';
-import { BOT_GROUP_CLIENT_ID } from '../../../shared/botGroupChat.js';
+import { BOT_GROUP_CLIENT_ID,botGroupAssistantClientId,botGroupCardTaskClientId } from '../../../shared/botGroupChat.js';
 import { authorizeGroupTool, registerGroupToolAuthority } from '../botGroupToolAuthorization.js';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -41,6 +41,9 @@ import {
   isInterruptedTurnError,
 } from '../interruptedTurnAutoResume.js';
 import { createQueuedDispatchReceipts } from '../queuedDispatchReceipts.js';
+import {createQueuedAcceptedCallbacks} from '../queuedAcceptedCallbacks.js';
+import {AcceptedCallbackDispatchCancelled} from '../acceptedCallbackRunner.js';
+import {botTaskDispatchHarness,wireNativeQueuedHost} from './sendToSessionHarness.js';
 import { discardQueuedInvitationWelcomes } from '../queuedInvitationWelcome.js';
 import { createOrcaInterAgentDispatcher } from '../orcaInterAgentDispatcher.js';
 import { buildOrcaQueueDispatchNote } from '../orcaQueueNote.js';
@@ -11514,14 +11517,78 @@ describe('AgentInputCoordinator queue mutations', () => {
 });
 
 describe('AgentInputCoordinator crash-recovery queue snapshots (issue #761)', () => {
-  it.each(['member', 'plan'] as const)('drops restored %s group inputs before a new execution can use their lane', async kind => {
+  // Independent 46be P1, unit: actual registered group -> enqueue -> coordinator
+  // onPersisted -> registered acceptance -> callback runner. Existing restore
+  // cases never consumed the live authorization callback; a direct await masked
+  // its swallowed error. Native DB/provider ports stay controlled, no real model.
+  it.each(['revoked','missing-callback','ordinary-side-effect'] as const)('settles native queued acceptance %s without a false provider success', async mode=>{
+    const sid='native-group-queue';
+    const h=createHarness();
+    const callbacks=createQueuedAcceptedCallbacks();
+    const nativeHost=botTaskDispatchHarness({[sid]:{permissionMode:'ask',planModeEnabled:false}},
+      {[sid]:{id:sid,agentKind:'claude-code',workDir:'/repo'}});
+    const native=wireNativeQueuedHost(nativeHost,{
+      inputCoordinator:h.coordinator,
+      buildSessionControlInputItem:async(input:{clientId:string;message:string;persistedContent:string})=>makeItem(input.clientId,input.message,{persistedContent:input.persistedContent}),
+      orcaInterAgentDispatcher:{registerQueuedOrcaInterAgentAcceptedCallback:callbacks.register,runQueuedOrcaInterAgentAcceptedCallback:callbacks.run},
+      log:{info:()=>{}},
+    });
+    h.onAcceptedQueuedMessage.mockImplementation(native.onAcceptedQueuedMessage);
+    const providerSend=vi.fn();
+    h.sendToAgent.mockImplementation(async(sessionId,_message,_createOpts,sendOpts)=>{
+      let result:AgentInputSendResult;
+      try {await persistQueuedUserMessage(sessionId,sendOpts);providerSend();result=sendSuccess();}
+      catch(error){
+        if(!(error instanceof AcceptedCallbackDispatchCancelled))throw error;
+        result={kind:'session-dispatch',source:'test',dispatched:false,reason:'cancelled-before-dispatch',message:error.message,context:'group'};
+      }
+      await callbacks.settle(sessionId,sendOpts,result);
+      return result;
+    });
+    await h.coordinator.ensureQueueRestored(sid);
+    h.setRunning(true);
+    const clientId=BOT_GROUP_CLIENT_ID.memberTurn('room','execution','bot');
+    let revoked=false;
+    if(mode==='ordinary-side-effect') {
+      // The shared callback runner must still warn-and-continue for ordinary
+      // non-group side effects. This is not the group producer's authority gate.
+      callbacks.register('ordinary',()=>{throw Error('side effect failed');});
+      h.coordinator.enqueue(sid,makeItem('ordinary','Ordinary input'));
+    } else {
+      await expect(nativeHost.groupDispatch({targetSessionId:sid,clientId,message:'Group request',persistedContent:'Group request',
+        onAccepted:async()=>{if(revoked)throw Error('GROUP_ACCESS_DENIED');}})).resolves.toMatchObject({ok:true,wakeKind:'queued'});
+      if(mode==='missing-callback')callbacks.discard(clientId);
+      revoked=true;
+    }
+    h.setRunning(false);h.coordinator.wakeSession(sid,'native-group-test');
+    if(mode==='ordinary-side-effect') {
+      await vi.waitFor(()=>expect(providerSend).toHaveBeenCalledOnce());
+      expect(h.onRejectedUserTurn).not.toHaveBeenCalled();
+      expect(h.onDispatchedUserTurn).toHaveBeenCalledOnce();
+      expect(callbacks.has('ordinary')).toBe(false);
+    } else {
+      await vi.waitFor(()=>expect(h.onUndispatchedUserTurn).toHaveBeenCalledOnce());
+      expect(providerSend).not.toHaveBeenCalled();
+      expect(callbacks.has(clientId)).toBe(false);
+      expect(h.onRejectedUserTurn).toHaveBeenCalledExactlyOnceWith(sid,expect.objectContaining({clientId}));
+      expect(h.onUndispatchedUserTurn).toHaveBeenCalledExactlyOnceWith(sid,expect.objectContaining({clientId}),'failed');
+      expect(h.onDispatchedUserTurn).not.toHaveBeenCalled();
+      expect(h.coordinator.getProjection(sid)).toMatchObject({turnInProgress:false,pendingQueue:[]});
+      expect(h.coordinator.getProjection(sid).error).toContain('cancelled-before-dispatch');
+    }
+  });
+
+  it.each(['member', 'plan', 'chat-only', 'Cindy', 'task-card'] as const)('drops restored %s group inputs before a new execution can use their lane', async kind => {
     const sid = 'reused-group-lane';
     const oldId = kind === 'member' ? BOT_GROUP_CLIENT_ID.memberTurn('room', 'old-execution', 'bot')
-      : BOT_GROUP_CLIENT_ID.planStep('room', 'plan', 0, 'old-execution');
+      : kind==='plan' ? BOT_GROUP_CLIENT_ID.planStep('room', 'plan', 0, 'old-execution')
+      : kind==='Cindy' ? botGroupAssistantClientId('old-execution',1)
+      : kind==='task-card' ? botGroupCardTaskClientId('old-execution',1) : 'allocated-chat-input';
     const writer = createHarness();
     await writer.coordinator.ensureQueueRestored(sid);
     writer.setRunning(true);
-    writer.coordinator.enqueue(sid, makeItem(oldId, 'Expired group request'));
+    writer.coordinator.enqueue(sid, makeItem(oldId, 'Expired group request',kind==='chat-only'
+      ? {toolsDisabled:true,retrySourceClientId:BOT_GROUP_CLIENT_ID.memberTurn('room','old-execution','bot')} : {}));
     await flush();
     const snapshot = JSON.parse(JSON.stringify(writer.persistQueueSnapshot.mock.calls.at(-1)![1]));
     const reader = createHarness();

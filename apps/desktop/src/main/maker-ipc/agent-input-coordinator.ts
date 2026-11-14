@@ -4,7 +4,7 @@ import { ASYNC_QUESTION_ANSWER, SUPERSEDE_ASYNC_QUESTIONS, AUTO_REVIEW_SOURCE_CO
 import { getDeviceLinkInvokeContext } from '../device-link/invoke-context.js';
 import { assertSharedTaskQueueMutation } from './sharedTaskInput.js';
 import { acceptTaskActionRecoveryCopy, assertTaskActionCurrent, combineInputGuards, hasTaskActionAuthorization, taskActionRevocationCode, taskActionInputGuard, TASK_ACTION_INPUT_GUARD } from './taskActionAuthorization.js';
-import { isBotGroupClientId } from '../../shared/botGroupChat.js';
+import { isBotGroupClientId, isBotGroupInTaskClientId } from '../../shared/botGroupChat.js';
 import { SchedulerQueuedPreparationError } from './schedulerQueuedPreparation.js';
 import { ProviderGroupUsageLimitError } from '../provider-group/failurePolicy.js';
 import { MCP_APP_MESSAGE_GUARD, isUnrestorableMcpAppMessage, queuedAppMessageGuard, type McpAppMessageGuard } from '../mcp-apps/message.js';
@@ -1793,15 +1793,18 @@ export class AgentInputCoordinator {
     // A group lane is reusable, but an execution lease is not. Snapshot rows
     // have lost the originating execution's callbacks; a new claim on this
     // lane must never authorize their prompts (including restored plan inputs).
-    const staleGroupItems = restorable.filter((item) => isBotGroupClientId(item.clientId));
+    const isStaleGroupInput = (item: AgentInputQueuedMessage) =>
+      isBotGroupClientId(item.clientId) || isBotGroupInTaskClientId(item.clientId)
+      || isBotGroupClientId(item.retrySourceClientId) || isBotGroupInTaskClientId(item.retrySourceClientId);
+    const staleGroupItems = restorable.filter(isStaleGroupInput);
     // App grants are Main-only Symbols, lost across JSON persistence. Drop the
     // stale row instead of putting a permanent authorization error at the queue
     // head. Its normal discard settlement runs exactly once, even if another
     // non-restorable origin also applies.
     const staleAppItems = restorable.filter((item) =>
-      item.origin?.kind !== 'scheduler' && !isBotGroupClientId(item.clientId) && isUnrestorableMcpAppMessage(item));
+      item.origin?.kind !== 'scheduler' && !isStaleGroupInput(item) && isUnrestorableMcpAppMessage(item));
     const restored = restorable.filter((item) =>
-      item.origin?.kind !== 'scheduler' && !isBotGroupClientId(item.clientId) && !isUnrestorableMcpAppMessage(item));
+      item.origin?.kind !== 'scheduler' && !isStaleGroupInput(item) && !isUnrestorableMcpAppMessage(item));
     for (const item of staleAppItems) {
       this.deps.onDiscardedQueuedMessage?.(sessionId, item);
     }

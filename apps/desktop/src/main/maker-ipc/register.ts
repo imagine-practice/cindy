@@ -728,7 +728,7 @@ import { createDesktopGroupProjectCheckouts } from './groupProjectCheckout.deskt
 import { markGroupCindyTask } from './groupCollaborationSkill.js';
 import { listPrRefs } from '../git-context/prRefsStore.js';
 import { gitExec } from '../worktree/gitExec.js';
-import { BOT_GROUP_CLIENT_ID_PREFIX, botGroupLiveTaskStateOfPhase } from '../../shared/botGroupChat.js';
+import { BOT_GROUP_CLIENT_ID_PREFIX, isBotGroupClientId, isBotGroupInTaskClientId, botGroupLiveTaskStateOfPhase } from '../../shared/botGroupChat.js';
 import { syncBotLanePermission, syncBotLinkedLanePermissions } from './botPermissionSync.js';
 import { ensureBotGroupLaneSession } from '../localDb/ipc/bots.js';
 import { restartBotRuntime } from './botRuntimeRestart.js';
@@ -13536,7 +13536,11 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
       });
       // Chat-only dispatch allocates a queue id; keep the server execution identity
       // so error recovery can restore the group's full background as well.
-      if (params.clientId?.startsWith(BOT_GROUP_CLIENT_ID_PREFIX)) queued.retrySourceClientId = params.clientId;
+      const queuedGroupInput = isBotGroupClientId(params.clientId) || isBotGroupInTaskClientId(params.clientId);
+      if (queuedGroupInput) queued.retrySourceClientId = params.clientId;
+      if (queuedGroupInput && params.onAccepted) {
+        orcaInterAgentDispatcher.registerQueuedOrcaInterAgentAcceptedCallback(clientId, () => params.onAccepted?.());
+      }
       const enqueue = () => inputCoordinator.enqueue(params.targetSessionId, queued, {
         resumeRestorePausedQueue: true,
       });
@@ -13547,7 +13551,9 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
       } else {
         enqueue();
       }
-      await params.onAccepted?.();
+      // Group acceptance includes revocable work-context authority. It belongs at
+      // consumption, including chat-only/attachment inputs, not at queue insertion.
+      if (!queuedGroupInput) await params.onAccepted?.();
       return {
         ok: true as const,
         targetSessionId: params.targetSessionId,
@@ -13837,6 +13843,7 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
     },
     dispatch: ({ targetSessionId, message, persistedContent, autoReviewUserText, origin, clientId, attachments, toolsDisabled, resumeWithStoredPermissionMode, onQueued, onAccepted }) =>
       dispatchBotSessionMessage({
+        forceQueue: true,
         targetSessionId,
         message,
         persistedContent,
@@ -13863,7 +13870,14 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
             })),
           }
           : {}),
-        onAccepted,
+        onAccepted: async () => {
+          try { await onAccepted(); }
+          catch (error) {
+            // This is a group execution/authority gate, not an ordinary accepted
+            // side effect. Preserve the runner's global swallow-and-warn contract.
+            throw new AcceptedCallbackDispatchCancelled(error instanceof Error ? error.message : String(error));
+          }
+        },
       }),
     prepareAttachments: botGroupAttachments.prepare,
     abortLane: (sessionId) => stopSessionTurnExplicitly(sessionId),
@@ -20671,7 +20685,14 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
       schedulerQueuedPromptPreparations.delete(item.clientId);
       // 返回 promise 让 coordinator 在 onPersisted 链路里 await —— worker 运行态与
       // pending auto-bridge 副作用必须先于 turn 启动完成；失败仍吞错落日志，不拦派发。
-      await orcaInterAgentDispatcher.runQueuedOrcaInterAgentAcceptedCallback(sessionId, item);
+      const acceptance = orcaInterAgentDispatcher.runQueuedOrcaInterAgentAcceptedCallback(sessionId, item);
+      if ((isBotGroupClientId(item.clientId) || isBotGroupInTaskClientId(item.clientId)
+        || isBotGroupClientId(item.retrySourceClientId) || isBotGroupInTaskClientId(item.retrySourceClientId)) && !acceptance) {
+        // The lease and private work-context grant live in the originating host.
+        // A missing callback (including a recovered queue) cannot authorize reuse.
+        throw new AcceptedCallbackDispatchCancelled('Group execution authority is no longer available');
+      }
+      await acceptance;
       const pluginTaskSession = maker.getSession(sessionId);
       if (pluginTaskSession && pluginTaskServiceForCurrentOwner) {
         await pluginTaskServiceForCurrentOwner().accept(sessionId, item, { instanceId: pluginTaskSession.instanceId, generation: pluginTaskSession.getTurnGeneration() });

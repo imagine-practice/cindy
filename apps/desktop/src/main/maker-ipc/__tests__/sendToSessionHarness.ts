@@ -17,6 +17,8 @@ import type { InteractionRequest, InteractionDecision } from '@cindy/maker-core'
 import { bindTaskActionInput } from '../taskActionAuthorization.js';
 import { HOST_ONLY_AGENT_PREFIX } from '../../../shared/agentInputQueue.js';
 import { UI_ACTION_TRIGGER_PREFIX } from '../../../shared/interruptedTurn.js';
+import { AcceptedCallbackDispatchCancelled } from '../acceptedCallbackRunner.js';
+import {isBotGroupClientId,isBotGroupInTaskClientId} from '../../../shared/botGroupChat.js';
 const registerSource = readFileSync(resolve(__dirname, '..', 'register.ts'), 'utf8').replace(/\r\n?/g, '\n');
 
 function botTaskDispatchSlice(): string {
@@ -166,6 +168,7 @@ export function botTaskDispatchHarness(
     inputCoordinator: { ensureQueueRestored: asyncNoop, shouldQueueNewTurn: () => false },
     enqueueSendToSessionMessage: vi.fn(asyncNoop),
     BOT_GROUP_CLIENT_ID_PREFIX: 'bot-group:',
+    isBotGroupClientId,isBotGroupInTaskClientId,
     agentSwitchPending: new Map(),
     notifyAgentIslandUserPrompt: noop,
     dispatchAgentIslandUserPrompt: noop,
@@ -190,7 +193,7 @@ export function botTaskDispatchHarness(
     assertDesktopSendDispatched: noop,
     isSessionRunningError: () => false,
     GroupToolAuthorizationError: class extends Error {},
-    AcceptedCallbackDispatchCancelled: class extends Error {},
+    AcceptedCallbackDispatchCancelled,
     // create 分支的位置与执行配置走真实解析；不指定位置与配置时不读任何供应商。
     resolveSendToSessionCreateRoute,
     getSelfDeviceId: () => 'self-device',
@@ -238,6 +241,34 @@ const nativeHostSource=[
 ].join('\n');
 const loadNativeHost=new Function('scope',`with(scope){return (function(){${ts.transpileModule(nativeHostSource,
   {compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None}}).outputText}})();}`);
+
+// Same registered queue boundary as production; only native services are injected.
+function registeredQueueHook(name: string): string {
+  let text: string | undefined;
+  const visit = (node: ts.Node): void => {
+    if (ts.isPropertyAssignment(node) && node.name.getText(registerAst) === name) text = node.initializer.getText(registerAst);
+    else ts.forEachChild(node, visit);
+  };
+  visit(registerAst);
+  if (!text) throw new Error(`Production queue hook missing: ${name}`);
+  return text;
+}
+const loadNativeQueuedHost = new Function('scope', `with(scope){return (function(){${ts.transpileModule(
+  `${functionText(registerAst,'enqueueSendToSessionMessage')};return {enqueueSendToSessionMessage,onAcceptedQueuedMessage:${registeredQueueHook('onAcceptedQueuedMessage')}};`,
+  {compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None}},
+).outputText}})();}`);
+export function wireNativeQueuedHost(h: ReturnType<typeof botTaskDispatchHarness>, overrides: Record<string,unknown>) {
+  Object.assign(h.scope, {
+    schedulerQueuedPromptDiscardWatchers:new Map(),schedulerQueuedPromptPreparations:new Map(),
+    pluginTaskServiceForCurrentOwner:undefined,
+  }, overrides);
+  const loaded = loadNativeQueuedHost(h.scope) as {
+    enqueueSendToSessionMessage: unknown;
+    onAcceptedQueuedMessage:(sessionId:string,item:import('../../../shared/agentInputQueue.js').AgentInputQueuedMessage,restored?:boolean)=>Promise<void>;
+  };
+  Object.assign(h.scope,loaded);
+  return loaded;
+}
 
 export function wireNativeWorkItemHost(h:ReturnType<typeof botTaskDispatchHarness>, coordinator:AgentInputCoordinator,
   setOwnerTurnDispatch:(value:import('../ownerTurnDispatch').OwnerTurnHost)=>void, overrides:Record<string,unknown>) {
