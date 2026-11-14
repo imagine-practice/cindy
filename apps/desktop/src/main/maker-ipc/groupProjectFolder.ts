@@ -4,7 +4,8 @@ import { githubRepositoryOfRemote, type GroupCheckoutResult, type GroupProjectCh
 /**
  * A group's project folder on this computer (bot-group-chat.md §7.5), in this order:
  *
- * 1. the folder chosen here in group management;
+ * 0. an explicitly selected linked project, reauthorized before work;
+ * 1. the folder chosen here in group settings;
  * 2. the one project registered in Cindy whose git `origin` is the group's repository;
  * 3. Cindy's own checkout of that repository, cloned on first need (`groupProjectCheckout.ts`).
  *
@@ -18,7 +19,7 @@ export interface GroupProjectFolder {
   auto: boolean;
 }
 /** `pending`: why the group's repository is not on this computer yet; `dir` is null then. */
-export type GroupWorkFolder = GroupProjectFolder & { pending?: Exclude<GroupCheckoutResult, { status: 'ready' }> };
+export type GroupWorkFolder = GroupProjectFolder & { pending?: Exclude<GroupCheckoutResult, { status: 'ready' }>; linkedProject?: boolean };
 
 /** How long a found folder is trusted, and how soon a miss is looked up again. */
 const FOUND_MS = 5 * 60_000;
@@ -27,6 +28,7 @@ const MISSED_MS = 20_000;
 export function createGroupProjectFolders(deps: {
   /** The folder chosen for this group on this computer. */
   chosen: (roomId: string) => string | null;
+  workProject?: (roomId: string,displayOnly?:boolean) => Promise<{dir:string;refresh():Promise<void>} | null>;
   /** Registered project folders whose git `origin` is this repository. */
   findRegistered?: (repo: string) => Promise<string[]>;
   checkouts?: Pick<GroupProjectCheckouts, 'ensure' | 'sync' | 'isManaged'>;
@@ -58,6 +60,10 @@ export function createGroupProjectFolders(deps: {
   return {
     /** What group management shows: the chosen folder, else the registered project. Never clones. */
     async shown(room: GroupProjectRoom): Promise<GroupProjectFolder> {
+      if (deps.workProject) {
+        try { const linked = await deps.workProject(room.id,true); if (linked) return {dir:linked.dir,auto:false}; }
+        catch { return {dir:null,auto:false}; }
+      }
       const chosen = deps.chosen(room.id);
       if (chosen) return { dir: chosen, auto: false };
       const repo = repoOf(room);
@@ -67,7 +73,15 @@ export function createGroupProjectFolders(deps: {
      * The folder work for this group runs in, checked to exist. `signIn`: Cindy may open its GitHub
      * sign-in to clone the repository (the requester's own request, on their computer).
      */
-    async forWork(room: GroupProjectRoom, options: { signIn: boolean; isCurrent: () => boolean }): Promise<GroupWorkFolder> {
+    async forWork(room: GroupProjectRoom, options: { signIn: boolean; isCurrent: () => boolean; clone?: boolean }): Promise<GroupWorkFolder> {
+      const linked = await deps.workProject?.(room.id);
+      if (linked) {
+        const dir = await usable(linked.dir);
+        if (!dir) throw new Error('WORKDIR_UNAVAILABLE');
+        await linked.refresh();
+        if (!options.isCurrent()) throw new Error('OWNER_CHANGED');
+        return {dir,auto:false,linkedProject:true};
+      }
       // A host that cannot check folders has no project folders.
       if (!deps.validate) return { dir: null, auto: false };
       const chosen = deps.chosen(room.id);
@@ -84,6 +98,9 @@ export function createGroupProjectFolders(deps: {
         if (dir) return { dir, auto: true };
         forget(repo);
       }
+      // Division of work preserves the existing lookup-only behavior; it must
+      // not start a repository clone just by resolving its workspace.
+      if (options.clone === false) return {dir:null,auto:true};
       // Cindy's own checkout is a convenience: a clone that cannot run leaves the work without the project.
       const checkout = await deps.checkouts?.ensure(repo, options)
         ?.catch(error => { if (!options.isCurrent()) throw error; return null; });

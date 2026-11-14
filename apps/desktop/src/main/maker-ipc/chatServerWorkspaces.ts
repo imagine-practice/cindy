@@ -8,7 +8,9 @@ import path from 'node:path';
 import { z } from 'zod';
 import { ownerScopedUserDataPath } from '../appSessionState.js';
 import { atomicWriteFileSync, readAtomicFileSync } from '../utils/atomicWriteFile.js';
-const workspace = z.object({ workDir: z.string(), branch: z.string().nullable(), ownerSessionId: z.string().nullable() });
+const workspace = z.object({ workDir: z.string(), branch: z.string().nullable(), ownerSessionId: z.string().nullable(),
+  /** A prepared plan belongs to this selection; old unproven workspaces are not rebound. */
+  sourceProjectDir: z.string().nullable().optional() });
 // autoContinue: 分工 started here (startedHere, the latest 50) go on to the next step by themselves (bot-group-chat.md §7.4).
 const record = z.object({ projectDir: z.string().nullable(), plans: z.record(z.string(), workspace), autoContinue: z.boolean().optional(),
   startedHere: z.array(z.string()).max(50).optional(),

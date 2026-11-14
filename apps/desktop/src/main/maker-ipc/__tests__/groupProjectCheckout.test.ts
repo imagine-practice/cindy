@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { createGroupProjectCheckouts, type GitResult, type GroupCheckoutDeps } from '../groupProjectCheckout.js';
+import { createGroupProjectFolders } from '../groupProjectFolder.js';
 
 /**
  * bot-group-chat.md §7.5: a group's repository that is not a registered project is fetched by Cindy
@@ -9,6 +10,36 @@ import { createGroupProjectCheckouts, type GitResult, type GroupCheckoutDeps } f
 const root = path.resolve('/cindy/projects/github');
 const dir = path.join(root, 'makecindy', 'cindy');
 const ok: GitResult = { exitCode: 0, stdout: '', stderr: '' };
+
+// Unified group projects: an explicit linked selection precedes legacy folder
+// lookup, and revoked selection never silently executes in the legacy folder.
+describe('explicit linked work project resolution', () => {
+  it('refreshes the selected authority after validating its directory', async () => {
+    const events:string[]=[];
+    const folders=createGroupProjectFolders({chosen:()=>'/legacy',
+      workProject:async()=>({dir:'/linked',refresh:async()=>{events.push('refresh');}}),
+      validate:async value=>{events.push('validate');return {ok:true,dir:value};}});
+    expect(await folders.forWork({id:'room'},{signIn:false,isCurrent:()=>true})).toEqual({dir:'/linked',auto:false,linkedProject:true});
+    expect(events).toEqual(['validate','refresh']);
+  });
+  it('rejects revoked selection instead of falling back, while no selection preserves legacy mode', async () => {
+    const validate=vi.fn(async(value:string)=>({ok:true as const,dir:value}));
+    const invalid=createGroupProjectFolders({chosen:()=>'/legacy',validate,
+      workProject:async()=>{throw Error('GROUP_ACCESS_DENIED');}});
+    await expect(invalid.forWork({id:'room'},{signIn:false,isCurrent:()=>true})).rejects.toThrow('GROUP_ACCESS_DENIED');
+    expect(validate).not.toHaveBeenCalled();
+    const legacy=createGroupProjectFolders({chosen:()=>'/legacy',validate,workProject:async()=>null});
+    expect(await legacy.forWork({id:'room'},{signIn:false,isCurrent:()=>true})).toEqual({dir:'/legacy',auto:false});
+  });
+  it('keeps division lookup-only when the repository has not been cloned', async () => {
+    const ensure=vi.fn();
+    const folders=createGroupProjectFolders({chosen:()=>null,findRegistered:async()=>[],
+      validate:async dir=>({ok:true,dir}),checkouts:{ensure,sync:vi.fn(),isManaged:()=>false}});
+    expect(await folders.forWork({id:'room',project:{kind:'github',repo:'makecindy/cindy'}},
+      {signIn:false,clone:false,isCurrent:()=>true})).toEqual({dir:null,auto:true});
+    expect(ensure).not.toHaveBeenCalled();
+  });
+});
 
 function setup(options: { signedIn?: boolean; clone?: 'ok' | 'denied'; git?: boolean; signInFinishes?: boolean } = {}) {
   const disk = new Set<string>();

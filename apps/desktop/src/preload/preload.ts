@@ -6410,6 +6410,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       onChanged: (cb: () => void) => fanOutProjectsChanged(cb as IpcCallback),
     },
     projectGroupLinks: {
+      ownerInGroup: true,
+      setWork: (request: import('../shared/projectGroupLinks').ProjectGroupSetWorkIntent): Promise<import('../shared/projectGroupLinks').ProjectGroupLinksResponse> => ipcRenderer.invoke('local-db:project-group-links:set-work', request),
       list: (request: import('../shared/projectGroupLinks').ProjectGroupLinksListIntent): Promise<import('../shared/projectGroupLinks').ProjectGroupLinksResponse> => ipcRenderer.invoke('local-db:project-group-links:list', request),
       listProject: (request: import('../shared/projectGroupLinks').ProjectGroupLinksListProjectIntent): Promise<import('../shared/projectGroupLinks').ProjectGroupLinksProjectListResult | import('../shared/projectGroupLinks').ProjectGroupLinksFailure> => ipcRenderer.invoke('local-db:project-group-links:list-project', request),
       link: (request: import('../shared/projectGroupLinks').ProjectGroupLinkIntent): Promise<import('../shared/projectGroupLinks').ProjectGroupLinksResponse> => ipcRenderer.invoke('local-db:project-group-links:link', request),

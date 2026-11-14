@@ -23,12 +23,17 @@ export interface CapturedChatGroupAuthority {
   readonly facts: Readonly<ChatGroupAuthorityFacts>;
   assertCurrent(): void;
   refresh(): Promise<CapturedChatGroupAuthority>;
+  /** Main-only identity check for the captured room, not project read access.
+   * Optional so older authority providers cannot accidentally claim this policy. */
+  projectOwnerJoined?(subject: { readonly kind: 'account' | 'bot'; readonly id: string }): boolean;
+  /** Opaque main-only identity, including the bot's current home. Not a grant. */
+  projectOwnerIdentity?(subject: { readonly kind: 'account' | 'bot'; readonly id: string }): string | null;
 }
 export interface ChatGroupAuthorityService {
   capture(roomId: string, permission: 'read' | 'configure', caller: ChatGroupAuthorityCaller): Promise<CapturedChatGroupAuthority>;
 }
 
-const actor = z.object({ id: z.string().uuid(), kind: z.string(), externalId: z.string().min(1), disabled: z.boolean().optional() });
+const actor = z.object({ id: z.string().uuid(), kind: z.string(), externalId: z.string().min(1), disabled: z.boolean().optional(), homeDeviceId: z.string().nullable().optional() });
 // The group's Cindy is server-owned, so its owner is null. This is valid room
 // data, but cannot match the account-owned actors selected below.
 const member = z.object({ id: z.string().uuid(), kind: z.string(), ownerActorId: z.string().uuid().nullable(),
@@ -136,11 +141,30 @@ export function createChatGroupAuthority(deps: {
       selfActorId: me.id, actorId: selected.id, role: selected.role, roomRevision: s.room.revision,
       accessRevision: selected.accessRevision, permission });
     assertCurrent();
-    return Object.freeze({ facts, assertCurrent: assertValid, refresh: async () => {
+    const checkedOwners = new Map<string, { subject: {kind:'account'|'bot';id:string}; identity:string|null }>();
+    const projectOwnerIdentity = (owner: { readonly kind: 'account' | 'bot'; readonly id: string }): string | null => {
+      assertValid();
+      if (owner.kind === 'account') return owner.id === boundary.ownerId
+        && owned.some(m => m.kind === 'human' && m.id === me.id) ? JSON.stringify([me.id]) : null;
+      if (owner.kind !== 'bot') return null;
+      const candidates = actors.filter(a => a.kind === 'bot' && a.externalId === owner.id && !a.disabled);
+      const member = candidates.length === 1 ? owned.find(m => m.kind === 'bot' && m.id === candidates[0].id) : undefined;
+      return member ? JSON.stringify([member.id,member.accessRevision,candidates[0].homeDeviceId ?? null]) : null;
+    };
+    const projectOwnerJoined = (owner: { readonly kind: 'account' | 'bot'; readonly id: string }) => {
+      const identity = projectOwnerIdentity(owner);
+      checkedOwners.set(JSON.stringify(owner), {subject:owner,identity});
+      return identity !== null;
+    };
+    return Object.freeze({ facts, assertCurrent: assertValid, projectOwnerJoined, projectOwnerIdentity, refresh: async () => {
       assertValid();
       valid = false; // A failed refresh must never leave the old grant usable.
       const next = await this.capture(roomId, permission, { subject, assertCurrent });
       if (next.facts.actorId !== facts.actorId || next.facts.role !== facts.role) throw new Error('GROUP_AUTHORITY_CHANGED');
+      for (const {subject: owner,identity} of checkedOwners.values()) {
+        if (next.projectOwnerIdentity?.(owner) !== identity) throw new Error('GROUP_AUTHORITY_CHANGED');
+        next.projectOwnerJoined?.(owner);
+      }
       return next;
     } });
   } };

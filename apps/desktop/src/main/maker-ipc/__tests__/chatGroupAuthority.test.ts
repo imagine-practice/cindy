@@ -137,6 +137,44 @@ describe('native main-only group authority', () => {
     expect(grant.facts).toMatchObject({ actorId: self, role: 'admin', permission: 'configure' });
     expect((await grant.refresh()).facts.actorId).toBe(self);
   });
+  // Unified project links: configuration belongs to the group administrator,
+  // while the project's owner may be a different, joined human/bot subject.
+  // Exercise production identity mapping, not UUID/name equality in the UI.
+  it('checks project-owner membership independently of the configuring actor and revokes old evidence', async () => {
+    const grant = await capture();
+    expect(grant.projectOwnerJoined?.({ kind: 'account', id: 'account-1' })).toBe(true);
+    expect(grant.projectOwnerJoined?.({ kind: 'bot', id: 'account-1' })).toBe(true);
+    expect(grant.projectOwnerJoined?.({ kind: 'account', id: self })).toBe(false);
+    expect(grant.projectOwnerJoined?.({ kind: 'bot', id: bot })).toBe(false);
+    state = 'left';
+    await expect(grant.refresh()).rejects.toThrow();
+    expect(() => grant.projectOwnerJoined?.({ kind: 'bot', id: 'account-1' })).toThrow('GROUP_AUTHORITY_EXPIRED');
+  });
+  it.each(['disabled', 'unowned'])('never treats a %s actor as a project owner', async change => {
+    const original = fixture.handle.getMockImplementation()!;
+    fixture.handle.mockImplementation((...args) => {
+      const result = original(...args);
+      if (change === 'disabled' && args[0] === '/actors') result.body[0].disabled = true;
+      if (change === 'unowned' && args[0].endsWith('/snapshot')) result.body.members[1].ownerActorId = null;
+      return result;
+    });
+    const grant = await capture();
+    expect(grant.projectOwnerJoined?.({ kind: 'bot', id: 'account-1' })).toBe(false);
+  });
+  it('invalidates a checked project owner when its home changes across refresh', async () => {
+    let home = 'home-a';
+    const original = fixture.handle.getMockImplementation()!;
+    fixture.handle.mockImplementation((...args) => {
+      const result = original(...args);
+      if (args[0] === '/actors') result.body[0].homeDeviceId = home;
+      return result;
+    });
+    const grant = await capture();
+    expect(grant.projectOwnerJoined?.({kind:'bot',id:'account-1'})).toBe(true);
+    home = 'home-b';
+    await expect(grant.refresh()).rejects.toThrow('GROUP_AUTHORITY_CHANGED');
+    expect((await capture()).projectOwnerJoined?.({kind:'bot',id:'account-1'})).toBe(true);
+  });
   it.each(['account', 'bot'] as const)('does not grant %s authority through an unowned administrator', async subject => {
     role = botRole = 'member';
     const original = fixture.handle.getMockImplementation()!;

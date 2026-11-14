@@ -146,7 +146,7 @@ interface Running {
   settlement?: { terminal: BotGroupLaneTerminal; cancelled?: boolean; payload?: Record<string, unknown>; reply?: { sourceText: string; text: string; attachments: ChatUploadAttachment[] }; fileReply?: Awaited<ReturnType<typeof prepareChatReplyFiles>>; retryAt: number; keepLease?: boolean; refused?: boolean };
   delivery?: Promise<void>;
   plan?: ServerPlan;
-  workspace?: { workDir: string; branch: string | null; ownerSessionId: string | null };
+  workspace?: { workDir: string; branch: string | null; ownerSessionId: string | null; sourceProjectDir?: string | null };
   beforeFiles?: Map<string, string>;
   pauseStarted?: number;
   /**
@@ -517,6 +517,7 @@ function createChatServer(local: BotGroupChatService, deps: BotGroupChatServiceD
   const memberName = (m: Member, members: readonly Member[]) => isAssistant(m) ? BOT_GROUP_ASSISTANT_NAME : chatGroupMemberName(m, members);
   /** Where a group's work happens on this computer (`groupProjectFolder.ts`, bot-group-chat.md §7.5). */
   const projectFolders = createGroupProjectFolders({
+    workProject: deps.linkedWorkProject,
     chosen: roomId => workspaces().read(roomId)?.projectDir ?? null,
     get findRegistered() { return deps.findProjectDirsForRepo; },
     get checkouts() { return deps.groupCheckouts; },
@@ -2875,7 +2876,9 @@ function createChatServer(local: BotGroupChatService, deps: BotGroupChatServiceD
       // In a group with a repository a teammate does things only for its owner. For anyone else it
       // only talks, even with a `tools` grant: work on the project is done by the requester's own
       // Cindy in the group, on their computer with their own logins (bot-group-chat.md §7.5).
-      if (!ownDirectRoom && s.room.project && !execution.mask_owner_id && execution.access_mode === 'tools') toolsOff = true;
+      const linkedProjectForOtherMember = !ownDirectRoom && !execution.mask_owner_id && execution.access_mode === 'tools'
+        ? await deps.linkedWorkProject?.(s.room.id, true) : null;
+      if (!ownDirectRoom && (s.room.project || linkedProjectForOtherMember) && !execution.mask_owner_id && execution.access_mode === 'tools') toolsOff = true;
       // Claim metadata and the persisted source must agree before creating a lane.
       // Reading this exact ID also covers sources outside the bounded history page.
       let eventSource: Message | undefined;
@@ -2911,19 +2914,27 @@ function createChatServer(local: BotGroupChatService, deps: BotGroupChatServiceD
           if (!run.plan) throw new Error('PLAN_CLOSED');
           // A discussion only talks: no project folder, worktree or produced files.
           if (execution.access_mode !== 'chat' && run.plan.kind !== 'talk') {
+            // A display projection is not a directory grant. Recheck the selected
+            // project's current owner even when this plan already has a workspace.
+            const folder = linkedProjectForOtherMember ? { dir: null } : await projectFolders.forWork(s.room, {
+              signIn: false, clone: false, isCurrent: () => current() && running.get(execution.id) === run,
+            });
             const settings = workspaces().read(s.room.id) ?? { projectDir: null, plans: {} };
             // Each grant has its own workspace. Revoked grants cannot reuse private context.
             const key = `${run.plan.id}:${execution.access_mode}:${execution.access_revision}`;
             run.workspace = settings.plans[key] ?? (execution.access_mode === 'owner' ? settings.plans[run.plan.id] : undefined);
+            if (linkedProjectForOtherMember && run.workspace) throw new Error('WORKDIR_UNAVAILABLE');
+            if ('linkedProject' in folder && folder.linkedProject && run.workspace
+              && run.workspace.sourceProjectDir !== folder.dir) throw new Error('WORKDIR_UNAVAILABLE');
             if (!run.workspace) {
-              const prepared = await deps.workDir?.prepare({ groupId: s.room.id, projectDir: (await projectFolders.shown(s.room)).dir });
+              const prepared = await deps.workDir?.prepare({ groupId: s.room.id, projectDir: folder.dir });
               if (!prepared?.ok) throw new Error('WORKDIR_UNAVAILABLE');
-              run.workspace = prepared;
+              run.workspace = {...prepared, ...('linkedProject' in folder && folder.linkedProject ? {sourceProjectDir:folder.dir} : {})};
               if (!current()) throw new Error('OWNER_CHANGED');
               // Preparation yields: another lane may settle or save settings in
               // the meantime. Add this workspace to the latest persisted record.
               const latestSettings = workspaces().read(s.room.id) ?? settings;
-              latestSettings.plans[key] = prepared; latestSettings.plans[run.plan.id] = prepared;
+              latestSettings.plans[key] = run.workspace; latestSettings.plans[run.plan.id] = run.workspace;
               workspaces().save(s.room.id, latestSettings);
             }
             run.beforeFiles = await deps.workDir?.snapshot(run.workspace.workDir);

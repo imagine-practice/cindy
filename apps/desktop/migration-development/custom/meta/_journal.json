@@ -8,6 +8,13 @@
       "when": 1794551782998,
       "tag": "0000_combined_baseline",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1794638742433,
+      "tag": "0001_group_work_project",
+      "breakpoints": true
     }
   ]
 }

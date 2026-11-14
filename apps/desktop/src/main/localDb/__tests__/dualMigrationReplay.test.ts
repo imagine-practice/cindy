@@ -43,7 +43,7 @@ function fixture(name: string): {db: Database.Database; filename: string} {
   const db = open(filename);
   if (name !== 'empty') {
     const entries = catalog.entries.filter(e => e.namespace === 'upstream'
-      ? e.id <= (name === 'official' ? 149 : 148) : name === 'fork');
+      ? e.id <= (name === 'official' ? 149 : 148) : name === 'fork' && e.legacySeq !== undefined);
     fs.writeFileSync(`${filename}.migration-runtime.json`, JSON.stringify({version:1,legacyBaselineVersion:-1,
       migrations:entries.map(e => ({seq:e.legacySeq,fileName:e.fileName,sqlHash:e.sqlHash,scriptHash:e.scriptHash}))}));
   }
@@ -69,7 +69,7 @@ beforeAll(async () => {
     const filename = path.join(root, `baseline-${name}.db`), db = open(filename);
     try {
       const entries = catalog.entries.filter(e => e.namespace === 'upstream'
-        ? e.id <= (name === 'official' ? 149 : 148) : name === 'fork');
+        ? e.id <= (name === 'official' ? 149 : 148) : name === 'fork' && e.legacySeq !== undefined);
       runMigrationReplay(db, {drizzleDir, migrations: entries.map(e => ({seq:e.legacySeq!,fileName:e.fileName,sqlPath:e.sqlPath,tsScriptPath:e.scriptPath??undefined}))});
       fixtures.set(name, db.serialize());
     } finally { db.close(); }
@@ -78,12 +78,50 @@ beforeAll(async () => {
 afterAll(() => fs.rmSync(root, {recursive:true,force:true}));
 
 describe('dual-chain production replay', () => {
+  // New selection metadata must not backfill or select an old link, or rewrite
+  // an existing task/receipt. Exercise the prior released dual-format catalog.
+  it('upgrades custom13 with existing group links and V2 task history without choosing a workspace', () => {
+    const {db,filename} = fixture('fork'), out = isolatedCatalog();
+    fs.unlinkSync(path.join(out,'catalog/entries/custom-0014.json'));
+    fs.unlinkSync(path.join(out,'catalog/custom/0014/0001_group_work_project.sql'));
+    try {
+      runDualMigrationReplay(db,{drizzleDir:out,dbPath:filename});
+      db.exec(`INSERT INTO projects(id,name,owner_id,status,created_at,updated_at) VALUES ('p','project','owner','active',1,1);
+        INSERT INTO project_members VALUES ('p','account','owner','owner',1);
+        INSERT INTO sessions(id,project_id,task_objective,permission_mode,assignee_kind,assignee_id,created_at,updated_at)
+          VALUES ('s','p','Keep this objective','ask','bot','teammate',1,1);
+        INSERT INTO messages(id,client_id,session_id,role,content,created_at) VALUES ('m','original','s','user','[]',1);
+        INSERT INTO work_item_progress(session_id,project_id,binding_revision,status,revision,updated_by_kind,updated_by_id,updated_at)
+          VALUES ('s','p',0,'todo',3,'account','owner',1);
+        INSERT INTO project_work_item_executions(id,project_id,session_id,binding_revision,executor_bot_id,caller_session_id,
+          actor_kind,actor_id,key_digest,body_digest,fingerprint,input_id,phase,result_json,created_at,updated_at)
+          VALUES ('e','p','s',0,'teammate','caller','account','owner','key','body','fingerprint','input','unknown',NULL,1,1);
+        INSERT INTO project_group_links VALUES ('l','owner','device','p','https://chat.example','room','active',1,'account','owner','account','owner',1,1);
+        INSERT INTO project_group_link_requests VALUES ('account','owner','request','unchanged-body','l',1,'active','linked',1);`);
+      const tables = ['projects','project_members','sessions','messages','work_item_progress','project_work_item_executions',
+        'project_group_links','project_group_link_requests'];
+      const previous = tables.map(table => ({table, columns:db.prepare(`PRAGMA table_info(${table})`).all() as {name:string}[],
+        rows:db.prepare(`SELECT * FROM ${table}`).all()}));
+      const history = db.prepare('SELECT * FROM migration_history_v2 ORDER BY namespace,id').all();
+      expect(runDualMigrationReplay(db,{drizzleDir,dbPath:filename}).applied.map(e=>`${e.namespace}:${e.id}`)).toEqual(['custom:14']);
+      for (const item of previous) expect(db.prepare(`SELECT ${item.columns.map(c=>`"${c.name}"`).join(',')} FROM ${item.table}`).all()).toEqual(item.rows);
+      expect(db.prepare('SELECT work_dir_key,linked_owner_kind,linked_owner_id FROM project_group_links').get())
+        .toEqual({work_dir_key:null,linked_owner_kind:null,linked_owner_id:null});
+      expect(db.prepare("SELECT * FROM migration_history_v2 WHERE namespace!='custom' OR id!=14 ORDER BY namespace,id").all()).toEqual(history);
+      expect(runDualMigrationReplay(db,{drizzleDir,dbPath:filename}).applied).toEqual([]);
+      expect(db.pragma('foreign_key_check')).toEqual([]);
+      expect(()=>assertDualMigrationReady(db,filename,drizzleDir)).not.toThrow();
+      const upgraded = db.serialize();
+      expect(()=>assertDualMigrationReady(db,filename,out)).toThrow();
+      expect(db.serialize().equals(upgraded)).toBe(true);
+    } finally {db.close();}
+  });
   it('does not apply upstream frozen replay exceptions to a custom file with the same basename', () => {
     const {db,filename}=fixture('fork'),out=isolatedCatalog();
     try {
       runDualMigrationReplay(db,{drizzleDir:out,dbPath:filename});
-      appendMigration(out,'custom',14,'CREATE TABLE custom_guard_collision (id INTEGER PRIMARY KEY);');
-      const descriptorPath=path.join(out,'catalog/entries/custom-0014.json');
+      appendMigration(out,'custom',15,'CREATE TABLE custom_guard_collision (id INTEGER PRIMARY KEY);');
+      const descriptorPath=path.join(out,'catalog/entries/custom-0015.json');
       const descriptor=JSON.parse(fs.readFileSync(descriptorPath,'utf8'));
       const old=path.join(out,descriptor.sqlPath);
       descriptor.fileName='0084_small_gwen_stacy.sql';
@@ -97,9 +135,9 @@ describe('dual-chain production replay', () => {
     const {db,filename}=fixture('fork'),out=isolatedCatalog();
     try {
       expect(()=>runDualMigrationReplay(db,{drizzleDir:out,dbPath:filename,onPhase:phase=>{if(phase==='committed')throw new Error('controlled interruption');}})).toThrow('controlled interruption');
-      appendMigration(out,'custom',14,'CREATE TABLE later_delta (id INTEGER PRIMARY KEY);');
+      appendMigration(out,'custom',15,'CREATE TABLE later_delta (id INTEGER PRIMARY KEY);');
       expect(runDualMigrationReplay(db,{drizzleDir:out,dbPath:filename}).applied).toHaveLength(1);
-      expect(db.prepare('SELECT count(*) FROM migration_history_v2').pluck().get()).toBe(164);
+      expect(db.prepare('SELECT count(*) FROM migration_history_v2').pluck().get()).toBe(165);
       expect(()=>assertDualMigrationReady(db,filename,out)).not.toThrow();
     } finally {db.close();}
   });
@@ -140,9 +178,9 @@ describe('dual-chain production replay', () => {
     const reopened=open(filename);
     try {
       const result=runDualMigrationReplay(reopened,{drizzleDir,dbPath:filename});
-      expect(result.applied).toHaveLength(phase==='committed'?0:1);
+      expect(result.applied).toHaveLength(phase==='committed'?0:2);
       expect(()=>assertDualMigrationReady(reopened,filename,drizzleDir)).not.toThrow();
-      expect(reopened.prepare('SELECT count(*) FROM migration_history_v2').pluck().get()).toBe(163);
+      expect(reopened.prepare('SELECT count(*) FROM migration_history_v2').pluck().get()).toBe(164);
     } finally {reopened.close();}
   });
 
@@ -221,9 +259,9 @@ describe('dual-chain production replay', () => {
     try {
       runDualMigrationReplay(db,{drizzleDir:out,dbPath:filename});
       appendMigration(out,'upstream',150,'CREATE TABLE upstream_delta (id INTEGER PRIMARY KEY);');
-      appendMigration(out,'custom',14,'CREATE TABLE custom_delta (id INTEGER PRIMARY KEY);');
+      appendMigration(out,'custom',15,'CREATE TABLE custom_delta (id INTEGER PRIMARY KEY);');
       const result = runDualMigrationReplay(db,{drizzleDir:out,dbPath:filename});
-      expect(result.applied.map(e=>`${e.namespace}:${e.id}`)).toEqual(expect.arrayContaining(['upstream:150','custom:14']));
+      expect(result.applied.map(e=>`${e.namespace}:${e.id}`)).toEqual(expect.arrayContaining(['upstream:150','custom:15']));
       expect(db.prepare("SELECT namespace FROM migration_history_v2 WHERE id=1 ORDER BY namespace").all()).toEqual([{namespace:'custom'},{namespace:'upstream'}]);
       expect(runDualMigrationReplay(db,{drizzleDir:out,dbPath:filename}).applied).toEqual([]);
     } finally {db.close();}
@@ -238,8 +276,8 @@ describe('dual-chain production replay', () => {
     let restoreReadSpy = (): void => {};
     try {
       runDualMigrationReplay(db,{drizzleDir:out,dbPath:filename});
-      appendMigration(out,'custom',14,'CREATE TABLE forbidden_delta (id INTEGER PRIMARY KEY);\r\n');
-      const descriptorPath=path.join(out,'catalog/entries/custom-0014.json');
+      appendMigration(out,'custom',15,'CREATE TABLE forbidden_delta (id INTEGER PRIMARY KEY);\r\n');
+      const descriptorPath=path.join(out,'catalog/entries/custom-0015.json');
       const descriptor=JSON.parse(fs.readFileSync(descriptorPath,'utf8'));
       descriptor.scriptPath=descriptor.sqlPath.replace(/\.sql$/,'.ts');
       const sqlPath=path.join(out,descriptor.sqlPath),scriptPath=path.join(out,descriptor.scriptPath);
@@ -254,7 +292,7 @@ describe('dual-chain production replay', () => {
           actualNormalizedSha256:crypto.createHash('sha256').update(normalized).digest('hex'),
           readBytes:bytes.length,normalizedBytes:Buffer.byteLength(normalized)};
       };
-      const details={namespace:'custom',id:14,descriptorPath:'catalog/entries/custom-0014.json',
+      const details={namespace:'custom',id:15,descriptorPath:'catalog/entries/custom-0015.json',
         sql:resourceEvidence(descriptor.sqlPath,sqlPath,descriptor.sqlHash),
         companion:resourceEvidence(descriptor.scriptPath,scriptPath,descriptor.scriptHash)};
       const beforeDb=db.serialize(),beforeManifest=fs.readFileSync(`${filename}.migration-runtime.json`,'utf8');
@@ -277,11 +315,11 @@ describe('dual-chain production replay', () => {
     const {db,filename} = fixture('fork'), out = isolatedCatalog();
     try {
       runDualMigrationReplay(db,{drizzleDir:out,dbPath:filename});
-      appendMigration(out,'custom',14,'CREATE TABLE forbidden_delta (id INTEGER PRIMARY KEY);');
-      const file = path.join(out,'catalog/entries/custom-0014.json'), descriptor=JSON.parse(fs.readFileSync(file,'utf8'));
+      appendMigration(out,'custom',15,'CREATE TABLE forbidden_delta (id INTEGER PRIMARY KEY);');
+      const file = path.join(out,'catalog/entries/custom-0015.json'), descriptor=JSON.parse(fs.readFileSync(file,'utf8'));
       if (kind === 'hash') descriptor.sqlHash='f'.repeat(64);
       if (kind === 'dependency') descriptor.dependsOn.push({namespace:'upstream',id:9999});
-      if (kind === 'cycle') descriptor.dependsOn.push({namespace:'custom',id:14});
+      if (kind === 'cycle') descriptor.dependsOn.push({namespace:'custom',id:15});
       fs.writeFileSync(file,JSON.stringify(descriptor));
       if (kind === 'ledger') db.exec("UPDATE migration_history_v2 SET identity='{}' WHERE namespace='custom' AND id=1");
       const before = fs.readFileSync(`${filename}.migration-runtime.json`,'utf8');
@@ -294,12 +332,12 @@ describe('dual-chain production replay', () => {
   it('rolls back a real SQL failure and resumes an unchanged plan after reopen', () => {
     const {db,filename} = fixture('fork'), out = isolatedCatalog();
     runDualMigrationReplay(db,{drizzleDir:out,dbPath:filename});
-    appendMigration(out,'custom',14,'CREATE TABLE first_delta (id INTEGER PRIMARY KEY); CREATE TABLE already_there (id INTEGER);');
+    appendMigration(out,'custom',15,'CREATE TABLE first_delta (id INTEGER PRIMARY KEY); CREATE TABLE already_there (id INTEGER);');
     db.exec('CREATE TABLE already_there (id INTEGER)');
     try {
       expect(()=>runDualMigrationReplay(db,{drizzleDir:out,dbPath:filename})).toThrow('already exists');
       expect(db.prepare("SELECT name FROM sqlite_master WHERE name='first_delta'").get()).toBeUndefined();
-      expect(db.prepare("SELECT * FROM migration_history_v2 WHERE namespace='custom' AND id=14").get()).toBeUndefined();
+      expect(db.prepare("SELECT * FROM migration_history_v2 WHERE namespace='custom' AND id=15").get()).toBeUndefined();
       db.exec('DROP TABLE already_there');
     } finally {db.close();}
     const reopened=open(filename);
@@ -314,7 +352,7 @@ describe('dual-chain production replay', () => {
     const opts = {dbPath:filename,drizzleDir,betterSqliteModulePath:require.resolve('better-sqlite3'),
       ...(inline ? {useInlineWorker:true} : {workerScriptPath})};
     let transport = new WorkerThreadTransport(opts);
-    try {await expect(transport.send('query',{sql:'SELECT count(*) AS n FROM migration_history_v2'})).resolves.toEqual([{n:163}]);}
+    try {await expect(transport.send('query',{sql:'SELECT count(*) AS n FROM migration_history_v2'})).resolves.toEqual([{n:164}]);}
     finally {await transport.close();}
     fs.unlinkSync(`${filename}.migration-runtime.json`);
     transport = new WorkerThreadTransport(opts);
@@ -329,12 +367,12 @@ describe('dual-chain production replay', () => {
     try {
       const before = name === 'empty' ? null : rows(db);
       const result = runDualMigrationReplay(db,{drizzleDir,dbPath:filename});
-      expect(result.applied.length).toBe(name === 'empty' ? 163 : name === 'common' ? 14 : name === 'fork' ? 1 : 13);
+      expect(result.applied.length).toBe(name === 'empty' ? 164 : name === 'common' ? 15 : name === 'fork' ? 2 : 14);
       if (before) expect(rows(db)).toEqual(before);
       expect(db.prepare("SELECT value FROM migration_meta WHERE key='schema_version'").pluck().get()).toBe(DUAL_SCHEMA_VERSION);
       expect(db.prepare("SELECT name FROM sqlite_master WHERE name='mcp_app_view_states'").get()).toBeTruthy();
       expect(db.prepare("SELECT name FROM sqlite_master WHERE name='project_work_item_executions'").get()).toBeTruthy();
-      expect(db.prepare('SELECT count(*) FROM migration_history_v2').pluck().get()).toBe(163);
+      expect(db.prepare('SELECT count(*) FROM migration_history_v2').pluck().get()).toBe(164);
       expect(planSchemaDriftRepair(db)).toEqual({actions:[],residual:[]});
       expect(checkMigrationCompatibility(db,drizzleDir,filename).compatible).toBe(true);
       const stateBefore = db.prepare('SELECT * FROM migration_history_v2 ORDER BY namespace,id').all();
@@ -356,7 +394,8 @@ describe('dual-chain production replay', () => {
       expect(rows(db)).toEqual(before);
       expect(db.prepare("SELECT name FROM sqlite_master WHERE name='migration_history_v2'").get()).toBeUndefined();
       expect(JSON.parse(fs.readFileSync(`${filename}.migration-runtime.json`,'utf8')).phase).toBe('intent');
-      expect(runDualMigrationReplay(db,{drizzleDir,dbPath:filename}).applied).toHaveLength(1);
+      expect(runDualMigrationReplay(db,{drizzleDir,dbPath:filename}).applied.map(entry=>`${entry.namespace}:${entry.id}`))
+        .toEqual(['upstream:149','custom:14']);
     } finally {db.close();}
   });
 
@@ -366,7 +405,7 @@ describe('dual-chain production replay', () => {
       expect(() => runDualMigrationReplay(db,{drizzleDir,dbPath:filename,onPhase:phase => {
         if (phase === 'committed') throw new Error('controlled publication failure');
       }})).toThrow('controlled publication failure');
-      expect(db.prepare('SELECT count(*) FROM migration_history_v2').pluck().get()).toBe(163);
+      expect(db.prepare('SELECT count(*) FROM migration_history_v2').pluck().get()).toBe(164);
       const before = migrationDigest(db.prepare('SELECT * FROM migration_history_v2 ORDER BY namespace,id').all());
       expect(runDualMigrationReplay(db,{drizzleDir,dbPath:filename}).applied).toEqual([]);
       expect(migrationDigest(db.prepare('SELECT * FROM migration_history_v2 ORDER BY namespace,id').all())).toBe(before);

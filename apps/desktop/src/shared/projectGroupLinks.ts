@@ -1,5 +1,7 @@
-/** Local group/project link protocol. No group grant, title or execution in public values. */
+/** Local group/project link protocol. Public intents contain locators, never grants;
+ * project metadata is returned only after the host's existing read ACL checks. */
 import { parseClientEndpointManifest } from '../../../../packages/maker-shared/src/clientEndpointSchema';
+import type { ProjectRecord } from './projects';
 
 export interface ProjectGroupLinkGroup { endpoint: string; roomId: string }
 export interface ProjectGroupLinkTarget { accountId: string; deviceId: string; projectId: string }
@@ -12,9 +14,13 @@ export interface ProjectGroupLink {
   revision: number;
   createdAt: string;
   updatedAt: string;
+  available?: boolean;
+  workDirKey?: string | null;
+  linkedOwner?: { kind:'account'|'bot'; id:string } | null;
 }
 export interface ProjectGroupLinksListIntent {
   action: 'list'; group: ProjectGroupLinkGroup;
+  policy?: 'owner-in-group';
   includeRemoved?: boolean; cursor?: string; limit?: number;
 }
 /**
@@ -27,16 +33,23 @@ export interface ProjectGroupLinksListIntent {
 export interface ProjectGroupLinksListProjectIntent { action: 'list-project'; projectId: string }
 export interface ProjectGroupLinkIntent {
   action: 'link'; requestId: string; group: ProjectGroupLinkGroup;
+  policy?: 'owner-in-group';
   target: ProjectGroupLinkTarget; expectedRevision: number;
 }
 export interface ProjectGroupUnlinkIntent {
   action: 'unlink'; requestId: string; group: ProjectGroupLinkGroup;
+  policy?: 'owner-in-group';
   target: ProjectGroupLinkTarget; relationId: string; expectedRevision: number;
 }
+export interface ProjectGroupSetWorkIntent {
+  action: 'set-work'; policy: 'owner-in-group'; requestId: string; group: ProjectGroupLinkGroup;
+  target: ProjectGroupLinkTarget; expectedRevision: number; dirKey: string | null;
+}
 export type ProjectGroupLinksIntent = ProjectGroupLinksListIntent | ProjectGroupLinksListProjectIntent
-  | ProjectGroupLinkIntent | ProjectGroupUnlinkIntent;
+  | ProjectGroupLinkIntent | ProjectGroupUnlinkIntent | ProjectGroupSetWorkIntent;
 export interface ProjectGroupLinksListResult {
   ok: true; contractRevision: 1; links: ProjectGroupLink[]; nextCursor: string | null;
+  eligibleProjects?: ProjectRecord[];
 }
 /** `truncated` 为真表示结果被上限截断，调用方不得把这份列表当成「全部关联」。 */
 export interface ProjectGroupLinksProjectListResult {
@@ -86,13 +99,16 @@ export function parseProjectGroupLinksIntent(value: unknown): ProjectGroupLinksI
   try {
     if(!value||typeof value!=='object'||Array.isArray(value))return null;
     const action=(value as Record<string,unknown>).action;
-    const v=action==='list'?record(value,['action','group'],['includeRemoved','cursor','limit']):
+    const v=action==='list'?record(value,['action','group'],['includeRemoved','cursor','limit','policy']):
       action==='list-project'?record(value,['action','projectId']):
-      action==='link'?record(value,['action','requestId','group','target','expectedRevision']):
-      action==='unlink'?record(value,['action','requestId','group','target','expectedRevision','relationId']):null;
+      action==='link'?record(value,['action','requestId','group','target','expectedRevision'],['policy']):
+      action==='set-work'?record(value,['action','requestId','group','target','expectedRevision','policy','dirKey']):
+      action==='unlink'?record(value,['action','requestId','group','target','expectedRevision','relationId'],['policy']):null;
     if(!v)return null;
     // 项目范围读取没有群定位：只有 projectId，其余字段一律拒绝。
     if(action==='list-project')return id(v.projectId)?{action,projectId:v.projectId}:null;
+    if(v.policy!==undefined&&v.policy!=='owner-in-group')return null;
+    const policy=v.policy==='owner-in-group'?{policy:'owner-in-group' as const}:{};
     const g=record(v.group,['endpoint','roomId']);
     if(!g||typeof g.roomId!=='string'||g.roomId.length!==36||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(g.roomId))return null;
     const endpoint=normalizeProjectGroupLinkEndpoint(g.endpoint);
@@ -102,14 +118,16 @@ export function parseProjectGroupLinksIntent(value: unknown): ProjectGroupLinksI
       if(v.includeRemoved!==undefined&&typeof v.includeRemoved!=='boolean')return null;
       if(v.cursor!==undefined&&(typeof v.cursor!=='string'||!v.cursor.length||v.cursor.length>32768))return null;
       if(v.limit!==undefined&&(typeof v.limit!=='number'||!Number.isInteger(v.limit)||v.limit<1||v.limit>100))return null;
-      return {action,group,includeRemoved:v.includeRemoved===true,limit:v.limit===undefined?50:v.limit as number,
+      return {action,group,...policy,includeRemoved:v.includeRemoved===true,limit:v.limit===undefined?50:v.limit as number,
         ...(v.cursor===undefined?{}:{cursor:v.cursor as string})};
     }
     const t=record(v.target,['accountId','deviceId','projectId']);
     if(!t||!id(t.accountId)||!id(t.deviceId,500)||!id(t.projectId)||!id(v.requestId)
       ||typeof v.expectedRevision!=='number'||!Number.isSafeInteger(v.expectedRevision)||v.expectedRevision<0)return null;
     const target={accountId:t.accountId,deviceId:t.deviceId,projectId:t.projectId};
-    const common={requestId:v.requestId,group,target,expectedRevision:v.expectedRevision};
+    const common={requestId:v.requestId,group,target,expectedRevision:v.expectedRevision,...policy};
+    if(action==='set-work') return v.policy==='owner-in-group' && (v.dirKey===null||(typeof v.dirKey==='string'&&v.dirKey.length>0&&v.dirKey.length<=4096&&!/[\x00-\x1f\x7f]/u.test(v.dirKey)))
+      ? {action,...common,policy:'owner-in-group',dirKey:v.dirKey as string|null} : null;
     if(action==='link')return {action,...common};
     return action==='unlink'&&id(v.relationId)?{action,...common,relationId:v.relationId}:null;
   } catch { return null; }

@@ -1,4 +1,5 @@
 import { configureProjectGroupLinksHost } from '../localDb/ipc/projectGroupLinks';
+import { readLinkedGroupWorkDir } from '../mcp-integrations/projectGroupLinksCoordinator';
 import { needsSubscriptionAccountHandoff, hasRestoredPooledCodexQuota } from '../subscription-accounts/runtime.js';
 import { prepareSubscriptionAccountForSend } from '../subscription-accounts/prepareSend.js';
 import { createSchedulerQueueBridge, type SchedulerQueueBridge, type SchedulerQueuedPromptRequest, type SchedulerEnqueueResult } from './schedulerQueueBridge.js';
@@ -13883,6 +13884,7 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
         return { ok: false as const, message: '项目文件夹不存在' };
       }
     },
+    linkedWorkProject: (roomId,displayOnly) => readLinkedGroupWorkDir(roomId,{groupService:()=>botGroupChatServiceHolder,currentDeviceId:getSelfDeviceId},displayOnly),
     // The group's Cindy (bot-group-chat.md §9): one ordinary visible task per group, opened
     // like a new task of this user's (new-task model and permission), titled with the group's name.
     ensureGroupAssistantSession: async ({ sessionId, title, projectDir }) => {
@@ -14022,7 +14024,9 @@ export function registerMakerIpc(maker: Maker, options: RegisterMakerIpcOptions)
     log,
   };
   botGroupChatServiceHolder = withChatServer(createBotGroupChatService(botGroupChatDeps), botGroupChatDeps);
-  configureProjectGroupLinksHost({ groupService: () => botGroupChatServiceHolder, currentDeviceId: getSelfDeviceId });
+  configureProjectGroupLinksHost({ groupService: () => botGroupChatServiceHolder, currentDeviceId: getSelfDeviceId,
+    onChanged: roomId => botGroupChatDeps.onChanged?.({ groupId: roomId, change: 'updated' }),
+    validateWorkDir: async dir => (await validateExistingLocalProjectDirectory(dir)).ok });
   unsubscribeCompanionCloudBroadcast?.();
   unsubscribeCompanionCloudBroadcast = companionHomes.onChange((snapshot) => {
     const scope = captureDataOwnerBroadcastScope();

@@ -74,7 +74,7 @@ export async function readProjectGroupLinksByProject(raw: unknown): Promise<Proj
 }
 
 export function registerProjectGroupLinksIpc(): void {
-  for (const action of ['list', 'link', 'unlink'] as const) {
+  for (const action of ['list', 'link', 'unlink', 'set-work'] as const) {
     ipcMain.handle(`local-db:project-group-links:${action}`, async (event, raw: unknown): Promise<ProjectGroupLinksResponse> => {
       assertTrustedAppRendererEvent(event);
       if (!raw || typeof raw !== 'object' || Array.isArray(raw) || !('action' in raw) || raw.action !== action) {
@@ -84,6 +84,8 @@ export function registerProjectGroupLinksIpc(): void {
       if (!captured) return { ok: false, errorCode: 'HOST_NOT_READY', message: 'Project group link host unavailable', commitState: 'not-committed' };
       return coordinateProjectGroupLinksFromUi(raw, {
         groupService: () => captured.groupService(), currentDeviceId: () => captured.currentDeviceId(),
+        validateWorkDir: captured.validateWorkDir?.bind(captured),
+        onChanged: captured.onChanged?.bind(captured),
         assertTrustedUi: () => {
           assertTrustedAppRendererEvent(event);
           if (host !== captured || event.sender.isDestroyed()) throw new Error('OWNER_SCOPE_CHANGED');

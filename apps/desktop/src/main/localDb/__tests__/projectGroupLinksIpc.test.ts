@@ -4,7 +4,7 @@
  * Controlled HTTP/Electron/owner, no real accounts/group/model. Modules and migrations load once.
  * Standalone measurement: 10 cases, 3.4s wall / 1.0s tests (2026-11-06, Windows).
  */
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { build } from 'esbuild';
@@ -21,6 +21,7 @@ import { dispatch } from '../worker/dispatcher';
 import { createChatGroupAuthority } from '../../maker-ipc/chatGroupAuthority';
 import { markAppContentWindow } from '../../windowFocusClassifier';
 import { configureProjectGroupLinksHost, registerProjectGroupLinksIpc } from '../ipc/projectGroupLinks';
+import { readLinkedGroupWorkDir, type ProjectGroupLinksMainRuntime } from '../../mcp-integrations/projectGroupLinksCoordinator';
 import { createDbTransportError, DB_TRANSPORT_OUTCOME_UNKNOWN } from '../client/DbTransport';
 import type { ProjectGroupLinksResponse } from '../../../shared/projectGroupLinks';
 import * as schema from '../schema';
@@ -44,6 +45,9 @@ let db: Database.Database, dir: string, file: string, client: DbClient;
 let beforeTx: (() => void) | undefined, afterTx: (() => void) | undefined, loseAck = false;
 let role = 'owner', joined = true, onHttp: (() => void) | undefined;
 let includeGroupCindy = false;
+let projectBotJoined = false;
+let unmappedOwner: 'account'|'bot'|undefined;
+let groupRuntime: ProjectGroupLinksMainRuntime;
 const frame = { url: 'http://localhost:5173/index.html', parent: null };
 const sender = { mainFrame: frame, isDestroyed: () => false };
 const event = { sender, senderFrame: frame };
@@ -68,6 +72,8 @@ beforeAll(() => {
 beforeEach(async () => {
   h.user = 'owner'; h.epoch = 1; role = 'owner'; joined = true; frame.url = 'http://localhost:5173/index.html';
   includeGroupCindy = false;
+  projectBotJoined = false;
+  unmappedOwner = undefined;
   beforeTx = undefined; afterTx = undefined; loseAck = false; onHttp = undefined;
   db.exec(`DELETE FROM project_group_link_requests; DELETE FROM project_group_links; DELETE FROM project_members; DELETE FROM projects;
     INSERT INTO projects(id,name,owner_id,status,created_at,updated_at) VALUES ('p','private-project','owner','active',1,1);
@@ -88,17 +94,22 @@ beforeEach(async () => {
       resolveRoom: room => room, read: async route => {
         onHttp?.();
         if (route === '/me') return { actor: { id: self, kind: 'human', externalId: 'owner' } };
-        if (route === '/actors') return [];
+        if (route === '/actors') return [{ id: 'dddddddd-1111-4111-8111-111111111111', kind: 'bot', externalId: 'project-bot' }];
         // 群房间按请求的 roomId 回答：这个 fixture 要能同时服务多个群。
         const roomId = /^\/conversations\/([^/]+)\/snapshot$/.exec(route)?.[1] ?? group.roomId;
         return { room: { id: roomId, kind: 'group', revision: 1, archived: false }, members: [
           { id: self, kind: 'human', ownerActorId: self, state: joined ? 'joined' : 'left', role, accessRevision: 1 },
           ...(includeGroupCindy ? [{ id: 'cccccccc-1111-4111-8111-111111111111', kind: 'bot', assistant: true,
-            ownerActorId: null, state: 'joined', role: 'member', accessRevision: 1 }] : [])] };
+            ownerActorId: null, state: 'joined', role: 'member', accessRevision: 1 }] : []),
+          { id: 'dddddddd-1111-4111-8111-111111111111', kind: 'bot', ownerActorId: self,
+            state: projectBotJoined ? 'joined' : 'left', role: 'member', accessRevision: 1 },
+          ...(unmappedOwner ? [{id:'eeeeeeee-1111-4111-8111-111111111111',kind:unmappedOwner==='account'?'human':'bot',
+            ownerActorId:'ffffffff-1111-4111-8111-111111111111',state:'joined',role:'member',accessRevision:1}] : [])] };
       } };
   } });
   const service = { groupAuthority };
-  configureProjectGroupLinksHost({ groupService: () => service, currentDeviceId: () => 'device' });
+  groupRuntime = { groupService: () => service, currentDeviceId: () => 'device', validateWorkDir: async path => path === dir };
+  configureProjectGroupLinksHost(groupRuntime);
 });
 afterEach(() => clearCurrentDbClient());
 afterAll(() => {
@@ -149,10 +160,88 @@ it('links a native group containing its unowned Cindy and still enforces project
     .toMatchObject({ ok: false, errorCode: 'NOT_PROJECT_OWNER', commitState: 'not-committed' });
   expect(counts()).toEqual({ links: 1, receipts: 1 });
 });
+// Integration tier: group manager is a project member, not its owner. Only the
+// authenticated joined bot-owner qualifies the new opt-in linking policy.
+it('allows the group manager to link a joined bot-owned project without impersonating that bot', async () => {
+  db.exec("UPDATE project_members SET role='member' WHERE project_id='p'; INSERT INTO project_members VALUES ('p','bot','project-bot','owner',1); UPDATE projects SET owner_id='project-bot' WHERE id='p'");
+  projectBotJoined = true;
+  expect(await request({ ...link(), policy: 'owner-in-group' }))
+    .toMatchObject({ ok: true, change: 'linked', current: { revision: 1 } });
+  expect(db.prepare('SELECT created_by_kind AS kind,created_by_id AS id FROM project_group_links').get())
+    .toEqual({ kind: 'account', id: 'owner' });
+  projectBotJoined = false;
+  expect(await request({ ...link(), policy: 'owner-in-group' }))
+    .toMatchObject({ ok: false, errorCode: 'GROUP_ACCESS_DENIED', commitState: 'not-committed' });
+  expect(counts()).toEqual({ links: 1, receipts: 1 });
+});
+// A readable project and a joined Chat Actor do not prove their identities match:
+// /me maps only this human; the room contract has no account/bot external ID.
+it.each(['account','bot'] as const)('distinguishes readable projects from unproven foreign %s owner identities', async kind => {
+  unmappedOwner = kind;
+  db.exec(`UPDATE project_members SET role='member' WHERE project_id='p';
+    INSERT INTO project_members VALUES ('p','${kind}','foreign-owner','owner',1)`);
+  expect(await request({action:'list',group,policy:'owner-in-group',includeRemoved:true},event,'list'))
+    .toMatchObject({ok:true,eligibleProjects:[]});
+  expect(await request({...link(),policy:'owner-in-group'}))
+    .toMatchObject({ok:false,errorCode:'GROUP_ACCESS_DENIED',commitState:'not-committed'});
+  expect(counts()).toEqual({links:0,receipts:0});
+});
+it('selects a working project explicitly, preserves private reads, and permits cleanup after its owner leaves', async () => {
+  const raw={...link(),policy:'owner-in-group'};
+  expect(await request(raw)).toMatchObject({ok:true});
+  expect(await readLinkedGroupWorkDir(group.roomId,groupRuntime)).toBeNull();
+  db.prepare("INSERT INTO project_dirs(project_id,dir_key,dir_path,created_at) VALUES ('p',?,?,1)").run(`local:${dir}`,dir);
+  const work={...raw,action:'set-work',requestId:'work1',expectedRevision:1,dirKey:`local:${dir}`};
+  expect(await request(work,event,'set-work')).toMatchObject({ok:true,current:{workDirKey:`local:${dir}`,revision:2}});
+  const selection=await readLinkedGroupWorkDir(group.roomId,groupRuntime);
+  expect(selection?.dir).toBe(dir);
+  joined=false;
+  await expect(selection!.refresh()).rejects.toThrow();
+  await expect(readLinkedGroupWorkDir(group.roomId,groupRuntime)).rejects.toThrow();
+  joined=true;
+  db.exec("UPDATE project_members SET role='member' WHERE project_id='p'; INSERT INTO project_members VALUES ('p','bot','project-bot','owner',1)");
+  projectBotJoined=true;
+  await expect(readLinkedGroupWorkDir(group.roomId,groupRuntime)).rejects.toThrow();
+  expect(await request(work,event,'set-work')).toMatchObject({ok:false,errorCode:'NOT_PROJECT_OWNER'});
+  db.exec("DELETE FROM project_members WHERE project_id='p' AND subject_kind='account'");
+  expect(await request({action:'list-project',projectId:'p'},event,'list-project'))
+    .toMatchObject({ok:false,errorCode:'NOT_PROJECT_MEMBER'});
+  const opaque = await request({action:'list',group,policy:'owner-in-group',includeRemoved:true},event,'list');
+  expect(opaque).toMatchObject({ok:true,eligibleProjects:[],links:[{available:false}]});
+  if (!opaque.ok || !('links' in opaque)) throw Error('fixture');
+  expect(opaque.links[0]).not.toHaveProperty('linkedOwner');
+  expect(opaque.links[0]).not.toHaveProperty('workDirKey');
+  const relation=db.prepare<[],{id:string}>('SELECT id FROM project_group_links').get()!;
+  expect(await request({...raw,requestId:'cleanup',action:'unlink',relationId:relation.id,expectedRevision:2},event,'unlink'))
+    .toMatchObject({ok:true,current:{status:'removed',workDirKey:null}});
+  expect(await readLinkedGroupWorkDir(group.roomId,groupRuntime)).toBeNull();
+});
 it('transaction rechecks project owner after main/group prechecks', async () => {
   beforeTx = () => db.exec("UPDATE project_members SET role='member' WHERE project_id='p'");
   expect(await request()).toMatchObject({ ok: false, errorCode: 'NOT_PROJECT_OWNER', commitState: 'not-committed' });
   expect(counts()).toEqual({ links: 0, receipts: 0 });
+});
+it('keeps one explicit work project and reconciles a lost ACK without restoring a stale selection', async () => {
+  const second = path.join(dir,'project-two');
+  mkdirSync(second,{recursive:true});
+  groupRuntime.validateWorkDir = async value => value === dir || value === second;
+  db.exec(`INSERT INTO projects(id,name,owner_id,status,created_at,updated_at) VALUES ('q','other','owner','active',1,1);
+    INSERT INTO project_members VALUES ('q','account','owner','owner',1);`);
+  for (const [projectId,directory] of [['p',dir],['q',second]]) {
+    db.prepare('INSERT INTO project_dirs(project_id,dir_key,dir_path,created_at) VALUES (?,?,?,1)').run(projectId,`local:${directory}`,directory);
+    expect(await request({...link(`link-${projectId}`),target:{...target,projectId},policy:'owner-in-group'})).toMatchObject({ok:true});
+  }
+  const work = {...link('work-p',1),action:'set-work',policy:'owner-in-group',dirKey:`local:${dir}`};
+  loseAck = true;
+  expect(await request(work,event,'set-work')).toMatchObject({ok:false,commitState:'unknown'});
+  loseAck = false;
+  expect(await request(work,event,'set-work')).toMatchObject({ok:true,replayed:true,commit:{revision:2}});
+  expect(await request({...work,requestId:'work-q',target:{...target,projectId:'q'},dirKey:`local:${second}`},event,'set-work'))
+    .toMatchObject({ok:true,current:{workDirKey:`local:${second}`}});
+  expect(db.prepare('SELECT project_id FROM project_group_links WHERE work_dir_key IS NOT NULL').all()).toEqual([{project_id:'q'}]);
+  expect(await request(work,event,'set-work')).toMatchObject({ok:true,replayed:true,commit:{revision:2},current:{revision:3,workDirKey:null}});
+  expect((await readLinkedGroupWorkDir(group.roomId,groupRuntime))?.dir).toBe(second);
+  expect(counts()).toEqual({links:2,receipts:4});
 });
 it('revoked group, navigated sender and switched owner cannot cross HTTP awaits', async () => {
   joined = false; expect(await request()).toMatchObject({ ok: false, errorCode: 'GROUP_ACCESS_DENIED' });
@@ -240,7 +329,7 @@ for (const mode of ['inline', 'file-worker'] as const) it(`${mode}: named tx exe
   try {
     const transported: DbClient = { ...client,
       queryOne: <T>(sql: string, params?: unknown[]) => worker.send('queryOne', { sql, params }) as Promise<T | undefined>,
-      tx: <T>(name: string, args: unknown) => worker.send('tx', { name, args }) as Promise<T>,
+      tx: <T>(name: string, args: unknown) => { beforeTx?.(); return worker.send('tx', { name, args }) as Promise<T>; },
     };
     setCurrentDbClient(transported, 'owner');
     const first = await request();
@@ -249,8 +338,19 @@ for (const mode of ['inline', 'file-worker'] as const) it(`${mode}: named tx exe
     expect(await request({ action: 'list-project', projectId: 'p' }, event, 'list-project'))
       .toMatchObject({ ok: true, truncated: false, links: [{ status: 'active', target: { projectId: 'p' } }] });
     expect(await request()).toMatchObject({ ok: true, replayed: true });
+    const policyLink={...link('policy',1),policy:'owner-in-group'};
+    expect(await request(policyLink)).toMatchObject({ok:true,current:{revision:2}});
+    expect(await request(policyLink)).toMatchObject({ok:true,replayed:true});
+    await worker.send('exec',{sql:"INSERT INTO project_dirs(project_id,dir_key,dir_path,created_at) VALUES ('p',?,?,1)",params:[`local:${dir}`,dir]});
+    expect(await request({...policyLink,action:'set-work',requestId:'worker-work',expectedRevision:2,dirKey:`local:${dir}`},event,'set-work'))
+      .toMatchObject({ok:true,current:{workDirKey:`local:${dir}`,revision:3}});
+    projectBotJoined=true;
+    beforeTx=()=>db.exec("UPDATE project_members SET role='member' WHERE project_id='p'; INSERT INTO project_members VALUES ('p','bot','project-bot','owner',1)");
+    expect(await request({...policyLink,requestId:'transfer-race',expectedRevision:3}))
+      .toMatchObject({ok:false,errorCode:'NOT_PROJECT_OWNER',commitState:'not-committed'});
+    beforeTx=undefined;
     await worker.send('exec', { sql: 'DELETE FROM project_members' });
     expect(await request()).toMatchObject({ ok: false, errorCode: 'NOT_PROJECT_OWNER', commitState: 'not-committed' });
-    expect(counts()).toEqual({ links: 1, receipts: 1 });
+    expect(counts()).toEqual({ links: 1, receipts: 3 });
   } finally { await worker.close(); }
 });

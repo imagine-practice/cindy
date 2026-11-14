@@ -5408,6 +5408,8 @@ interface ElectronAPI {
      * 绝对路径都留在 main，renderer 只从 `materials.preview` 取受控预览结果。
      */
     projectGroupLinks: {
+      ownerInGroup?: boolean;
+      setWork?(request: import('../shared/projectGroupLinks').ProjectGroupSetWorkIntent): Promise<import('../shared/projectGroupLinks').ProjectGroupLinksResponse>;
       list(request: import('../shared/projectGroupLinks').ProjectGroupLinksListIntent): Promise<import('../shared/projectGroupLinks').ProjectGroupLinksResponse>;
       listProject(request: import('../shared/projectGroupLinks').ProjectGroupLinksListProjectIntent): Promise<import('../shared/projectGroupLinks').ProjectGroupLinksProjectListResult | import('../shared/projectGroupLinks').ProjectGroupLinksFailure>;
       link(request: import('../shared/projectGroupLinks').ProjectGroupLinkIntent): Promise<import('../shared/projectGroupLinks').ProjectGroupLinksResponse>;

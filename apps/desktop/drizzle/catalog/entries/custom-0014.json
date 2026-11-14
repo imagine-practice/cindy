@@ -1,0 +1,19 @@
+{
+  "namespace": "custom",
+  "id": 14,
+  "fileName": "0001_group_work_project.sql",
+  "sqlPath": "catalog/custom/0014/0001_group_work_project.sql",
+  "sqlHash": "36f5a58ef71d99dc3293501c065a626132414ab2bc8238f211c209817ec3cbe8",
+  "scriptPath": null,
+  "scriptHash": null,
+  "dependsOn": [
+    {
+      "namespace": "upstream",
+      "id": 149
+    },
+    {
+      "namespace": "custom",
+      "id": 13
+    }
+  ]
+}
