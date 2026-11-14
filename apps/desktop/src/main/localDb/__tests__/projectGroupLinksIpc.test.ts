@@ -13,7 +13,7 @@ import type Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { beforeAll, beforeEach, afterEach, afterAll, it, expect, vi } from 'vitest';
 import { createBetterSqliteDatabase } from '../betterSqliteFactory';
-import { runMigrationReplay } from '../migrationRunner';
+import { runDualMigrationReplay } from '../migrationLedger';
 import { createInprocDbClient, type DbClient } from '../client/DbClient';
 import { setCurrentDbClient, clearCurrentDbClient } from '../client/current';
 import { WorkerThreadTransport } from '../client/WorkerThreadTransport';
@@ -43,6 +43,7 @@ const link = (id = 'r1', revision = 0) => ({ action: 'link', requestId: id, grou
 let db: Database.Database, dir: string, file: string, client: DbClient;
 let beforeTx: (() => void) | undefined, afterTx: (() => void) | undefined, loseAck = false;
 let role = 'owner', joined = true, onHttp: (() => void) | undefined;
+let includeGroupCindy = false;
 const frame = { url: 'http://localhost:5173/index.html', parent: null };
 const sender = { mainFrame: frame, isDestroyed: () => false };
 const event = { sender, senderFrame: frame };
@@ -57,13 +58,16 @@ beforeAll(() => {
   db = createBetterSqliteDatabase(file); h.db = db;
   const root = path.resolve(__dirname, '../../../..');
   db.loadExtension(path.join(root, 'native/sqlite-vec', `${process.platform}-${process.arch}`, process.platform === 'win32' ? 'vec0.dll' : 'vec0.dylib'));
-  runMigrationReplay(db, { drizzleDir: path.join(root, 'drizzle') });
+  // Workers admit the current dual-chain schema and its committed sidecar, just
+  // like production startup; legacy SQL-only replay no longer opens a worker.
+  runDualMigrationReplay(db, { drizzleDir: path.join(root, 'drizzle'), dbPath: file });
   const win = { isDestroyed: () => false };
   markAppContentWindow(win as Parameters<typeof markAppContentWindow>[0]); h.windows.set(sender, win);
   registerProjectGroupLinksIpc();
 });
 beforeEach(async () => {
   h.user = 'owner'; h.epoch = 1; role = 'owner'; joined = true; frame.url = 'http://localhost:5173/index.html';
+  includeGroupCindy = false;
   beforeTx = undefined; afterTx = undefined; loseAck = false; onHttp = undefined;
   db.exec(`DELETE FROM project_group_link_requests; DELETE FROM project_group_links; DELETE FROM project_members; DELETE FROM projects;
     INSERT INTO projects(id,name,owner_id,status,created_at,updated_at) VALUES ('p','private-project','owner','active',1,1);
@@ -88,7 +92,9 @@ beforeEach(async () => {
         // 群房间按请求的 roomId 回答：这个 fixture 要能同时服务多个群。
         const roomId = /^\/conversations\/([^/]+)\/snapshot$/.exec(route)?.[1] ?? group.roomId;
         return { room: { id: roomId, kind: 'group', revision: 1, archived: false }, members: [
-          { id: self, kind: 'human', ownerActorId: self, state: joined ? 'joined' : 'left', role, accessRevision: 1 }] };
+          { id: self, kind: 'human', ownerActorId: self, state: joined ? 'joined' : 'left', role, accessRevision: 1 },
+          ...(includeGroupCindy ? [{ id: 'cccccccc-1111-4111-8111-111111111111', kind: 'bot', assistant: true,
+            ownerActorId: null, state: 'joined', role: 'member', accessRevision: 1 }] : [])] };
       } };
   } });
   const service = { groupAuthority };
@@ -128,6 +134,20 @@ it('real sender guard denies foreign/subframe/unregistered senders and public id
     expect(await request({ ...link(), ...extra })).toMatchObject({ ok: false, errorCode: 'INVALID_PARAMS', commitState: 'not-committed' });
   expect(await request({ ...link(), action: 'list' })).toMatchObject({ ok: false, errorCode: 'INVALID_PARAMS' });
   expect(counts()).toEqual({ links: 0, receipts: 0 });
+});
+// Integration tier: registered UI -> authority -> named worker transaction. Native
+// snapshots with the unowned group Cindy previously failed before any DB write;
+// keep project ownership enforcement when that compatible snapshot is accepted.
+it('links a native group containing its unowned Cindy and still enforces project ownership', async () => {
+  includeGroupCindy = true;
+  expect(await request()).toMatchObject({ ok: true, change: 'linked', current: { revision: 1 } });
+  expect(await request({ action: 'list', group }, event, 'list'))
+    .toMatchObject({ ok: true, links: [{ target, revision: 1 }] });
+  expect(counts()).toEqual({ links: 1, receipts: 1 });
+  db.exec("UPDATE project_members SET role='member' WHERE project_id='p'");
+  expect(await request(link('not-owner', 1)))
+    .toMatchObject({ ok: false, errorCode: 'NOT_PROJECT_OWNER', commitState: 'not-committed' });
+  expect(counts()).toEqual({ links: 1, receipts: 1 });
 });
 it('transaction rechecks project owner after main/group prechecks', async () => {
   beforeTx = () => db.exec("UPDATE project_members SET role='member' WHERE project_id='p'");
@@ -208,6 +228,7 @@ it('by-project read refuses non-members and forged identity fields without leaki
 });
 
 for (const mode of ['inline', 'file-worker'] as const) it(`${mode}: named tx executes generated schema and rejects revoked replay`, async () => {
+  includeGroupCindy = true;
   let workerScriptPath: string | undefined;
   if (mode === 'file-worker') {
     workerScriptPath = path.join(dir, 'dbWorker.mjs');
@@ -222,7 +243,8 @@ for (const mode of ['inline', 'file-worker'] as const) it(`${mode}: named tx exe
       tx: <T>(name: string, args: unknown) => worker.send('tx', { name, args }) as Promise<T>,
     };
     setCurrentDbClient(transported, 'owner');
-    expect(await request()).toMatchObject({ ok: true, current: { revision: 1 }, replayed: false });
+    const first = await request();
+    expect(first, JSON.stringify(first)).toMatchObject({ ok: true, current: { revision: 1 }, replayed: false });
     // 同一份 worker 也要能回答按项目查询（inline 脚本里嵌的函数源码必须能独立运行）。
     expect(await request({ action: 'list-project', projectId: 'p' }, event, 'list-project'))
       .toMatchObject({ ok: true, truncated: false, links: [{ status: 'active', target: { projectId: 'p' } }] });

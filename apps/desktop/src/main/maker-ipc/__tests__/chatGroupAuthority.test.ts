@@ -120,6 +120,37 @@ describe('native main-only group authority', () => {
     botRole = 'admin';
     expect((await capture()).facts.actorId).toBe(bot);
   });
+  // Regression: native groups include an unowned group Cindy. Earlier fixtures
+  // only had owned members, so the valid nullable owner rejected the whole room
+  // as UNSUPPORTED_CAPABILITY. Unit tier, real withChatServer authenticated GETs.
+  it('authorizes the owner in a native snapshot containing the unowned group Cindy', async () => {
+    const original = fixture.handle.getMockImplementation()!;
+    fixture.handle.mockImplementation((...args) => {
+      const result = original(...args);
+      if (args[0].endsWith('/snapshot')) result.body.members.push({
+        id: '40000000-0000-4000-8000-000000000001', kind: 'bot', assistant: true,
+        ownerActorId: null, state: 'joined', role: 'member', accessRevision: 1,
+      });
+      return result;
+    });
+    const grant = await capture();
+    expect(grant.facts).toMatchObject({ actorId: self, role: 'admin', permission: 'configure' });
+    expect((await grant.refresh()).facts.actorId).toBe(self);
+  });
+  it.each(['account', 'bot'] as const)('does not grant %s authority through an unowned administrator', async subject => {
+    role = botRole = 'member';
+    const original = fixture.handle.getMockImplementation()!;
+    fixture.handle.mockImplementation((...args) => {
+      const result = original(...args);
+      if (args[0].endsWith('/snapshot')) {
+        const member = result.body.members[subject === 'account' ? 0 : 1];
+        member.ownerActorId = null;
+        member.role = 'admin';
+      }
+      return result;
+    });
+    await expect(capture(subject)).rejects.toThrow('GROUP_ACCESS_DENIED');
+  });
   it('does not let a same-ID bot borrow the account role and sends the exact bot actor on its read', async () => {
     await expect(capture('bot')).rejects.toThrow('GROUP_CONFIGURATION_REQUIRED');
     botRole = 'admin';

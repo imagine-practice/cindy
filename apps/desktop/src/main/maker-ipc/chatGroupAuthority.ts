@@ -29,13 +29,15 @@ export interface ChatGroupAuthorityService {
 }
 
 const actor = z.object({ id: z.string().uuid(), kind: z.string(), externalId: z.string().min(1), disabled: z.boolean().optional() });
-const member = z.object({ id: z.string().uuid(), kind: z.string(), ownerActorId: z.string().uuid(),
+// The group's Cindy is server-owned, so its owner is null. This is valid room
+// data, but cannot match the account-owned actors selected below.
+const member = z.object({ id: z.string().uuid(), kind: z.string(), ownerActorId: z.string().uuid().nullable(),
   state: z.string(), role: z.enum(['owner', 'admin', 'member', 'guest']), accessRevision: z.number().int().nonnegative() });
 const snapshot = z.object({ room: z.object({ id: z.string().uuid(), kind: z.string(), revision: z.number().int().positive(),
   archived: z.boolean(), dissolved_at: z.string().nullable().optional() }), members: z.array(member) });
 
 /** Same owner-first, then self, then owned administrator order as native settings. */
-export function selectChatManagementActor<T extends { id: string; ownerActorId: string; state: string; role: string }>(members: readonly T[], self: string): T | undefined {
+export function selectChatManagementActor<T extends { id: string; ownerActorId: string | null; state: string; role: string }>(members: readonly T[], self: string): T | undefined {
   const eligible = members.filter(m => m.ownerActorId === self && m.state === 'joined' && ['owner', 'admin'].includes(m.role));
   return eligible.find(m => m.role === 'owner') ?? eligible.find(m => m.id === self) ?? eligible[0];
 }
