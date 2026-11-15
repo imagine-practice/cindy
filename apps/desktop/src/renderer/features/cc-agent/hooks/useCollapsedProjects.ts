@@ -33,17 +33,30 @@ interface StoredEntry {
 
 type Stored = Record<string, StoredEntry>;
 
+// Entity project IDs are opaque identities, not filesystem paths. Keep this
+// namespace local to sidebar state; directory helpers also serve file operations.
+function normalizeCollapsedProjectKey(raw: string): string | null {
+  const key = raw.trim();
+  if (key.startsWith('project:')) return key.length > 'project:'.length ? key : null;
+  return normalizeProjectKey(raw);
+}
+
+function collapsedProjectComparisonKey(raw: string, localPlatform: string): string | null {
+  const key = normalizeCollapsedProjectKey(raw);
+  return key?.startsWith('project:') ? key : projectKeyComparisonKey(key, localPlatform);
+}
+
 function storedProjectKeyForIdentity(
   stored: Stored,
   projectKeyOrWorkingDir: string,
   localPlatform: string,
 ): string | null {
-  const projectKey = normalizeProjectKey(projectKeyOrWorkingDir);
+  const projectKey = normalizeCollapsedProjectKey(projectKeyOrWorkingDir);
   if (!projectKey) return null;
-  const identity = projectKeyComparisonKey(projectKey, localPlatform) ?? projectKey;
+  const identity = collapsedProjectComparisonKey(projectKey, localPlatform) ?? projectKey;
   return (
     Object.keys(stored).find(
-      (storedKey) => (projectKeyComparisonKey(storedKey, localPlatform) ?? storedKey) === identity,
+      (storedKey) => (collapsedProjectComparisonKey(storedKey, localPlatform) ?? storedKey) === identity,
     ) ?? null
   );
 }
@@ -71,7 +84,7 @@ function loadFromStorage(ownerId: string | null, localPlatform: string): Stored 
         if (v && typeof v === 'object') {
           const entry = v as Partial<StoredEntry>;
           if (entry.collapsed === true && typeof entry.lastSeenAt === 'string') {
-            const projectKey = normalizeProjectKey(k);
+            const projectKey = normalizeCollapsedProjectKey(k);
             if (projectKey) {
               const storedKey = storedProjectKeyForIdentity(out, projectKey, localPlatform);
               if (storedKey == null) {
@@ -135,7 +148,7 @@ export function useCollapsedProjects(
     const cutoff = Date.now() - GC_MS;
     const activeSet = new Set(
       activeDirsRef.current.map(
-        (projectKey) => projectKeyComparisonKey(projectKey, localPlatform) ?? projectKey,
+        (projectKey) => collapsedProjectComparisonKey(projectKey, localPlatform) ?? projectKey,
       ),
     );
     const ownerChanged = loadedOwnerRef.current !== ownerId;
@@ -148,7 +161,7 @@ export function useCollapsedProjects(
       for (const [dir, entry] of Object.entries(source)) {
         const lastSeen = new Date(entry.lastSeenAt).getTime();
         const fresh = Number.isFinite(lastSeen) && lastSeen >= cutoff;
-        const identity = projectKeyComparisonKey(dir, localPlatform) ?? dir;
+        const identity = collapsedProjectComparisonKey(dir, localPlatform) ?? dir;
         if (fresh || activeSet.has(identity)) {
           next[dir] = entry;
         } else {
@@ -166,9 +179,9 @@ export function useCollapsedProjects(
   const collapsed = useMemo(() => {
     const activeProjectKeyByIdentity = new Map<string, string>();
     for (const activeWorkingDir of activeWorkingDirs) {
-      const projectKey = normalizeProjectKey(activeWorkingDir);
+      const projectKey = normalizeCollapsedProjectKey(activeWorkingDir);
       if (!projectKey) continue;
-      const identity = projectKeyComparisonKey(projectKey, localPlatform) ?? projectKey;
+      const identity = collapsedProjectComparisonKey(projectKey, localPlatform) ?? projectKey;
       if (!activeProjectKeyByIdentity.has(identity)) {
         activeProjectKeyByIdentity.set(identity, projectKey);
       }
@@ -177,7 +190,7 @@ export function useCollapsedProjects(
     return new Set(
       Object.keys(stored).map((storedProjectKey) => {
         const identity =
-          projectKeyComparisonKey(storedProjectKey, localPlatform) ?? storedProjectKey;
+          collapsedProjectComparisonKey(storedProjectKey, localPlatform) ?? storedProjectKey;
         return activeProjectKeyByIdentity.get(identity) ?? storedProjectKey;
       }),
     );
@@ -186,7 +199,7 @@ export function useCollapsedProjects(
   // Callback identity changes only at an owner boundary.
   const toggle = useCallback(
     (projectKeyOrWorkingDir: string) => {
-      const projectKey = normalizeProjectKey(projectKeyOrWorkingDir);
+      const projectKey = normalizeCollapsedProjectKey(projectKeyOrWorkingDir);
       if (!projectKey) return;
       updateForOwner((prev, writeOwnerId) => {
         const next: Stored = { ...prev };
@@ -206,7 +219,7 @@ export function useCollapsedProjects(
   // 幂等展开：仅当目标目录当前在折叠集中时才写入，避免无意义的 setState/写盘。
   const expand = useCallback(
     (projectKeyOrWorkingDir: string) => {
-      const projectKey = normalizeProjectKey(projectKeyOrWorkingDir);
+      const projectKey = normalizeCollapsedProjectKey(projectKeyOrWorkingDir);
       if (!projectKey) return;
       updateForOwner((prev, writeOwnerId) => {
         const storedKey = storedProjectKeyForIdentity(prev, projectKey, localPlatform);
@@ -222,7 +235,7 @@ export function useCollapsedProjects(
 
   const setCollapsed = useCallback(
     (projectKeyOrWorkingDir: string, nextCollapsed: boolean) => {
-      const projectKey = normalizeProjectKey(projectKeyOrWorkingDir);
+      const projectKey = normalizeCollapsedProjectKey(projectKeyOrWorkingDir);
       if (!projectKey) return;
       updateForOwner((prev, writeOwnerId) => {
         const storedKey = storedProjectKeyForIdentity(prev, projectKey, localPlatform);
@@ -248,7 +261,7 @@ export function useCollapsedProjects(
       const now = new Date().toISOString();
       const next: Stored = { ...prev };
       for (const dir of activeDirsRef.current) {
-        const projectKey = normalizeProjectKey(dir);
+        const projectKey = normalizeCollapsedProjectKey(dir);
         if (!projectKey) continue;
         const storedKey = storedProjectKeyForIdentity(next, projectKey, localPlatform);
         next[storedKey ?? projectKey] = { collapsed: true, lastSeenAt: now };
@@ -262,7 +275,7 @@ export function useCollapsedProjects(
     updateForOwner((prev, writeOwnerId) => {
       const next: Stored = { ...prev };
       for (const dir of activeDirsRef.current) {
-        const projectKey = normalizeProjectKey(dir);
+        const projectKey = normalizeCollapsedProjectKey(dir);
         if (!projectKey) continue;
         const storedKey = storedProjectKeyForIdentity(next, projectKey, localPlatform);
         if (storedKey != null) delete next[storedKey];
@@ -276,7 +289,7 @@ export function useCollapsedProjects(
     () =>
       new Set(
         Array.from(collapsed).map(
-          (projectKey) => projectKeyComparisonKey(projectKey, localPlatform) ?? projectKey,
+          (projectKey) => collapsedProjectComparisonKey(projectKey, localPlatform) ?? projectKey,
         ),
       ),
     [collapsed, localPlatform],
@@ -286,10 +299,10 @@ export function useCollapsedProjects(
     () =>
       activeWorkingDirs.length > 0 &&
       activeWorkingDirs.every((d) => {
-        const projectKey = normalizeProjectKey(d);
+        const projectKey = normalizeCollapsedProjectKey(d);
         if (!projectKey) return false;
         return collapsedComparisonKeys.has(
-          projectKeyComparisonKey(projectKey, localPlatform) ?? projectKey,
+          collapsedProjectComparisonKey(projectKey, localPlatform) ?? projectKey,
         );
       }),
     [activeWorkingDirs, collapsedComparisonKeys, localPlatform],

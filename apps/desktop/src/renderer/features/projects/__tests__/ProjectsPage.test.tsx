@@ -10,9 +10,18 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ProjectsPage } from '../ProjectsPage';
 import { ProjectsIndexRoute } from '../ProjectsIndexRoute';
 import { EntityProjectsSection } from '../EntityProjectsSection';
-import { MemoryRouter, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
+import userEvent from '@testing-library/user-event';
+import { useCollapsedProjects } from '../../cc-agent/hooks/useCollapsedProjects';
+import { groupSessions } from '../../cc-agent/lib/projectGrouping';
+import type { Session } from '@/lib/ccAgent.types';
+import { sidebarOwnerStorageKey } from '@/lib/sidebarOwnerStorage';
 import type { ProjectRecord, ProjectMember } from '../../../../shared/projects';
-vi.mock('../../cc-agent/sidebar/SessionEntryList', () => ({ SessionEntryList: () => null }));
+vi.mock('../../cc-agent/sidebar/SessionEntryList', () => ({
+  SessionEntryList: ({ sessions }: { sessions: readonly Session[] }) => (
+    <div data-testid="project-task-list">{sessions.map((session) => <span key={session.id}>{session.title}</span>)}</div>
+  ),
+}));
 const env = vi.hoisted(() => ({ account: 'creator', epoch: 1 }));
 vi.mock('@/contexts/AuthContext', () => ({
   useOptionalAuth: () => ({
@@ -435,4 +444,53 @@ it('opens the project card index from its global header and routes equal-name ca
   fireEvent.click(cards()[1]);
   expect(await screen.findByText('opened:p2')).toBeTruthy();
   expect(api.list).toHaveBeenCalledTimes(1);
+});
+
+// Bug: entity keys were normalized as folder paths by the production collapse hook.
+// Gap: existing header navigation tests never clicked the controlled entity fold button.
+// Unit: real groupSessions -> hook -> EntityProjectsSection/native button -> router,
+// with only child task presentation mocked; no real owner storage, IPC or DB.
+it('collapses an entity project by click and keyboard, preserves navigation and reloads the folded state', async () => {
+  window.localStorage.removeItem(sidebarOwnerStorageKey('cc-agent.sidebar.collapsedProjects', 'fold-test-owner'));
+  const node = groupSessions([], { entityProjects: [
+    { id: 'fold-project', name: 'Fold project', updatedAt: '2026-11-15T00:00:00Z' },
+  ] }).projects[0]!;
+  node.sessions = [{ id: 'fold-task', title: 'Visible project task' } as Session];
+  function Tree() {
+    const fold = useCollapsedProjects([node.projectKey], 'fold-test-owner', 'win32');
+    const navigate = useNavigate();
+    const location = useLocation();
+    return <>
+      <EntityProjectsSection projects={[node]} collapsed={fold.collapsed} activeSessionId="fold-task"
+        runningSessionIds={new Set()} attachedSessionIds={new Set()} notifications={new Set()}
+        scheduleSessionIndex={new Map()} onToggleProject={fold.toggle}
+        onOpenProject={(id) => navigate(`/cc-agent/projects/${id}`)} onNewProject={() => {}}
+        onOpenProjects={() => navigate('/cc-agent/projects')} onSessionClick={() => {}}
+        onAction={() => {}} onRename={() => {}} onTogglePin={() => {}} onScheduleAction={() => {}} />
+      <output data-testid="sidebar-route">{location.pathname}</output>
+    </>;
+  }
+  const user = userEvent.setup();
+  const view = render(<MemoryRouter><Tree /></MemoryRouter>);
+  const toggle = screen.getByRole('button', { name: 'Fold project', expanded: true });
+  expect(screen.getByText('Visible project task')).toBeTruthy();
+  await user.click(toggle);
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  expect(screen.queryByTestId('project-task-list')).toBeNull();
+  expect(screen.getByTestId('sidebar-route').textContent).toBe('/');
+
+  await user.click(screen.getByTitle('Fold project'));
+  expect(screen.getByTestId('sidebar-route').textContent).toBe('/cc-agent/projects/fold-project');
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  toggle.focus();
+  await user.keyboard('{Enter}');
+  expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  expect(screen.getByText('Visible project task')).toBeTruthy();
+  await user.keyboard(' ');
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  view.unmount();
+
+  render(<MemoryRouter><Tree /></MemoryRouter>);
+  expect(screen.getByRole('button', { name: 'Fold project', expanded: false })).toBeTruthy();
+  expect(screen.queryByTestId('project-task-list')).toBeNull();
 });

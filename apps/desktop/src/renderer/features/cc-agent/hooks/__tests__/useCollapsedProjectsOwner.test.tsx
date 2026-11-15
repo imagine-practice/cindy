@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { sidebarOwnerStorageKey } from '@/lib/sidebarOwnerStorage';
 import { useCollapsedProjects } from '../useCollapsedProjects';
+import { entityProjectKey } from '../../lib/projectGrouping';
 
 const PROJECT = 'local:/workspace/a';
 const PROJECT_B = 'local:/workspace/b';
@@ -15,18 +16,36 @@ beforeEach(() => {
 });
 
 describe('collapsed project owner state', () => {
-  it('does not expose one owner collapse state to another owner', () => {
-    const ownerA = renderHook(() => useCollapsedProjects([PROJECT], 'owner-a'));
-    act(() => ownerA.result.current.toggle(PROJECT));
-    expect(ownerA.result.current.collapsed.has(PROJECT)).toBe(true);
+  // Entity IDs must keep the same owner isolation/reload contract as folder keys.
+  it.each([PROJECT, entityProjectKey('owner-project')])('isolates and reloads owner state for %s', (projectKey) => {
+    const ownerA = renderHook(() => useCollapsedProjects([projectKey], 'owner-a'));
+    act(() => ownerA.result.current.toggle(projectKey));
+    expect(ownerA.result.current.collapsed.has(projectKey)).toBe(true);
     ownerA.unmount();
 
-    const ownerB = renderHook(() => useCollapsedProjects([PROJECT], 'owner-b'));
-    expect(ownerB.result.current.collapsed.has(PROJECT)).toBe(false);
+    const ownerB = renderHook(() => useCollapsedProjects([projectKey], 'owner-b'));
+    expect(ownerB.result.current.collapsed.has(projectKey)).toBe(false);
     ownerB.unmount();
 
-    const ownerAReloaded = renderHook(() => useCollapsedProjects([PROJECT], 'owner-a'));
-    expect(ownerAReloaded.result.current.collapsed.has(PROJECT)).toBe(true);
+    const ownerAReloaded = renderHook(() => useCollapsedProjects([projectKey], 'owner-a'));
+    expect(ownerAReloaded.result.current.collapsed.has(projectKey)).toBe(true);
+  });
+
+  // Unit: production state/storage APIs; entity IDs must not alias relative folder paths.
+  it('keeps entity and folder identities separate through individual and bulk folding', () => {
+    const entity = entityProjectKey('same-id');
+    const folder = 'local:project:same-id';
+    const hook = renderHook(() => useCollapsedProjects([entity, folder], 'owner-a', 'win32'));
+    act(() => hook.result.current.toggle(entity));
+    expect(hook.result.current.collapsed).toEqual(new Set([entity]));
+    act(() => hook.result.current.setCollapsed(folder, true));
+    act(() => hook.result.current.expand(entity));
+    expect(hook.result.current.collapsed).toEqual(new Set([folder]));
+    act(() => hook.result.current.collapseAll());
+    expect(hook.result.current.isAllCollapsed).toBe(true);
+    expect(hook.result.current.collapsed).toEqual(new Set([entity, folder]));
+    act(() => hook.result.current.expandAll());
+    expect(hook.result.current.collapsed.size).toBe(0);
   });
 
   it('moves a legacy collapse value only into the first owner namespace', () => {
