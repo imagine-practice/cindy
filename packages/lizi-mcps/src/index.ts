@@ -9,6 +9,10 @@
 export const VERSION = '0.0.0';
 
 export * from './types.js';
+export * from './host-tool-runtime.js';
+export type { HostToolCaller } from './tool-call-authority.js';
+export { registerListTeammatesTool } from './xdt-helper/list_teammates.js';
+export { registerReadSessionAttachmentTool, type ReadSessionAttachmentArgs } from './xdt-helper/read_session_attachment.js';
 export * from './providers.js';
 export type { ToolCallAuthorization, ToolCallAuthorizer } from './tool-call-authority.js';
 
@@ -57,3 +61,4 @@ export type { AppModelsRequest } from './xdt-helper/app_models.js';
 
 export type { ProjectWorkItemExecuteIntent, ProjectWorkItemExecuteResult, ProjectWorkItemExecuteCallback } from './xdt-helper/execute_project_work_item.js';
 export type { EntityProjectMutationIntent, EntityProjectMutationResult, EntityProjectMutationCallback } from './xdt-helper/entity_project_mutations.js';
+export type { ProviderSharingRequest } from './xdt-helper/provider_sharing.js';

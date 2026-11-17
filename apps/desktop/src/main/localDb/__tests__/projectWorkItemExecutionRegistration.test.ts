@@ -84,7 +84,7 @@ for (const mode of ['inproc', 'file-worker'] as const) {
     try {
       expect(await client.queryOne("SELECT value FROM migration_meta WHERE key='schema_version'")).toEqual({ value: DUAL_SCHEMA_VERSION });
       expect(await client.query('SELECT namespace,max(id) AS head,count(*) AS n FROM migration_history_v2 GROUP BY namespace ORDER BY namespace'))
-        .toEqual([{namespace:'custom',head:13,n:13},{namespace:'upstream',head:149,n:150}]);
+        .toEqual([{namespace:'custom',head:14,n:14},{namespace:'upstream',head:149,n:150}]);
       expect(await client.queryOne('SELECT max(seq) AS head FROM migration_history')).toEqual({head:161});
       const first = requireView(await execute({ ...request, action: 'inspect' }));
       const admit = {...request,action:'admit' as const,fingerprint:first.fingerprint,now:10};

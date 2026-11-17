@@ -176,7 +176,6 @@ export function GroupLinkedProjects({ group, canManage, onWorkSelectionChange }:
     if (!locator || !accountId || inFlight.current) return;
     const generation = getDataOwnerGeneration();
     const confirmed = await confirm({
-      presentation: 'standard',
       title: t('projectGroupLinks.unlinkTitle', { name }),
       description: t('projectGroupLinks.unlinkNote'),
       confirmText: t('projectGroupLinks.unlink'),

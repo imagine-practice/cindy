@@ -13,6 +13,7 @@ import { assertScheduledHarnessSupported } from '../maker-ipc/scheduledModelSele
 import type { DrizzleScheduleStorage, SchedulerDrizzleDb } from './storage';
 import { assertScheduleProjectBinding } from './projectBinding';
 import { ProjectAutomationLoader } from './project-automation-loader';
+import type { TeammateProjectState } from './ownTeammateProject';
 import type { MakerScheduleRunner, SchedulerQueueDeps } from './runner';
 import type { ScriptScheduleRunner } from './script-runner';
 import { setSilencedRunProbe } from './silent-output';
@@ -52,8 +53,8 @@ export interface SchedulerHostRuntime<Deps extends SchedulerHostStartDeps> {
   /** Wraps the runner, e.g. to skip a teammate project's automations on a computer it was handed away from. */
   wrapRunner?(runner: ScheduleRunner): ScheduleRunner;
   captureFireContext?: () => () => void;
-  /** A real teammate project of this account: its automation files sync without the import prompt. */
-  isOwnTeammateProject?(workingDir: string): Promise<boolean>;
+  /** Existing teammate projects sync directly; deleted ones cannot be recreated by late writes. */
+  getTeammateProjectState?(workingDir: string): Promise<TeammateProjectState | null>;
   beforeReset(): Promise<void>;
 }
 
@@ -187,7 +188,7 @@ export function createSchedulerHost<Deps extends SchedulerHostStartDeps>(runtime
       storage,
       getDb: deps.getDb,
       logger: deps.logger,
-      ...(runtime.isOwnTeammateProject ? { isOwnTeammateProject: runtime.isOwnTeammateProject } : {}),
+      ...(runtime.getTeammateProjectState ? { getTeammateProjectState: runtime.getTeammateProjectState } : {}),
     });
     // archived 兜底要 scheduler.pause/update，runner 反向持有 scheduler
     promptRunner.attachScheduler(scheduler);

@@ -65,6 +65,9 @@ Ghost manifest、自建中转同步维护与 Review 清单。每项具体能力�
 
 ## 3. Ghost manifest 与 Cindy 专属界面能力
 
+- [插件授权目录与文件操作](protocol-compatibility/plugin-authorized-files.md)
+- [插件宿主工具的平台服务](protocol-compatibility/plugin-host-tools-platform.md)
+
 - `ghost.json` 的跨消费者字段、v2 兼容映射与枚举属于 Ghost manifest 协议，客户端正本位于
   `packages/plugin-protocol/src/manifest.ts`；Desktop 在
   `apps/desktop/src/shared/ghost.ts` 维护运行时 validator。除明确登记的 Desktop-only
@@ -82,6 +85,38 @@ Ghost manifest、自建中转同步维护与 Review 清单。每项具体能力�
   只有改变既有字段结构或安全语义时才需要协调协议升级。
 - 插件必须检测接口并处理不支持响应，局部降级或提示升级。`minCindyVersion` 不能替代
   这些处理：手动导入、旧版或其它安装渠道仍可能将包交给不适配客户端。
+- `agent.hostTools: string[]` 增量声明宿主工具组，当前识别 history/control/handoff/settings/scheduler/terminal/files/storage/browser/computer/ssh/docs/discovery。
+  未知字符串保留但当前宿主不支持；整体安装批准有效且已启用时按 manifest 已知声明放行，不另存分组批准。旧 receipt 中的 `approvedHostToolGroups` 字段读取时忽略，不迁移或清理数据。
+  UI 管子新增 `host-tool-request`，Node 私有通道使用同类型加 `reqId`，共用宿主校验及 Agent 工具处理器；返回原始 MCP 结果。
+  旧宿主可保留清单但不支持接口，插件须检测 `cindy.host?.call` 并处理不支持响应。无 Session 的插件调用方不会改变原任务调用方协议或身份；不涉及 device-link wire 变更。
+  无 `node` 批准的插件不支持脚本/前置命令调度；普通调度更新、运行和恢复复用既有 `expectedSchedule` 参数及执行点检查，不新增协议字段或确认层，原 Agent 不带守卫时行为保持。
+- 历史查询通道增量支持 `list_teammates`，复用同一个工具 registry 校验与宿主目录读取；不新增 channel。
+  目录和指定 `teammate_id` 的关系分别分页，默认 100、最多 1000，返回 `nextCursor` / `hasMore`，游标复用历史查询的编码。
+- `control/delete_session` 为增量 Agent 工具，插件通过同一入口调用；本机复用 `patchSessionMetaInDb(status:'deleted')`，
+  远程复用已有 `local-db:sessions:patch-meta` 状态协议，不新增通道或重试；无法确认写入结果时返回 `REMOTE_RESULT_UNKNOWN`。
+- `control/fork_session` 与 `rewind_session` 通过共用的 UI 业务入口执行；远程复用既有 `maker:fork` / `maker:rewind:commit`。
+  `message_client_id` 是历史消息现有 clientId，不另建检查点 ID 或迁移；原有控制端参数与行为保持。未收到可信回执返回结果未知，不重放写入。
+  `get_chat_history.messages[].clientId` 为可选增量字段，透传 reader 已有的原生/UI 锚点；旧端缺失时不从存储行 id 猜测。
+- `get_session_runtime` 增量返回可选 `permission_mode`；`set_session_runtime` 接受该可选字段。
+  复用现有权限提交与回滚，省略字段时原任务调用保持原行为。插件继续/插话使用已有 `sourcePlugin` 来源元数据，不伪造当前任务。
+- `maker:session:handoff` 的既有能力探测增量返回 `pluginCaller:1`。插件发送方使用 `sender:{kind:'plugin',pluginId,name?}`，
+  不提供 `sender.sessionId` 或任务请求来源；旧任务发送方及 wire 字段保持原样。缺新能力位时在发送内容前返回不支持。
+  现有一次性回执绑定 `senderPluginId`，回查使用 `pluginId`；任务仍用原 session 字段，混合或缺失调用方拒绝。
+  接收任务按来源电脑限定 `sourcePlugin.pluginId=deviceId::pluginId`，保留目标权限与 Plan；界面不把它导航到本机同名插件。
+  不新增 channel、授权存储或 relay 字段；自建中转继续透明传输原业务 payload，无需同步适配。
+- `subscribe.topics` 增量识别 `message` / `task-state`，事件名为 `did-message-created` / `did-task-state-changed`，复用现有管子事件封装。
+  整体安装批准有效且已启用时按 manifest 已知 topic 声明分发，不另存主题批准；旧 receipt 中的 `approvedEventTopics` 字段读取时忽略，原有 topic 继续原行为。
+  新消息事件只提供正文和附件位置，不提供宿主路径；`historyCursor` 复用 `get_chat_history` 编解码，序号不作为持久重放凭证。
+  `task-state` 只发布开始、结束、出错、等待权限/回答、排队、取消及归档/恢复/删除等生命周期变化，不发布高频进度、活动或仅隐藏状态的变化。
+  两种 topic 沿用逐事件投递、100 条熄灯队列和单调序号，不新增合批、折叠或 timer；序号缺口可补拉，溢出标记 `dropped`。
+  无新跨设备 channel、轮询、事件持久化或中转协议；旧端可保留新声明但不投递。
+  旧端拒绝未知查询时按既有远程错误报告，聚合结果保留 `partial`，不当成空目录。
+  `list_sessions.hiddenAt` 为可选增量字段，旧响应缺失不推断隐藏；跨电脑伙伴目录中的任务关系使用 `deviceId::sessionId`，伙伴 id 保持原值。
+- `read_session_attachment` 的公开工具结果为分块 base64（最多 64 KiB）与内容摘要，插件媒体与普通文件分别复用 grant / handoff。
+  第 10 项附件读取仅覆盖已有宿主授权的 Cindy 媒体及 grant / deposit / handoff 引用。历史 JSON 的 `files.path`、绝对路径与旧文件直读 URL 返回 `UNSUPPORTED_CAPABILITY`，不凭消息内容授权读文件或创建交接副本。
+  可选 `mediaHash` 仅续读已交接给当前插件的媒体：复核既有 grant 后按范围读总仓字节，复用内容寻址摘要；普通文件继续使用 `attachment_ref`。不新增缓存、授权事实或路径字段，旧端不识别续读参数时仍可从原消息读取。
+  普通文件续读复用原交接句柄的范围读取和首次交接摘要，不逐页重读整份副本；调用方组装后校验，副本变化或摘要不符时通过既有授权交接流程重新取得。
+  仅支持本机任务；跨电脑返回 `UNSUPPORTED_CAPABILITY`，不加入跨设备历史查询、文件传输或 Device Link channel。
 
 ## 自建中转同步维护
 
@@ -105,21 +140,7 @@ Ghost manifest、自建中转同步维护与 Review 清单。每项具体能力�
   扩容、数据库或监控调整，或已有通用转发足够支持本次变化，可以写明无需同步修改的具体依据；
   不得仅写「不涉及」或假定官方与自建中转会自动保持一致。
 
-## 群项目配置的可选本机能力（2026-11-14，候选）
-
-`localDb.projectGroupLinks.ownerInGroup === true` 声明支持 `policy: 'owner-in-group'`，
-列表追加可选 `eligibleProjects`、关系追加 `available` / `linkedOwner` / `workDirKey`。
-新 UI 缺该能力时沿旧操作者 owner 合同，不推测负责人资格；旧 UI 在新 Host 上省略 policy，旧字段含义不变。
-`set-work` 是新动作，要求该 policy、稳定 requestId、expectedRevision、精确本机 target 和可空 dirKey；
-null 只取消工作选择，不删除关联。关联 link/unlink 原回执和原动作键保持；新策略独立键，未知提交只对账、不自动换键重发。
-`change` 仍描述关联状态，因此仅切目录时为 unchanged，目录当前值由 workDirKey 与 revision 表达。
-Main 认证并复核群配置权与当前项目负责人，worker 同事务重查成员/负责人证据和 CAS；public 不接受授权上下文。
-
-存储通过新 custom0014 追加三个可空列和每个本机群唯一工作选择索引，不改变旧 SQL/hash/history。
-升级后旧关联不获新授权、不自动成为工作项目；旧应用的双链 catalog 缺少 custom14，按已有 ledger/manifest 门禁安全拒绝打开，
-不能与升级后的库并发写或直接降级。回退须恢复升级前整套数据库及其配对 sidecar 备份。
-本能力仅本机 preload/命名事务；未新增 device-link/relay 帧、远程资源或 Chat Server 路由，自建中转无需同步改动，手机旧能力不变。
-认证 GET 复用群权限捕获/刷新，每份快照判断所有候选，不按项目逐个发请求、不新增轮询；列表事件刷新沿账号/群/组件生命周期过滤。
+群项目的可选本机能力、负责人在群与显式工作选择见[群项目配置协议](protocol-compatibility/bot-group-project-work-selection.md)。
 
 ## Review 清单
 
@@ -134,3 +155,6 @@ Main 认证并复核群配置权与当前项目负责人，worker 同事务重�
 
 协议改动按 [`desktop-development.md`](desktop-development.md) 跑相关测试，并与服务端确认
 兼容。
+
+
+普通 IM 提问的增量协议见 [IM 问题卡](protocol-compatibility/im-question-cards.md)。

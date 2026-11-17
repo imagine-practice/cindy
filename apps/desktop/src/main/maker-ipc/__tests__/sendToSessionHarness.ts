@@ -15,6 +15,7 @@ import { installDesktopInteractionHandler } from '../interactionRouter.js';
 import type { AgentInputCoordinator } from '../agent-input-coordinator.js';
 import type { InteractionRequest, InteractionDecision } from '@cindy/maker-core';
 import { bindTaskActionInput } from '../taskActionAuthorization.js';
+import { sanitizeSourceName, buildMessageSourceNote, messageSourceSenderFromMeta } from '@cindy/maker-shared/message-source';
 import { HOST_ONLY_AGENT_PREFIX } from '../../../shared/agentInputQueue.js';
 import { UI_ACTION_TRIGGER_PREFIX } from '../../../shared/interruptedTurn.js';
 import { AcceptedCallbackDispatchCancelled } from '../acceptedCallbackRunner.js';
@@ -38,18 +39,24 @@ function botTaskDispatchSlice(): string {
     '\n  setBotInvitationWelcomeDispatch(dispatchBotSessionMessage);',
   );
   const groupDispatch = slice(
-    '({ targetSessionId, message, persistedContent, autoReviewUserText, origin, clientId, attachments, toolsDisabled, resumeWithStoredPermissionMode, onQueued, onAccepted }) =>',
+    '({ targetSessionId, message, persistedContent, autoReviewUserText, origin, clientId, attachments, toolsDisabled, resumeWithStoredPermissionMode, assertDispatchCurrent, onQueued, onAccepted }) =>',
     ',\n    prepareAttachments:',
     registerSource.indexOf('const botGroupChatDeps: BotGroupChatServiceDeps = {'),
   );
+  const pluginSource = slice('function hostPluginInputSource()', '  const sessionControlService = createSessionControlService(');
+  const sendToSession = slice('sendToSession: async (params) => {', ',\n    enableOrca: enableOrcaInternal,')
+    .replace('sendToSession:', 'const sendToSession =');
   return ts.transpileModule(
     `${sendWithBaseline}
 ${sendToSessionInternal}
 ${dispatchBotSessionMessage}
+${pluginSource}
+${sendToSession};
 // Host-originated input to a teammate task (cloud room, group delivery) resumes with its stored mode.
 const delegationDispatch = (params) => dispatchBotSessionMessage({ ...params, resumeWithStoredPermissionMode: true });
 const groupDispatch = ${groupDispatch};
-return { delegationDispatch, groupDispatch, dispatchBotSessionMessage, sendToSessionInternal };`,
+return { delegationDispatch, groupDispatch, dispatchBotSessionMessage, sendToSessionInternal, sendToSession,
+enqueueGroupMessage: ${slice('async function enqueueSendToSessionMessage(params: {', '\n  async function buildSessionControlInputItem(')} };`,
     { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } },
   ).outputText;
 }
@@ -60,6 +67,8 @@ const loadBotTaskDispatch = new Function(
   'scope',
   `with (scope) { return (function () { ${botTaskDispatchSlice()} })(); }`,
 ) as (scope: object) => {
+  enqueueGroupMessage: (input: Record<string, unknown>) => Promise<void>;
+  sendToSession: (input: Record<string, unknown>) => Promise<{ ok: boolean; wakeKind?: string }>;
   sendToSessionInternal: (input: Record<string, unknown>) => ReturnType<GhostAgentTurnRunnerDeps['send']>;
   groupDispatch: (input: Record<string, unknown>) => Promise<{ ok: boolean; wakeKind?: string }>;
   dispatchBotSessionMessage: (input: Record<string, unknown>) => Promise<{ ok: boolean; wakeKind?: string }>;
@@ -107,6 +116,15 @@ export function botTaskDispatchHarness(
     limit: async () => [],
   };
   const stubs: Record<string, unknown> = {
+    schedulerQueueBridgeHolder: null,
+getPluginHostToolCaller: () => undefined,
+sanitizeSourceName,
+getInstalledGhostName: () => 'Dashboard',
+captureDataOwnerBroadcastScope: () => ({}),
+isDataOwnerBroadcastScopeCurrent: () => true,
+classifySessionMessagePurpose: async () => ({}),
+persistUserTurnMessage: asyncNoop,
+
     touchSessionActivityInDb,
     assertCindyMakeSessionAvailable: noop,
     readSessionSource: asyncNoop,

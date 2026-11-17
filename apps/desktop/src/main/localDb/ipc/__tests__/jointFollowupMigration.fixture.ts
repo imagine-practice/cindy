@@ -59,8 +59,9 @@ export function createJointFollowupDb(tempRoot: string, filename = ':memory:'): 
     }
     writeFileSync(`${file}.migration-runtime.json`,JSON.stringify(createMigrationRuntimeManifest(drizzleDir)));
     const adopted=runDualMigrationReplay(db,{drizzleDir,dbPath:file});
-    if (adopted.applied.length !== 1 || adopted.applied[0].namespace !== 'upstream' || adopted.applied[0].id !== 149) {
-      throw new Error('Joint fixture must adopt its original history and apply only upstream:149');
+    if (adopted.applied.length !== 2 || adopted.applied[0].namespace !== 'upstream' || adopted.applied[0].id !== 149
+      || adopted.applied[1].namespace !== 'custom' || adopted.applied[1].id !== 14) {
+      throw new Error('Joint fixture must adopt its original history and apply upstream:149 then custom:14');
     }
     return db;
   } catch (error) { db.close(); throw error; }

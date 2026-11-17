@@ -15,7 +15,7 @@ import { useDisableContextMenu } from '@/hooks/useDisableContextMenu';
 import { ThemeProvider } from '@/hooks/useTheme';
 import { WallpaperSettingsProvider } from '@/hooks/useWallpaperSettings';
 import { FontSettingsProvider } from '@/hooks/useFontSettings';
-import { LocaleProvider } from '@/hooks/useLocale';
+import { LocaleProvider, useLocale } from '@/hooks/useLocale';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
 import { PluginReviewUpdatesProvider } from '@/contexts/PluginReviewUpdatesContext';
 import { AppShellCoverProvider, useAppShellCover } from '@/contexts/AppShellCoverContext';
@@ -29,6 +29,7 @@ import { LoginFirstLaunchLightGateBridge } from '@/components/login/LoginFirstLa
 import { StartupLogSupport } from '@/components/log-support/StartupLogSupport';
 import { isSecondaryWindow } from '@/lib/secondaryWindow';
 import { isSidebarWindow } from '@/lib/sidebarWindow';
+import { schedulePluginCatalogPrewarm } from '@/features/plugin/lib/prewarmPluginCatalog';
 import { installGithubStarPrompt } from '@/lib/githubStarPrompt';
 import { createGithubStarPromptEnvironment } from '@/lib/githubStarPromptHost';
 import { ToastContainer } from '@/components/ui/toast';
@@ -213,7 +214,8 @@ function syncNewMakerPrefs(appDefaultModelRequestId?: string) {
 }
 
 function MakerBootstrap() {
-  const { isAuthenticated, dataOwnerId, dataOwnerRecoveryEpoch } = useAuth();
+  const { isAuthenticated, dataOwnerId, dataOwnerRecoveryEpoch, canEnterApp, mode, dataOwnerGeneration } = useAuth();
+  const { effectiveLocale } = useLocale();
 
   useResyncAgentIslandSettingsAfterLogin(isAuthenticated);
 
@@ -253,6 +255,11 @@ function MakerBootstrap() {
   useEffect(() => {
     void preloadLocalCatalogSnapshot();
   }, [dataOwnerId, dataOwnerRecoveryEpoch]);
+  useEffect(() => {
+    if (!canEnterApp || isSecondaryWindow() || isSidebarWindow()) return;
+    return schedulePluginCatalogPrewarm({ mode, ownerId: dataOwnerId, generation: dataOwnerGeneration,
+      locale: effectiveLocale });
+  }, [canEnterApp, mode, dataOwnerId, dataOwnerGeneration, dataOwnerRecoveryEpoch, effectiveLocale]);
   // Early fire-and-forget sends can precede maker IPC registration. Repeat after
   // the ready/owner boundary and after every owner generation change (same-owner
   // repairs included, #4469), using the same persisted preference snapshot.

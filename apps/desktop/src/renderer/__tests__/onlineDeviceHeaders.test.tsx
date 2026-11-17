@@ -95,6 +95,8 @@ function props(groupDevice: boolean): ProjectsSectionProps {
       groupDialogue: true,
       groupDevice,
       sortBy: 'recency',
+      pinnedSortBy: 'manual',
+      setPinnedSortBy: vi.fn(),
       projectOrder: 'activity',
       manualProjectOrder: [],
       projects: 'all',

@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import { createSessionOptionsReconciler, type SessionExecutionRow } from '../sessionOptionsReconciler.js';
 import type { MakerSessionCreateOpts } from '../sessionRequest.js';
 import { isShadowedCompanionSession } from '../botSessionInputGuard.js';
@@ -20,8 +21,14 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
-import { AUTO_REVIEW_SOURCE_CONTENT, AUTO_REVIEW_USER_INTENT, AUTO_REVIEW_DELEGATED_CONTINUATION } from '@cindy/maker-core';
-import { createGhostAgentTurnRunner } from '../ghostAgentTurnRunner.js';
+import { permissionModeOrAsk } from '@cindy/maker-shared/permission-mode';
+import { AUTO_REVIEW_SOURCE_CONTENT, AUTO_REVIEW_USER_INTENT, AUTO_REVIEW_DELEGATED_CONTINUATION, TurnDispatchRejectedError, type SendOptions } from '@cindy/maker-core';
+import { restoreAutoReviewUserIntent } from '../autoReviewUserIntent.js';
+import { verifiedOwnerRequestText } from '../../../shared/forwardedRequest.js';
+import { createWireNoteMemory } from '../wireNoteMemory.js';
+import { resolveSendToSessionCreateRoute } from '../sendToSessionExecutionConfig.js';
+import { createGhostAgentTurnRunner, type GhostAgentTurnRunnerDeps } from '../ghostAgentTurnRunner.js';
+import { sanitizeSourceName, buildMessageSourceNote, messageSourceSenderFromMeta } from '@cindy/maker-shared/message-source';
 
 const registerSource = readFileSync(resolve(__dirname, '..', 'register.ts'), 'utf8').replace(
   /\r\n?/g,
@@ -218,7 +225,7 @@ describe('external handoff to hidden group lanes', () => {
       live ? { child: { id: 'child', agentKind: 'codex' } } : {}, {
         getDbClient: () => ({ drizzle: { select: () => dbChain } }),
         botSessionLinks: links,
-        syncBotLanePermission: sync, createDbMessage: persist,
+        syncBotLanePermission: sync, persistUserTurnMessage: persist,
       });
     return { ...h, sync, persist, accepted };
   }
@@ -318,7 +325,7 @@ describe('companion internal delivery after automation', () => {
       path === 'live' ? { child: { id: 'child', agentKind: 'pi', isTurnRunning: () => false, getStatus: () => 'active', hasRecyclableProjectResourceDrift: () => false } } : {}, {
         getDbClient: () => ({ drizzle: { select: () => dbChain } }),
         isShadowedCompanionSession, isCompanionShadowed: () => shadowed,
-        createDbMessage: async () => { shadowed = true; },
+        persistUserTurnMessage: async () => { shadowed = true; },
       });
     expect(await h.dispatchBotSessionMessage({ targetSessionId: 'child', message: 'Late cloud input' }))
       .toMatchObject({ ok: false, errorCode: 'AGENT_NOT_READY', message: 'shadowed' });
@@ -464,7 +471,57 @@ describe('idle forwarded request authorization', () => {
   });
 });
 
+// #10631 review, integration tier: stop can win during asynchronous input building.
+// Execute the real group adapter and both enqueue paths; late onAccepted is too late.
+describe('group dispatch cancellation during preparation', () => {
+  it.each([false, true])('never enqueues a stopped execution (attachments=%s)', async attachments => {
+    let release!: () => void, started!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const preparing = new Promise<void>(resolve => { started = resolve; });
+    const enqueue = vi.fn();
+    let current = true;
+    const h = botTaskDispatchHarness({ child: { permissionMode: 'ask', planModeEnabled: false } }, {}, {
+      path,
+      inputCoordinator: { shouldQueueNewTurn: () => false, ensureQueueRestored: async () => {}, enqueue },
+      buildSessionControlInputItem: async (input: Record<string, unknown>) => {
+        started(); await gate; return { ...input, createOpts: {} };
+      },
+      orcaInterAgentDispatcher: { registerQueuedOrcaInterAgentAcceptedCallback: vi.fn() },
+    });
+    h.scope.enqueueSendToSessionMessage = h.enqueueGroupMessage;
+    const dispatch = h.groupDispatch({ targetSessionId: 'child', clientId: 'bot-group:stopped',
+      message: 'Cancelled group request', persistedContent: 'Cancelled group request',
+      assertDispatchCurrent: () => { if (!current) throw new Error('STALE_EXECUTOR'); },
+      onAccepted: vi.fn(),
+      ...(attachments ? { attachments: [{ id: 'file', name: 'note.txt', path: '/fixture/note.txt', category: 'document', size: 1 }] } : {}),
+    }).catch(error => ({ ok: false, message: String(error) }));
+    await preparing;
+    current = false; release();
+    expect(await dispatch).toMatchObject({ ok: false });
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(h.sentTo).toEqual([]);
+  });
+});
+
 describe('stored-mode Host dispatch keeps the persisted permission and Plan', () => {
+  // PR #10271 / Greptile, guard: sendToSessionInternal kept the old provider snapshot after
+  // account recovery changed the persisted source. Execute the real dispatch closure: a legacy
+  // source becomes OpenAI, lazy bootstrap must use it without changing this entry's permission policy.
+  it.each([true, false])('uses the recovered source for lazy bootstrap (stored permission=%s)', async storedMode => {
+    const row = { permissionMode: 'ask', planModeEnabled: false, providerId: 'openai-old' };
+    const readRecovered = vi.fn(async () => ({ ...row, status: 'active', title: 'child', userSendAt: null, sdkSessionId: null }));
+    const h = botTaskDispatchHarness({ child: row }, {}, {
+      prepareUnhealthySessionForSend: vi.fn(async () => { row.providerId = 'openai'; return true; }),
+      getSessionRowSnapshotStrict: readRecovered,
+    });
+    const result = await h.sendToSessionInternal({ targetSessionId: 'child', message: 'Continue',
+      clientId: 'recovered-source', resumeWithStoredPermissionMode: storedMode });
+    expect(result, JSON.stringify(result)).toMatchObject({ ok: true });
+    expect(h.bootstrapped).toEqual([expect.objectContaining({ providerId: 'openai',
+      resumeSessionId: undefined, permissionMode: storedMode ? 'ask' : 'bypassPermissions' })]);
+    expect(readRecovered).toHaveBeenCalledOnce();
+  });
+
   it.each([
     ['auto', false, 'auto'],
     ['ask', false, 'ask'],

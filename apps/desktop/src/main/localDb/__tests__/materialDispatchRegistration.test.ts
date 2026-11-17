@@ -12,7 +12,7 @@ import { buildDbWorkerBundle } from './dbWorkerTestUtils';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import type Database from 'better-sqlite3';
 import { createBetterSqliteDatabase } from '../betterSqliteFactory';
-import { runMigrationReplay } from '../migrationRunner';
+import { runDualMigrationReplay } from '../migrationLedger';
 import { dispatch } from '../worker/dispatcher';
 import { WorkerThreadTransport } from '../client/WorkerThreadTransport';
 import { saveAgentInputQueueSnapshot, loadAgentInputQueueSnapshot, awaitAgentInputQueueSnapshotPersistence } from '../agentInputQueueSnapshots';
@@ -32,7 +32,7 @@ beforeAll(() => {
   dir = mkdtempSync(path.join(os.tmpdir(), 'cindy-material-dispatch-registration-'));
   db = createBetterSqliteDatabase(path.join(dir, 'test.db'));
   db.loadExtension(path.join(root, 'native/sqlite-vec', `${process.platform}-${process.arch}`, process.platform === 'win32' ? 'vec0.dll' : 'vec0.dylib'));
-  runMigrationReplay(db, { drizzleDir: path.join(root, 'drizzle') });
+  runDualMigrationReplay(db, { drizzleDir: path.join(root, 'drizzle'), dbPath: path.join(dir, 'test.db') });
   db.exec(`INSERT INTO projects(id,name,owner_id,status,created_at,updated_at) VALUES ('p','fixture','owner','active',1,1);
     INSERT INTO sessions(id,title,created_at,updated_at,project_id,project_binding_revision) VALUES ('task','fixture',1,1,'p',1);
     INSERT INTO project_members VALUES ('p','account','owner','owner',1);
@@ -44,7 +44,7 @@ afterAll(() => {
 });
 
 for (const mode of ['dispatcher', 'inline', 'file-worker'] as const) {
-  it(`${mode}: durable selector recovery, identity separation and revoked replay on formal 0151`, async () => {
+  it(`${mode}: durable selector recovery, identity separation and revoked replay on the formal dual-chain catalog`, async () => {
     db.exec("INSERT OR IGNORE INTO project_members VALUES ('p','account','owner','owner',1)");
     let workerScriptPath: string | undefined;
     if (mode === 'file-worker') {

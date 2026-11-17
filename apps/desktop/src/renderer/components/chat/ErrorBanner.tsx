@@ -7,6 +7,7 @@ import { useCodexRateLimits } from '@/hooks/useCodexRateLimits';
 import { useCodexRateLimitReset } from '@/hooks/useCodexRateLimitReset';
 import { Button } from '@/components/ui/button';
 import { ErrorNotice } from '@/components/ui/error-notice';
+import { AutoReviewRecoveryActions } from './AutoReviewRecoveryActions';
 import { isSharedTaskPeer } from '@cindy/device-link';
 import { isCodexGatewayWireModel, isOpenAiSubscriptionProvider } from '@cindy/model-providers';
 import { useProviders } from '@/hooks/useProviders';
@@ -411,7 +412,7 @@ export function ErrorBanner({
   const remoteErrorCode = parseAgentErrorCode(error)?.code;
   const isRemoteResumeRejected = isRemoteAgentResumeRejectedError(error);
   const isAttachmentAccessDenied = remoteErrorCode === 'DEVICE_LINK_MEDIA_ACCESS_DENIED';
-  const remoteErrorKey = (isRemoteResumeRejected ? 'chat.remoteError.REMOTE_AGENT_RESUME_REJECTED' : null)
+  const remoteErrorKey = (isRemoteResumeRejected ? 'chat.remoteError.REMOTE_AGENT_RESUME_UNAVAILABLE' : null)
     ?? (isMemberBudgetPaused(error) ? 'providerShare.memberBudget.paused' : null) ?? remoteAgentLimitErrorKey(error) ?? chatRemoteErrorGuidanceKey(remoteErrorCode, sessionSource);
   const remoteGuidance = remoteErrorKey && i18n.exists(remoteErrorKey) ? t(remoteErrorKey) : undefined;
   const terminalRateLimitRetryProgress = parseTerminalRateLimitRetryProgress(error, errorReason);
@@ -460,7 +461,7 @@ export function ErrorBanner({
   });
   // 订阅套餐错误保留 Retry：用户重新连接 Anthropic 后可从当前错误卡片重试；
   // Gateway 错误则隐藏 Retry，改走切换到 Claude.ai 的明确恢复动作。
-  const hideRetry = isMemberBudgetPaused(error) ||
+  const hideRetry = remoteErrorCode === 'REMOTE_AGENT_RESUME_UNAVAILABLE' || isMemberBudgetPaused(error) ||
     isRemoteResumeRejected ||
     isSilentStopExhausted ||
     isContentInspectionError ||
@@ -677,7 +678,15 @@ export function ErrorBanner({
     hasSpecialGuidance = false;
   }
   const showUnwrappedRaw = !hasSpecialGuidance || isResponsesLiteParallelToolCallsError(error);
-  if (sharedRecoveryReason) displayError = t(`sharedTaskRecovery.reason.${sharedRecoveryReason}`);
+  // Keep the share's route-choice action without replacing the more specific
+  // communication guidance (especially the timeout's unknown-result warning).
+  const keepRemoteGuidance = !!remoteGuidance && [
+    'REMOTE_AGENT_RESUME_UNAVAILABLE', 'REMOTE_AGENT_TIMEOUT', 'REMOTE_AGENT_LINK_BUSY',
+    'REMOTE_AGENT_UNRESPONSIVE', 'REMOTE_AGENT_OFFLINE', 'REMOTE_AGENT_ACCESS_DENIED',
+  ].includes(remoteErrorCode ?? '');
+  if (sharedRecoveryReason && !keepRemoteGuidance) {
+    displayError = t(`sharedTaskRecovery.reason.${sharedRecoveryReason}`);
+  }
   const canShowErrorDetails =
     piCloudContextRecovery ||
     isNetworkishError ||
@@ -837,6 +846,7 @@ export function ErrorBanner({
       }
       actions={
         <>
+          {isLocalAuthSession && remoteErrorCode === 'AUTO_REVIEW_NO_AVAILABLE_MODEL' && <AutoReviewRecoveryActions />}
           {sharedRecoveryReason && onChooseComputer && !isRecoverable && (
             <Button size="sm" compact type="button" onClick={onChooseComputer}>
               {t('sharedTaskRecovery.choose')}
