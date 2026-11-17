@@ -3,7 +3,7 @@
     "name": "Cindy",
     "slug": "xdt-maker-mobile",
     "scheme": "cindycn",
-    "version": "0.1.139",
+    "version": "0.1.141",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
