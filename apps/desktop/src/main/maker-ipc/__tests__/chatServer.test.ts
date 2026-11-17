@@ -2596,6 +2596,40 @@ describe('Chat Server result delivery and refresh', () => {
       expect(deliveries()).toHaveLength(0);
     });
 
+    // Incident 2026-11-17: a valid mention remains queued when the server refuses the
+    // single-message route with INVALID_INPUT. Unit: real authenticated HTTP adapter; use only
+    // the same room's fresh authorized snapshot, never cached bodies or permission failures.
+    it.each([
+      { status: 400, source: 'present', delivered: true },
+      { status: 400, source: 'missing', delivered: false },
+      { status: 400, source: 'wrong-room', delivered: false },
+      { status: 403, source: 'present', delivered: false },
+      { status: 404, source: 'present', delivered: false },
+      { status: 410, source: 'present', delivered: false },
+    ])('handles a refused source lookup without expanding read authority ($status/$source)', async ({status, source, delivered}) => {
+      const {harness,native,items}=nativeGroupQueue('group-task-1');
+      deps.dispatch=vi.fn<BotGroupChatServiceDeps['dispatch']>(input=>harness.groupDispatch(input) as ReturnType<BotGroupChatServiceDeps['dispatch']>);
+      const original = fixture.handle.getMockImplementation()!;
+      fixture.handle.mockImplementation((route, method, body) => {
+        if (method === 'GET' && /\/messages\/[0-9a-f-]{36}$/.test(route))
+          return { status, body: { error: { code: status === 400 ? 'INVALID_INPUT' : 'FORBIDDEN' } } };
+        if (route === `/conversations/${roomId}/snapshot`)
+          return { body: { room: room(source==='wrong-room'?'10000000-0000-4000-8000-000000000099':roomId), members, messages: source==='missing'?[]:history, cursor: '1' } };
+        return original(route, method, body);
+      });
+      await ask(5, '@Cindy answer the current request');
+      expect(dispatched()).toHaveLength(delivered ? 1 : 0);
+      expect(items).toHaveLength(delivered ? 1 : 0);
+      const providerSend=vi.fn();
+      if (delivered) {
+        expect(items[0]!.text).toContain('@Cindy answer the current request');
+        await native.onAcceptedQueuedMessage('group-task-1',items[0]!);
+        providerSend();
+      }
+      expect(providerSend).toHaveBeenCalledTimes(delivered?1:0);
+      if(!delivered) expect(deps.ensureGroupAssistantSession).not.toHaveBeenCalled();
+    });
+
     it('delivers your request into the group task and answers with that turn', async () => {
       history.push(message(2, peerId, 'The build is red\nagain'));
       await ask(5, '@Cindy please fix it');
